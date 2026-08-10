@@ -489,7 +489,7 @@ def test_reset_removes_the_progress_file(tmp_path: Path) -> None:
     previous.mark_complete("deploy", "6 servicios operativos")
     state_store.save_state(tmp_path, previous)
 
-    from axion_wizard.steps.runner import run_reset
+    from axion_wizard.commands import run_reset
 
     run_reset(_state(tmp_path, yes=True))
 
@@ -498,7 +498,7 @@ def test_reset_removes_the_progress_file(tmp_path: Path) -> None:
 
 
 def test_reset_is_harmless_without_previous_progress(tmp_path: Path) -> None:
-    from axion_wizard.steps.runner import run_reset
+    from axion_wizard.commands import run_reset
 
     run_reset(_state(tmp_path, yes=True))  # no debe lanzar
 
@@ -510,7 +510,7 @@ def test_reset_does_not_touch_the_deployment_artifacts(tmp_path: Path) -> None:
     for name in (".env", "wg.env", "docker-compose.yml"):
         (tmp_path / name).write_text("contenido\n", encoding="utf-8")
 
-    from axion_wizard.steps.runner import run_reset
+    from axion_wizard.commands import run_reset
 
     run_reset(_state(tmp_path, yes=True))
 
@@ -521,7 +521,7 @@ def test_reset_does_not_touch_the_deployment_artifacts(tmp_path: Path) -> None:
 def test_reset_dry_run_keeps_the_progress(tmp_path: Path) -> None:
     state_store.save_state(tmp_path, state_store.WizardState())
 
-    from axion_wizard.steps.runner import run_reset
+    from axion_wizard.commands import run_reset
 
     run_reset(_state(tmp_path, dry_run=True, yes=True))
 
@@ -536,7 +536,7 @@ def test_install_restart_discards_the_previous_progress(tmp_path: Path, mocker) 
 
     install = mocker.patch("axion_wizard.steps.orchestrator.install", return_value=True)
 
-    from axion_wizard.steps.runner import run_install
+    from axion_wizard.commands import run_install
 
     run_install(_state(tmp_path), restart=True)
 

@@ -238,7 +238,7 @@ def main_callback(
         )
 
     if ctx.invoked_subcommand is None:
-        from axion_wizard.steps.runner import run_install
+        from axion_wizard.commands import run_install
 
         _dispatch(lambda: run_install(state), elevate=True)
 
@@ -261,7 +261,7 @@ def install(
     ),
 ) -> None:
     """Ejecuta el flujo completo de instalación."""
-    from axion_wizard.steps.runner import run_install
+    from axion_wizard.commands import run_install
 
     _dispatch(
         lambda: run_install(
@@ -280,7 +280,7 @@ def reset(
     No borra contenedores, volúmenes, `.env` ni el certificado — solo el
     registro de qué pasos se habían completado.
     """
-    from axion_wizard.steps.runner import run_reset
+    from axion_wizard.commands import run_reset
 
     _dispatch(lambda: run_reset(state, yes=yes))
 
@@ -288,7 +288,7 @@ def reset(
 @app.command()
 def doctor() -> None:
     """Re-valida todo el stack desplegado sin modificarlo."""
-    from axion_wizard.steps.runner import run_doctor
+    from axion_wizard.commands import run_doctor
 
     _dispatch(lambda: run_doctor(state))
 
@@ -296,7 +296,7 @@ def doctor() -> None:
 @app.command(name="network-check")
 def network_check() -> None:
     """Ejecuta solo las verificaciones de red (§4.2)."""
-    from axion_wizard.steps.runner import run_network_check
+    from axion_wizard.commands import run_network_check
 
     _dispatch(lambda: run_network_check(state))
 
@@ -306,7 +306,7 @@ def gen_cert(
     host: str = typer.Argument(..., help="IP o dominio para el subjectAltName del certificado."),
 ) -> None:
     """Genera solo el certificado TLS."""
-    from axion_wizard.steps.runner import run_gen_cert
+    from axion_wizard.commands import run_gen_cert
 
     _dispatch(lambda: run_gen_cert(state, host=host))
 
@@ -318,7 +318,7 @@ def set_webhook_token(
     ),
 ) -> None:
     """Guarda el token del webhook de Mattermost y recrea fastapi para usarlo."""
-    from axion_wizard.steps.runner import run_set_webhook_token
+    from axion_wizard.commands import run_set_webhook_token
 
     _dispatch(lambda: run_set_webhook_token(state, token=token), elevate=True)
 
@@ -332,7 +332,7 @@ def set_bot_token(
     Sin esto, Mattermost abandona la petición del webhook a los ~30 segundos
     y la respuesta de un modelo lento se pierde entera, sin error visible.
     """
-    from axion_wizard.steps.runner import run_set_bot_token
+    from axion_wizard.commands import run_set_bot_token
 
     _dispatch(lambda: run_set_bot_token(state, token=token), elevate=True)
 
@@ -345,7 +345,7 @@ app.add_typer(models_app, name="models")
 def models_list(ctx: typer.Context) -> None:
     """Lista modelos de Ollama compatibles con el hardware detectado."""
     if ctx.invoked_subcommand is None:
-        from axion_wizard.steps.runner import run_models_list
+        from axion_wizard.commands import run_models_list
 
         _dispatch(lambda: run_models_list(state))
 
@@ -353,7 +353,7 @@ def models_list(ctx: typer.Context) -> None:
 @models_app.command("pull")
 def models_pull(name: str = typer.Argument(..., help="Nombre del modelo a descargar.")) -> None:
     """Descarga un modelo de Ollama."""
-    from axion_wizard.steps.runner import run_models_pull
+    from axion_wizard.commands import run_models_pull
 
     _dispatch(lambda: run_models_pull(state, name=name))
 
@@ -371,7 +371,7 @@ app.add_typer(model_app, name="model")
 def model_show(ctx: typer.Context) -> None:
     """Muestra el modelo y las instrucciones que la IA usa ahora mismo."""
     if ctx.invoked_subcommand is None:
-        from axion_wizard.steps.runner import run_model_show
+        from axion_wizard.commands import run_model_show
 
         _dispatch(lambda: run_model_show(state))
 
@@ -384,7 +384,7 @@ def model_set(
     ),
 ) -> None:
     """Cambia el modelo de la IA: lo descarga, lo escribe en .env y recrea fastapi."""
-    from axion_wizard.steps.runner import run_model_set
+    from axion_wizard.commands import run_model_set
 
     _dispatch(lambda: run_model_set(state, name=name, skip_pull=no_pull))
 
@@ -392,7 +392,7 @@ def model_set(
 @model_app.command("choose")
 def model_choose() -> None:
     """Elige el modelo de una lista ordenada según el hardware detectado."""
-    from axion_wizard.steps.runner import run_model_choose
+    from axion_wizard.commands import run_model_choose
 
     _dispatch(lambda: run_model_choose(state))
 
@@ -408,7 +408,7 @@ def model_prompt(
     ),
 ) -> None:
     """Edita las instrucciones permanentes de la IA."""
-    from axion_wizard.steps.runner import run_model_prompt
+    from axion_wizard.commands import run_model_prompt
 
     _dispatch(lambda: run_model_prompt(state, prompt=text))
 
@@ -422,7 +422,7 @@ def wireguard_add_client(
     name: str = typer.Argument(..., help="Nombre del cliente a crear."),
 ) -> None:
     """Crea un cliente WireGuard y muestra su QR en terminal."""
-    from axion_wizard.steps.runner import run_wireguard_add_client
+    from axion_wizard.commands import run_wireguard_add_client
 
     _dispatch(lambda: run_wireguard_add_client(state, name=name))
 
@@ -432,7 +432,7 @@ def up(
     service: str | None = typer.Argument(None, help="Servicio a levantar (todos si se omite)."),
 ) -> None:
     """Atajo de `docker compose up -d`."""
-    from axion_wizard.steps.runner import run_compose_up
+    from axion_wizard.commands import run_compose_up
 
     _dispatch(lambda: run_compose_up(state, service=service), elevate=True)
 
@@ -440,7 +440,7 @@ def up(
 @app.command()
 def down() -> None:
     """Atajo de `docker compose down`."""
-    from axion_wizard.steps.runner import run_compose_down
+    from axion_wizard.commands import run_compose_down
 
     _dispatch(lambda: run_compose_down(state), elevate=True)
 
@@ -450,7 +450,7 @@ def logs(
     service: str | None = typer.Argument(None, help="Servicio del cual mostrar logs."),
 ) -> None:
     """Muestra las últimas líneas del log de cada servicio (no sigue el log)."""
-    from axion_wizard.steps.runner import run_compose_logs
+    from axion_wizard.commands import run_compose_logs
 
     _dispatch(lambda: run_compose_logs(state, service=service))
 
@@ -460,7 +460,7 @@ def uninstall(
     purge: bool = typer.Option(False, "--purge", help="Borra también los volúmenes de datos."),
 ) -> None:
     """Baja el stack AXION."""
-    from axion_wizard.steps.runner import run_uninstall
+    from axion_wizard.commands import run_uninstall
 
     _dispatch(lambda: run_uninstall(state, purge=purge), elevate=True)
 

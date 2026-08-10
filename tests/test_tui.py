@@ -49,14 +49,14 @@ def _app(tmp_path: Path, mocker, *, environment_ready: bool = True):
 def test_tui_rejects_unattended(tmp_path: Path) -> None:
     """Textual existe para rellenar un formulario a mano; sin nadie delante
     se quedaría esperando teclas, que desde fuera parece un cuelgue."""
-    from axion_wizard.steps.runner import _assert_tui_is_usable
+    from axion_wizard.commands.install import _assert_tui_is_usable
 
     with pytest.raises(ConfigError, match="unattended"):
         _assert_tui_is_usable(GlobalState(project_dir=tmp_path), unattended=True)
 
 
 def test_tui_rejects_a_non_interactive_stdin(tmp_path: Path, mocker) -> None:
-    from axion_wizard.steps.runner import _assert_tui_is_usable
+    from axion_wizard.commands.install import _assert_tui_is_usable
 
     fake_stdin = mocker.Mock()
     fake_stdin.isatty.return_value = False
