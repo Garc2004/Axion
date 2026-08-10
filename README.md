@@ -55,7 +55,7 @@ Con `make` disponible: `make setup`, `make check`, `make test`, `make lint`,
 
 ## El flujo de instalación
 
-`axion-wizard install` ejecuta nueve pasos en orden, y **persiste el progreso
+`axion-wizard install` ejecuta diez pasos en orden, y **persiste el progreso
 tras cada uno**: si se interrumpe, la siguiente ejecución se reanuda desde el
 último paso completado en vez de empezar de cero.
 
@@ -69,7 +69,8 @@ tras cada uno**: si se interrumpe, la siguiente ejecución se reanuda desde el
 | 6 | Despliegue | `up -d --build` y espera de healthchecks con backoff |
 | 7 | Modelo | Descarga del modelo con barra de progreso real |
 | 8 | WireGuard | Primer cliente y su QR dibujado en la terminal |
-| 9 | Verificación | Las mismas comprobaciones que `doctor` |
+| 9 | Bot y webhook | Pide los tokens de Mattermost (opcional, ver más abajo) |
+| 10 | Verificación | Las mismas comprobaciones que `doctor` |
 
 Hasta la confirmación del paso 3 no se escribe **nada** al disco: cancelar
 antes no deja nada a medias.
@@ -137,7 +138,13 @@ ollama_model = "qwen2.5:1.5b"
 wireguard_admin_password = "panel-seguro"    # se hashea con bcrypt aquí
 # wireguard_admin_password_hash = "$2b$..."  # alternativa: hash ya calculado
 # postgres_password = "..."                  # opcional; si falta se genera (hex)
+# mm_bot_token = "..."                       # opcional; si se conocen de antemano
+# mm_webhook_token = "..."                   # (p.ej. reinstalando sobre el mismo Mattermost)
 ```
+
+Sin esos dos últimos, el paso 9 (bot y webhook) se omite sin más — no hay
+prompt que hacer sin terminal, y se aplican después con `set-bot-token`/
+`set-webhook-token` igual que en el camino interactivo.
 
 ### Interfaz a pantalla completa
 
@@ -145,7 +152,7 @@ wireguard_admin_password = "panel-seguro"    # se hashea con bcrypt aquí
 axion-wizard install --tui
 ```
 
-Un formulario para la configuración y una pantalla con los nueve pasos y su
+Un formulario para la configuración y una pantalla con los diez pasos y su
 log. Es **una alternativa, no el camino por defecto**: la §1.3 de la spec
 descarta Textual para el flujo lineal y esa decisión se mantiene. No se puede
 combinar con `--unattended` ni con la entrada redirigida.
@@ -210,7 +217,14 @@ respuesta en el canal cuando el modelo termine. Para eso necesita un bot:
    aparece: Consola del sistema → Integraciones → habilitar cuentas de bot).
 2. Copiar su token y añadir el bot al equipo y a los canales donde deba
    responder.
-3. `axion-wizard set-bot-token <token>`
+3. Pegarlo en el paso 9 del propio `install` (pide justo esto), o después con
+   `axion-wizard set-bot-token <token>`.
+
+El `install` no puede crear el bot por ti — Mattermost no expone su API sin
+una sesión ya iniciada por un admin humano, y esa cuenta se crea en la propia
+interfaz web — pero sí se detiene a mitad de la instalación para pedir el
+token en cuanto lo tengas, en vez de dejarlo para después. Dejarlo en blanco
+ahí no rompe nada: se aplica más tarde exactamente igual.
 
 A partir de ahí no hay techo de tiempo y puedes usar el modelo que el
 hardware aguante. Sin token, el puente sigue funcionando en modo síncrono

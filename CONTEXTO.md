@@ -11,7 +11,7 @@ sustituye por completo a la versión del día 9, cuyas rutas ya no existen.
 `axion-wizard` es un instalador/orquestador en Python del stack **AXION**:
 Mattermost + WireGuard + Ollama + un puente FastAPI + copias de seguridad
 automáticas, todo sobre Docker Compose. Se distribuye como binario
-autocontenido (PyInstaller) y ejecuta nueve pasos con progreso persistido para
+autocontenido (PyInstaller) y ejecuta diez pasos con progreso persistido para
 poder reanudarse.
 
 - **Código fuente**: `C:\Users\Perseus\Downloads\Owl\axion-wizard`
@@ -223,15 +223,70 @@ normal. Se corrigió recuperando los archivos del commit original vía
 
 ---
 
+## 6.d Bugfix v0.1.1 y paso 9 nuevo — bot/webhook (10/08, cierre)
+
+**v0.1.1 corrigió un bug crítico de v0.1.0**: `docker-compose.yml` fijaba
+`name: axion` igual para toda instalación, así que dos despliegues
+cualquiera en el mismo host Docker terminaban compartiendo contenedores y
+volúmenes. Pasó de verdad: una instalación de prueba en `C:\Users\Perseus\
+Downloads` (sin carpeta dedicada) se enganchó a los volúmenes del despliegue
+real, generó una contraseña de Postgres nueva y dejó a Mattermost en bucle de
+reinicio. Los datos nunca corrieron peligro (Postgres ignora una contraseña
+nueva si el volumen ya está inicializado), pero el stack no arrancaba.
+
+Corregido de raíz — detalle en el
+[commit](https://github.com/Garc2004/Axion/commit/4205b44):
+
+- `COMPOSE_PROJECT_NAME` en `.env`, único por despliegue, con migración
+  automática del `name:` literal de instalaciones anteriores
+  (`resolve_compose_project_name` en `s05_compose.py`).
+- Sin `--project-dir`, el wizard ya no escribe en el directorio de trabajo a
+  secas: usa una subcarpeta `axion/`, salvo que ese directorio ya tenga un
+  despliegue (`docker-compose.yml` presente).
+- n8n pasó a ser **nativo**, sin `--with-n8n`: un servicio gestionado más.
+- CRLF corrupto en casi todo el árbol (un `git checkout` de una sesión
+  anterior lo había roto con `core.autocrlf=true`) y `.gitattributes`
+  ampliado para que no vuelva a pasar. Aislado también el cwd de cada test:
+  algunos con mocking incompleto escribían en la raíz del repo.
+
+v0.1.0 quedó marcado como *pre-release* en GitHub con un aviso apuntando a
+v0.1.1.
+
+**Después, mismo día**: nuevo **paso 9**, "Bot y webhook de Mattermost"
+(`s08b_bot_setup.py`, entre WireGuard y la verificación final — total, diez
+pasos). No automatiza la creación del bot/webhook en sí —Mattermost no
+expone su API sin una sesión ya iniciada por un admin humano, así que no hay
+forma de rodear la interfaz web—, pero el `install` se detiene a mitad de
+camino a pedir los tokens en cuanto se tienen, en vez de dejarlo para dos
+comandos aparte después. Reutiliza la misma escritura que
+`set-bot-token`/`set-webhook-token` (`.env` + recrear `fastapi`, una sola vez
+para los dos). En `--unattended` los toma de `mm_bot_token`/
+`mm_webhook_token` en el `axion.toml` si están; si no, se omite sin más. Se
+probó en vivo contra el despliegue real (modo desatendido, con el token de
+webhook ya existente) antes de darlo por bueno.
+
+Se planteó automatizar la creación del bot/webhook por la API de Mattermost
+(crear el admin inicial vía `mattermost user create` dentro del contenedor,
+loguearse, crear todo por REST) — es técnicamente viable y quedó descartado
+a favor de esto por ser mucho menos código para el mismo resultado práctico.
+Si algún día se retoma, la nota queda aquí.
+
+---
+
 ## 7. Pendientes
 
-1. **Crear un bot en Mattermost y aplicar `set-bot-token`** (§4). Es lo de más
-   valor que queda: quita el techo de tiempo y abre la puerta a `qwen2.5:7b`.
-   Integraciones → Cuentas de bot → Crear; luego
-   `axion-wizard set-bot-token <token>`.
+1. **Crear el bot en Mattermost.** El *paso* 9 (§6.d) ya se detiene a pedir el
+   token durante el propio `install`, pero crear el bot en sí sigue
+   requiriendo la interfaz web —Mattermost no expone su API sin una sesión ya
+   iniciada por un admin humano—, así que sigue siendo lo de más valor
+   pendiente: quita el techo de tiempo y abre la puerta a `qwen2.5:7b`.
+   Integraciones → Cuentas de bot → Crear; el token se pega en el paso 9 del
+   siguiente `install --restart`, o con `axion-wizard set-bot-token <token>`
+   sin esperar a reinstalar.
 2. **Rotar el token del webhook.** El valor real (está en `.env`) llegó a estar
    escrito en los tests. Rotar en *Integraciones → Webhooks salientes* y
-   aplicar con `axion-wizard set-webhook-token <nuevo>`.
+   aplicar con `axion-wizard set-webhook-token <nuevo>`, o pegarlo en el
+   paso 9 del próximo `install`.
 3. **Montar la vigilancia que falta.** Con las copias resueltas, lo siguiente
    por orden de utilidad: Dozzle (logs), Uptime Kuma (avisos), RAG. **No**
    Watchtower (choca con la prohibición de `:latest`) ni Prometheus/Grafana

@@ -4,7 +4,7 @@ Dos pantallas y un hilo:
 
 1. **Formulario.** Recoge lo mismo que el paso 3 interactivo, con la misma
    validación en vivo (`utils.secrets`), y construye el `AxionConfig`.
-2. **Progreso.** Lista los nueve pasos con su estado y vuelca el log a un
+2. **Progreso.** Lista los diez pasos con su estado y vuelca el log a un
    panel desplazable.
 
 Los pasos corren en un worker en hilo aparte, no en el bucle de eventos: son
@@ -264,7 +264,7 @@ class ConfigScreen(Screen):
 
 
 class ProgressScreen(Screen):
-    """Los nueve pasos con su estado, y el log debajo."""
+    """Los diez pasos con su estado, y el log debajo."""
 
     BINDINGS = [("q", "app.quit", "Salir")]
 

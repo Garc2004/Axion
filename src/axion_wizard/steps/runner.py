@@ -111,7 +111,7 @@ def run_install(
     """Flujo completo de instalación (§4).
 
     Las opciones propias de `install` se pasan por `GlobalState` en vez de
-    encadenarlas por firma hasta cada paso: son nueve pasos y solo dos las
+    encadenarlas por firma hasta cada paso: son diez pasos y solo tres las
     consultan.
     """
     from axion_wizard.steps import orchestrator

@@ -1,6 +1,6 @@
 """Orquestación del flujo de instalación (§4).
 
-Ejecuta los nueve pasos en orden, persistiendo el progreso tras cada uno
+Ejecuta los diez pasos en orden, persistiendo el progreso tras cada uno
 para que una ejecución interrumpida se reanude desde el último completado
 (§4, §12).
 
@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 
 
 def build_steps(state: GlobalState, context: InstallContext) -> list[Step]:
-    """Los nueve pasos, en el orden de §4.
+    """Los diez pasos, en el orden de §4.
 
     Los imports van dentro a propósito: cada módulo de paso arrastra sus
     servicios (httpx, cryptography, questionary…), y cargarlos todos al
@@ -45,6 +45,7 @@ def build_steps(state: GlobalState, context: InstallContext) -> list[Step]:
     from axion_wizard.steps.s06_deploy import DeployStep
     from axion_wizard.steps.s07_model import ModelStep
     from axion_wizard.steps.s08_wireguard import WireguardStep
+    from axion_wizard.steps.s08b_bot_setup import BotSetupStep
     from axion_wizard.steps.s09_verify import VerifyStep
 
     step_types: tuple[type[Step], ...] = (
@@ -56,6 +57,7 @@ def build_steps(state: GlobalState, context: InstallContext) -> list[Step]:
         DeployStep,
         ModelStep,
         WireguardStep,
+        BotSetupStep,
         VerifyStep,
     )
     return [step_type(state, context) for step_type in step_types]
@@ -257,7 +259,7 @@ def _restore_or_fail(
 
 
 def render_resume_overview(steps: list[Step], wizard_state: state_store.WizardState) -> Panel:
-    """Los nueve pasos y en cuál está cada uno, antes de ejecutar nada.
+    """Los diez pasos y en cuál está cada uno, antes de ejecutar nada.
 
     Existe por una confusión concreta y razonable: al reanudar, el wizard
     imprimía ocho líneas grises de "ya completado" y se plantaba en el paso

@@ -288,7 +288,7 @@ def test_dry_run_does_not_write_the_state_file(tmp_path: Path) -> None:
 # --- composición real de los pasos --------------------------------------------------------
 
 
-def test_build_steps_returns_the_nine_steps_in_spec_order(tmp_path: Path) -> None:
+def test_build_steps_returns_the_ten_steps_in_spec_order(tmp_path: Path) -> None:
     state = _state(tmp_path)
     context = InstallContext(project_dir=tmp_path)
     names = orchestrator.ordered_step_names(orchestrator.build_steps(state, context))
@@ -301,6 +301,7 @@ def test_build_steps_returns_the_nine_steps_in_spec_order(tmp_path: Path) -> Non
         "deploy",
         "model",
         "wireguard",
+        "bot_setup",
         "verify",
     ]
 

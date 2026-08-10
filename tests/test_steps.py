@@ -639,6 +639,202 @@ def test_wireguard_step_does_not_prompt_when_unattended(tmp_path: Path) -> None:
     assert step._ask_password() is None
 
 
+# --- paso 9: bot y webhook de Mattermost ---------------------------------------------
+#
+# No hay forma de crear el bot ni el webhook sin la interfaz web de
+# Mattermost (no expone API sin sesión, y la sesión exige una cuenta ya
+# creada por un humano) — así que este paso no lo intenta: se detiene y pide
+# los tokens. Lo que se prueba aquí es que la escritura y el mensaje final
+# sean correctos, no la creación en sí, que no existe.
+
+
+def _mock_apply_targets(mocker):
+    update_env = mocker.patch("axion_wizard.steps.s05_compose.update_env_value")
+    deploy = mocker.patch("axion_wizard.steps.s06_deploy.deploy")
+    wait_healthy = mocker.patch("axion_wizard.steps.s06_deploy.wait_for_healthy")
+    return update_env, deploy, wait_healthy
+
+
+def test_bot_setup_step_writes_both_tokens_and_recreates_fastapi_once(
+    tmp_path: Path, mocker
+) -> None:
+    from axion_wizard.steps.s08b_bot_setup import BotSetupStep
+
+    update_env, deploy, wait_healthy = _mock_apply_targets(mocker)
+    mocker.patch(
+        "axion_wizard.steps.s08b_bot_setup.interactive_input_available", return_value=True
+    )
+    ask = mocker.patch("questionary.text")
+    ask.return_value.ask.side_effect = ["bot-token-123", "webhook-token-456"]
+
+    context = _context(tmp_path)
+    step = BotSetupStep(GlobalState(project_dir=tmp_path, quiet=True), context)
+
+    result = step.run()
+
+    assert result.ok is True
+    update_env.assert_any_call(tmp_path / ".env", "MM_BOT_TOKEN", "bot-token-123")
+    update_env.assert_any_call(tmp_path / ".env", "MM_WEBHOOK_TOKEN", "webhook-token-456")
+    # Un solo recreate para los dos tokens, no uno por cada uno.
+    deploy.assert_called_once()
+    wait_healthy.assert_called_once()
+
+
+def test_bot_setup_step_accepts_only_the_bot_token(tmp_path: Path, mocker) -> None:
+    """Los dos son independientes: dejar uno en blanco no debe impedir
+    aplicar el otro."""
+    from axion_wizard.steps.s08b_bot_setup import BotSetupStep
+
+    update_env, deploy, _wait = _mock_apply_targets(mocker)
+    mocker.patch(
+        "axion_wizard.steps.s08b_bot_setup.interactive_input_available", return_value=True
+    )
+    ask = mocker.patch("questionary.text")
+    ask.return_value.ask.side_effect = ["bot-token-123", ""]
+
+    context = _context(tmp_path)
+    step = BotSetupStep(GlobalState(project_dir=tmp_path, quiet=True), context)
+
+    result = step.run()
+
+    assert result.ok is True
+    update_env.assert_called_once_with(tmp_path / ".env", "MM_BOT_TOKEN", "bot-token-123")
+    deploy.assert_called_once()
+
+
+def test_bot_setup_step_skips_cleanly_when_both_answers_are_blank(
+    tmp_path: Path, mocker
+) -> None:
+    """Dejar los dos en blanco no es un fallo del despliegue: se aplican
+    después con set-bot-token/set-webhook-token, igual que siempre."""
+    from axion_wizard.steps.s08b_bot_setup import BotSetupStep
+
+    update_env, deploy, _wait = _mock_apply_targets(mocker)
+    mocker.patch(
+        "axion_wizard.steps.s08b_bot_setup.interactive_input_available", return_value=True
+    )
+    ask = mocker.patch("questionary.text")
+    ask.return_value.ask.side_effect = ["", ""]
+
+    context = _context(tmp_path)
+    step = BotSetupStep(GlobalState(project_dir=tmp_path, quiet=True), context)
+
+    result = step.run()
+
+    assert result.ok is True
+    assert any("set-bot-token" in w for w in context.warnings)
+    update_env.assert_not_called()
+    deploy.assert_not_called()
+
+
+def test_bot_setup_step_does_not_prompt_without_a_terminal(tmp_path: Path, mocker) -> None:
+    from axion_wizard.steps.s08b_bot_setup import BotSetupStep
+
+    update_env, _deploy, _wait = _mock_apply_targets(mocker)
+    mocker.patch(
+        "axion_wizard.steps.s08b_bot_setup.interactive_input_available", return_value=False
+    )
+    ask = mocker.patch("questionary.text")
+
+    context = _context(tmp_path)
+    step = BotSetupStep(GlobalState(project_dir=tmp_path, quiet=True), context)
+
+    result = step.run()
+
+    assert result.ok is True
+    ask.assert_not_called()
+    update_env.assert_not_called()
+
+
+def test_bot_setup_step_reads_tokens_from_the_toml_when_unattended(
+    tmp_path: Path, mocker
+) -> None:
+    """En `--unattended` no hay a quién preguntarle: los tokens, si se
+    conocen de antemano, vienen del mismo axion.toml que el resto."""
+    from axion_wizard.steps.s08b_bot_setup import BotSetupStep
+
+    update_env, deploy, _wait = _mock_apply_targets(mocker)
+    config_path = tmp_path / "axion.toml"
+    config_path.write_text(
+        'mm_bot_token = "bot-desde-toml"\nmm_webhook_token = "hook-desde-toml"\n',
+        encoding="utf-8",
+    )
+
+    context = _context(tmp_path)
+    step = BotSetupStep(
+        GlobalState(project_dir=tmp_path, quiet=True, unattended=True, config_path=config_path),
+        context,
+    )
+
+    result = step.run()
+
+    assert result.ok is True
+    update_env.assert_any_call(tmp_path / ".env", "MM_BOT_TOKEN", "bot-desde-toml")
+    update_env.assert_any_call(tmp_path / ".env", "MM_WEBHOOK_TOKEN", "hook-desde-toml")
+    deploy.assert_called_once()
+
+
+def test_bot_setup_step_unattended_without_tokens_in_the_toml_just_skips(
+    tmp_path: Path, mocker
+) -> None:
+    from axion_wizard.steps.s08b_bot_setup import BotSetupStep
+
+    update_env, _deploy, _wait = _mock_apply_targets(mocker)
+    config_path = tmp_path / "axion.toml"
+    config_path.write_text('host = "192.168.1.50"\n', encoding="utf-8")
+
+    context = _context(tmp_path)
+    step = BotSetupStep(
+        GlobalState(project_dir=tmp_path, quiet=True, unattended=True, config_path=config_path),
+        context,
+    )
+
+    result = step.run()
+
+    assert result.ok is True
+    update_env.assert_not_called()
+
+
+def test_bot_setup_step_rejects_a_token_with_a_forbidden_character(
+    tmp_path: Path, mocker
+) -> None:
+    """Un token con `$` rompería la interpolación de Compose en `.env`
+    (§9) — se descarta con un aviso en vez de escribirse tal cual."""
+    from axion_wizard.steps.s08b_bot_setup import BotSetupStep
+
+    update_env, _deploy, _wait = _mock_apply_targets(mocker)
+    mocker.patch(
+        "axion_wizard.steps.s08b_bot_setup.interactive_input_available", return_value=True
+    )
+    ask = mocker.patch("questionary.text")
+    ask.return_value.ask.side_effect = ["token$conguion", ""]
+
+    context = _context(tmp_path)
+    step = BotSetupStep(GlobalState(project_dir=tmp_path, quiet=True), context)
+
+    result = step.run()
+
+    assert result.ok is True
+    update_env.assert_not_called()
+
+
+def test_bot_setup_step_dry_run_touches_nothing(tmp_path: Path, mocker) -> None:
+    from axion_wizard.steps.s08b_bot_setup import BotSetupStep
+
+    update_env, deploy, _wait = _mock_apply_targets(mocker)
+    ask = mocker.patch("questionary.text")
+
+    context = _context(tmp_path)
+    step = BotSetupStep(GlobalState(project_dir=tmp_path, dry_run=True), context)
+
+    result = step.run()
+
+    assert result.ok is True
+    ask.assert_not_called()
+    update_env.assert_not_called()
+    deploy.assert_not_called()
+
+
 # --- guardas de interactividad -------------------------------------------------------
 
 

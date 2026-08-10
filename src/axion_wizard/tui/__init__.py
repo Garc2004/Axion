@@ -7,9 +7,11 @@ con `install --tui`.
 
 El diseño evita el conflicto de fondo entre ambas cosas —questionary y
 Textual se pelean por la terminal— recogiendo *toda* la configuración en un
-formulario antes de arrancar, y ejecutando después los nueve pasos en modo
+formulario antes de arrancar, y ejecutando después los diez pasos en modo
 desatendido: así ningún paso intenta abrir un prompt mientras Textual tiene
-el control de la pantalla.
+el control de la pantalla. El paso del bot/webhook no tiene formulario propio
+aquí — en modo desatendido se omite sin más, y se aplica después con
+`set-bot-token`/`set-webhook-token` o `doctor`.
 """
 
 from __future__ import annotations
