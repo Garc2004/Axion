@@ -1,23 +1,23 @@
-"""Paso 8b — Bot y webhook de Mattermost, entre el cliente WireGuard y la
-verificación final (§4.5.1, §4.8).
+"""Step 8b — Mattermost bot and webhook, between the WireGuard client and the
+final verification (§4.5.1, §4.8).
 
-Ni el bot ni el webhook se pueden crear sin pasar por la interfaz web de
-Mattermost: no hay API sin sesión, y la sesión exige una cuenta ya creada por
-un admin humano — no hay forma de rodear eso desde un instalador. Este paso
-no lo intenta: se detiene, explica los dos pasos exactos a seguir en el
-panel, y guarda los tokens resultantes. Es la misma escritura que hacen
-`set-bot-token`/`set-webhook-token` por separado después del despliegue,
-movida a mitad del `install` para no depender de acordarse de correr dos
-comandos más — y de llegar a hacerlo: mientras tanto la IA sigue en modo
-síncrono, con el límite de tiempo del webhook.
+Neither the bot nor the webhook can be created without going through
+Mattermost's web interface: there is no API without a session, and a session
+requires an account already created by a human admin — there is no way around
+that from an installer. This step does not try: it stops, explains the two
+exact steps to follow in the panel, and stores the resulting tokens. It is
+the same write that `set-bot-token`/`set-webhook-token` perform separately
+after deployment, moved into the middle of `install` so as not to depend on
+remembering to run two more commands — and on getting round to it: in the
+meantime the AI stays in synchronous mode, under the webhook's time limit.
 
-Los dos son opcionales. Dejarlos en blanco no rompe nada: se aplican más
-tarde con los mismos comandos, sin perder nada por haberlos omitido aquí.
+Both are optional. Leaving them blank breaks nothing: they are applied later
+with the same commands, with nothing lost by having skipped them here.
 
-Si se da un token de bot, también pregunta si la respuesta debe colgar del
-mensaje que la disparó (en hilo, plegado hasta hacer clic) o publicarse como
-mensaje normal del canal — `AI_REPLY_IN_THREAD` en `.env`, sin efecto en modo
-síncrono.
+If a bot token is given, it also asks whether the reply should hang off the
+message that triggered it (in a thread, collapsed until clicked) or be posted
+as a normal channel message — `AI_REPLY_IN_THREAD` in `.env`, with no effect
+in synchronous mode.
 """
 
 from __future__ import annotations
@@ -33,11 +33,11 @@ AI_REPLY_IN_THREAD_KEY = "AI_REPLY_IN_THREAD"
 
 class BotSetupStep(Step):
     name = "bot_setup"
-    title = "Bot y webhook de Mattermost"
-    #: Nada aquí puede "dejar de sostenerse" de un modo que importe entre
-    #: reanudaciones: si el webhook deja de responder, `doctor` ya lo dice
-    #: en su fila "Webhook alcanzable". Revalidar esto no protegería nada
-    #: que esa comprobación no cubra ya.
+    title = "Mattermost bot and webhook"
+    #: Nothing here can "stop holding" in a way that matters between
+    #: resumes: if the webhook stops answering, `doctor` already says so in
+    #: its "Webhook reachable" row. Revalidating this would protect nothing
+    #: that check does not already cover.
     revalidate_on_resume = False
 
     def run(self) -> StepResult:
@@ -45,22 +45,22 @@ class BotSetupStep(Step):
 
         if self.state.dry_run:
             console.print(
-                "[axion.info][dry-run][/] preguntaría el token del bot y del "
-                "webhook de Mattermost"
+                "[axion.info][dry-run][/] would ask for the Mattermost bot and "
+                "webhook tokens"
             )
-            return StepResult(name=self.name, ok=True, message="omitido por --dry-run")
+            return StepResult(name=self.name, ok=True, message="skipped by --dry-run")
 
         console.print(
-            "[axion.info]Bot y webhook de Mattermost[/] (opcional — se puede aplicar "
-            "después con axion-wizard set-bot-token / set-webhook-token):"
+            "[axion.info]Mattermost bot and webhook[/] (optional — can be applied "
+            "later with axion-wizard set-bot-token / set-webhook-token):"
         )
         console.print(
-            f"  1. Entrar a https://{config.host} con la cuenta admin → "
-            "Integraciones → Cuentas de bot → Crear, copiar su token."
+            f"  1. Sign in at https://{config.host} with the admin account → "
+            "Integrations → Bot Accounts → Create, and copy its token."
         )
         console.print(
-            "  2. Integraciones → Webhooks salientes → Crear, apuntando al canal "
-            "donde debe responder la IA, copiar su token."
+            "  2. Integrations → Outgoing Webhooks → Create, pointing at the channel "
+            "the AI should answer in, and copy its token."
         )
 
         bot_token, webhook_token = self._collect_tokens()
@@ -68,8 +68,8 @@ class BotSetupStep(Step):
         updates: dict[str, str] = {}
         if bot_token:
             updates[MM_BOT_TOKEN_KEY] = bot_token
-            # Sin bot no hay modo asíncrono, y sin modo asíncrono esto no
-            # tiene ningún efecto — de ahí que solo se pregunte aquí dentro.
+            # No bot means no asynchronous mode, and without asynchronous
+            # mode this has no effect at all — hence only asking in here.
             thread_preference = self._collect_thread_preference()
             if thread_preference is not None:
                 updates[AI_REPLY_IN_THREAD_KEY] = "true" if thread_preference else "false"
@@ -78,36 +78,35 @@ class BotSetupStep(Step):
 
         if not updates:
             message = (
-                "omitido: aplícalo cuando quieras con axion-wizard set-bot-token / "
+                "skipped: apply it whenever you like with axion-wizard set-bot-token / "
                 "set-webhook-token"
             )
             self.context.warn(message)
             return StepResult(name=self.name, ok=True, message=message)
 
         self._apply(updates)
-        return StepResult(name=self.name, ok=True, message=f"aplicado: {', '.join(updates)}")
+        return StepResult(name=self.name, ok=True, message=f"applied: {', '.join(updates)}")
 
     def verify(self) -> StepResult:
-        return StepResult(name=self.name, ok=True, message="sin verificación propia")
+        return StepResult(name=self.name, ok=True, message="no check of its own")
 
-    # --- recolección de tokens ---------------------------------------------------
+    # --- collecting the tokens ----------------------------------------------------
 
     def _collect_tokens(self) -> tuple[str | None, str | None]:
         if self.state.unattended:
             return self._tokens_from_config_file()
         if not interactive_input_available():
             return None, None
-        return self._ask_token("bot"), self._ask_token("webhook saliente")
+        return self._ask_token("bot"), self._ask_token("outgoing webhook")
 
     def _tokens_from_config_file(self) -> tuple[str | None, str | None]:
-        """En modo `--unattended` los tokens vienen del mismo `axion.toml` que
-        el resto de la configuración.
+        """Under `--unattended` the tokens come from the same `axion.toml` as
+        the rest of the configuration.
 
-        Se leen aparte de `AxionConfig` a propósito: son secretos que se
-        aplican *después* del despliegue (§4.5), no parte de la
-        configuración del stack, así que forzarlos dentro de ese modelo
-        obligaría a cualquier otro lector de `AxionConfig` a saber de ellos
-        sin necesidad.
+        They are read apart from `AxionConfig` on purpose: they are secrets
+        applied *after* deployment (§4.5), not part of the stack's
+        configuration, so forcing them into that model would oblige every
+        other reader of `AxionConfig` to know about them for no reason.
         """
         raw = self._load_toml()
         if raw is None:
@@ -117,16 +116,16 @@ class BotSetupStep(Step):
     def _ask_token(self, label: str) -> str | None:
         import questionary
 
-        answer = questionary.text(f"Token del {label} (vacío para omitir):").ask()
+        answer = questionary.text(f"{label.capitalize()} token (empty to skip):").ask()
         return self._clean(answer)
 
     def _collect_thread_preference(self) -> bool | None:
-        """Si la respuesta va colgada del mensaje que la disparó (hilo,
-        plegado hasta hacer clic) o se publica como mensaje normal del
-        canal. `None` deja el valor por defecto del `.env` tal cual —
-        `AI_REPLY_IN_THREAD` ya se preserva entre instalaciones como
-        cualquier otro ajuste de este tipo, así que no hace falta forzar
-        nada si no hay de dónde sacar una respuesta."""
+        """Whether the reply hangs off the message that triggered it (a
+        thread, collapsed until clicked) or is posted as a normal channel
+        message. `None` leaves the `.env` default as it is —
+        `AI_REPLY_IN_THREAD` is already preserved across installs like any
+        other setting of this kind, so there is no need to force anything when
+        there is nowhere to get an answer from."""
         if self.state.unattended:
             return self._thread_preference_from_config_file()
         if not interactive_input_available():
@@ -135,8 +134,8 @@ class BotSetupStep(Step):
         import questionary
 
         return questionary.confirm(
-            "¿Colgar la respuesta del mensaje que la disparó, en vez de publicarla "
-            "como mensaje normal del canal?",
+            "Hang the reply off the message that triggered it, rather than posting "
+            "it as a normal channel message?",
             default=True,
         ).ask()
 
@@ -149,7 +148,7 @@ class BotSetupStep(Step):
             return value
         if isinstance(value, str):
             cleaned = value.strip().lower()
-            if cleaned in ("true", "1", "yes", "si", "sí"):
+            if cleaned in ("true", "1", "yes", "y"):
                 return True
             if cleaned in ("false", "0", "no"):
                 return False
@@ -179,7 +178,7 @@ class BotSetupStep(Step):
         try:
             secret_utils.validate_env_value(token, label="the token")
         except secret_utils.InvalidEnvValueError as exc:
-            console.print(f"[axion.warn]Token con carácter no válido, se omite: {exc}[/]")
+            console.print(f"[axion.warn]Token has an invalid character, skipping: {exc}[/]")
             return None
         return token
 
@@ -196,15 +195,15 @@ class BotSetupStep(Step):
             secret_utils.register_secret(token)
         for key, value in updates.items():
             update_env_value(env_path, key, value)
-        console.print(f"[axion.ok]Guardado en {env_path}:[/] {', '.join(updates)}")
+        console.print(f"[axion.ok]Saved to {env_path}:[/] {', '.join(updates)}")
 
-        console.print("[axion.dim]Recreando el contenedor fastapi para aplicarlo…[/]")
+        console.print("[axion.dim]Recreating the fastapi container to apply it…[/]")
         s06_deploy.deploy(compose_path, services=[FASTAPI_SERVICE])
         s06_deploy.wait_for_healthy(compose_path, services=[FASTAPI_SERVICE])
-        console.print("[axion.ok]Listo.[/]")
+        console.print("[axion.ok]Done.[/]")
 
         if MM_BOT_TOKEN_KEY in updates:
             console.print(
-                "[axion.dim]El bot tiene que estar añadido al equipo y a los canales "
-                "donde deba responder, o Mattermost rechazará la publicación.[/]"
+                "[axion.dim]The bot has to be added to the team and to every channel "
+                "it should answer in, or Mattermost will reject the post.[/]"
             )

@@ -343,7 +343,7 @@ def test_config_is_rebuilt_from_env_files(tmp_path: Path) -> None:
 def test_rebuilding_config_fails_clearly_when_env_is_missing(tmp_path: Path) -> None:
     from axion_wizard.steps.s03_config import load_config_from_artifacts
 
-    with pytest.raises(ConfigError, match="reconstruir"):
+    with pytest.raises(ConfigError, match="could not be rebuilt"):
         load_config_from_artifacts(tmp_path)
 
 
@@ -444,14 +444,14 @@ def test_toml_config_rejects_a_password_with_a_forbidden_character(tmp_path: Pat
         encoding="utf-8",
     )
 
-    with pytest.raises(ConfigError, match="prohibido"):
+    with pytest.raises(ConfigError, match="forbidden character"):
         load_config_from_toml(toml, tmp_path, WireguardVariant.PORTS)
 
 
 def test_toml_config_reports_a_missing_file(tmp_path: Path) -> None:
     from axion_wizard.steps.s03_config import load_config_from_toml
 
-    with pytest.raises(ConfigError, match="No se encontró"):
+    with pytest.raises(ConfigError, match="was not found"):
         load_config_from_toml(tmp_path / "no-existe.toml", tmp_path, WireguardVariant.PORTS)
 
 

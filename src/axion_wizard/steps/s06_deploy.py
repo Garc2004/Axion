@@ -1,16 +1,16 @@
-"""Paso 6 — Despliegue (§4.6).
+"""Step 6 — Deployment (§4.6).
 
-- `docker compose up -d --build`, con la salida en streaming mapeada a
-  barras de progreso de Rich (una por servicio).
-- Espera de healthchecks con `tenacity`: reintentos con backoff exponencial,
-  timeout global configurable (300s por defecto).
-- `ollama` no tiene healthcheck propio: se confirma que su servidor HTTP
-  interno responde ejecutando `ollama list` dentro del contenedor — hace
-  internamente el mismo `GET /api/tags` que exige la spec, sin depender de
-  que la imagen traiga `curl`/`wget` instalados.
-- En caso de fallo, `compose.build_deployment_failure_error` arma el error
-  con las últimas 30 líneas del log del contenedor que falló.
-- Tras el despliegue, se verifica que wg-easy no haya resuelto a v15 (§6.4).
+- `docker compose up -d --build`, with the streamed output mapped onto Rich
+  progress bars (one per service).
+- Healthcheck waiting with `tenacity`: retries with exponential backoff and a
+  configurable global timeout (300s by default).
+- `ollama` has no healthcheck of its own: its internal HTTP server is
+  confirmed to answer by running `ollama list` inside the container — which
+  internally performs the same `GET /api/tags` the spec requires, without
+  depending on the image shipping `curl`/`wget`.
+- On failure, `compose.build_deployment_failure_error` assembles the error
+  with the last 30 lines of the failed container's log.
+- After deploying, the effective wg-easy tag is verified (§6.4).
 """
 
 from __future__ import annotations
@@ -47,9 +47,9 @@ _PROGRESS_LINE_RE = re.compile(
 
 
 def parse_progress_line(line: str) -> tuple[str, str] | None:
-    """Extrae `(nombre_contenedor_o_servicio, estado)` de una línea típica de
-    `docker compose up --build` (p.ej. `Container axion-postgres-1  Started`).
-    Devuelve `None` si la línea no coincide con el formato esperado."""
+    """Extract `(container_or_service_name, status)` from a typical line of
+    `docker compose up --build` (e.g. `Container axion-postgres-1  Started`).
+    Returns `None` if the line does not match the expected format."""
     match = _PROGRESS_LINE_RE.match(line)
     if not match:
         return None
@@ -57,8 +57,9 @@ def parse_progress_line(line: str) -> tuple[str, str] | None:
 
 
 def _match_task(tasks: dict[str, TaskID], container_or_service_name: str) -> TaskID | None:
-    """`docker compose` reporta nombres de contenedor tipo `<proyecto>-<servicio>-<n>`;
-    buscamos qué servicio gestionado aparece como substring."""
+    """`docker compose` reports container names shaped
+    `<project>-<service>-<n>`; find which managed service appears as a
+    substring."""
     for service_name, task_id in tasks.items():
         if service_name in container_or_service_name:
             return task_id
@@ -66,9 +67,9 @@ def _match_task(tasks: dict[str, TaskID], container_or_service_name: str) -> Tas
 
 
 def deploy(compose_path: Path, services: list[str], timeout: float = DEFAULT_UP_TIMEOUT) -> None:
-    """`docker compose up -d --build` con una barra de progreso por servicio.
-    Lanza `DeploymentError` con el log del contenedor que falló si el
-    comando termina con código distinto de cero."""
+    """`docker compose up -d --build` with one progress bar per service.
+    Raises `DeploymentError` carrying the failed container's log if the
+    command exits non-zero."""
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}", justify="left"),
@@ -77,7 +78,7 @@ def deploy(compose_path: Path, services: list[str], timeout: float = DEFAULT_UP_
         console=console,
     ) as progress:
         tasks: dict[str, TaskID] = {
-            name: progress.add_task(name, total=1, status="esperando...") for name in services
+            name: progress.add_task(name, total=1, status="waiting…") for name in services
         }
 
         def on_line(line: str) -> None:
@@ -98,34 +99,35 @@ def deploy(compose_path: Path, services: list[str], timeout: float = DEFAULT_UP_
 
 
 def refresh_nginx(compose_path: Path, services: list[str]) -> bool:
-    """Reinicia nginx tras recrear alguno de sus upstreams, para que relea el
-    certificado y reencuentre a Mattermost en el acto.
+    """Restart nginx after recreating one of its upstreams, so it re-reads the
+    certificate and finds Mattermost again immediately.
 
-    El motivo de fondo —que nginx se quedaba con la primera IP que resolvió y
-    dejaba todo el stack en 502— lo ataja ya la propia configuración de nginx,
-    que re-resuelve en cada petición (ver `nginx-mattermost.conf.j2`). Esto
-    sigue haciendo falta por dos cosas que aquella no cubre:
+    The underlying reason — nginx holding on to the first IP it resolved and
+    leaving the whole stack on 502 — is already headed off by nginx's own
+    configuration, which re-resolves on every request (see
+    `nginx-mattermost.conf.j2`). This is still needed for two things that does
+    not cover:
 
-    1. El certificado. `nginx/certs` entra por bind mount, así que el archivo
-       nuevo ya está dentro del contenedor, pero nginx sirve el que cargó en
-       memoria al arrancar. Un `install` que regenere el certificado lo dejaba
-       sin efecto hasta el siguiente reinicio.
-    2. El hueco de re-resolución. El `resolver` cachea unos segundos; sin este
-       reinicio, un `install` puede terminar anunciando que todo está listo
-       mientras las siguientes peticiones aún dan 502.
+    1. The certificate. `nginx/certs` comes in through a bind mount, so the
+       new file is already inside the container, but nginx serves the one it
+       loaded into memory at startup. An `install` that regenerated the
+       certificate left it with no effect until the next restart.
+    2. The re-resolution gap. The `resolver` caches for a few seconds; without
+       this restart, an `install` can finish announcing everything is ready
+       while the next few requests still return 502.
 
-    Devuelve si hizo falta reiniciar.
+    Returns whether a restart was needed.
     """
     if not NGINX_UPSTREAM_SERVICES.intersection(services):
-        # No se tocó ningún upstream: la IP que nginx tiene resuelta sigue
-        # siendo válida. Si lo que se recreó fue el propio nginx, arrancó
-        # después de sus upstreams y ya resolvió bien.
+        # No upstream was touched: the IP nginx has resolved is still valid.
+        # If nginx itself was what got recreated, it started after its
+        # upstreams and has already resolved correctly.
         return False
 
     status = compose.get_service_status(compose_path, NGINX_SERVICE)
     if status is None or not status.is_running:
-        # Sin nginx en marcha no hay nada que refrescar; si toca levantarlo,
-        # lo hará con la configuración y las IPs actuales.
+        # With nginx not running there is nothing to refresh; if it needs
+        # bringing up, it will start with the current config and IPs.
         return False
 
     result = compose.restart(compose_path, NGINX_SERVICE)
@@ -146,9 +148,8 @@ def _first_not_running_service(compose_path: Path, services: list[str]) -> str |
 def check_ollama_ready(
     compose_path: Path, service: str = OLLAMA_SERVICE, timeout: float = 10.0
 ) -> bool:
-    """`ollama list` consulta internamente el mismo endpoint que
-    `GET /api/tags`; usarlo evita depender de que la imagen traiga
-    herramientas HTTP instaladas."""
+    """`ollama list` internally queries the same endpoint as `GET /api/tags`;
+    using it avoids depending on the image shipping HTTP tools."""
     result = compose.exec_in_service(compose_path, service, ["ollama", "list"], timeout=timeout)
     return result.ok
 
@@ -169,14 +170,14 @@ def _service_statuses(compose_path: Path) -> dict[str, compose.ContainerStatus]:
 
 
 def _all_services_ready(compose_path: Path, services: list[str]) -> bool:
-    """Un solo `docker compose ps` por ronda, no uno por servicio.
+    """One `docker compose ps` per round, not one per service.
 
-    `get_service_status` lanza internamente un `ps` completo y se queda con
-    una fila, así que preguntarlo servicio a servicio multiplicaba por seis
-    el número de invocaciones a Docker en cada reintento — y esto corre en
-    bucle con backoff hasta cinco minutos. Con un `ps` por ronda la
-    información es exactamente la misma, además de coherente entre
-    servicios: antes cada consulta veía un instante distinto.
+    `get_service_status` internally runs a full `ps` and keeps a single row,
+    so asking service by service multiplied the number of Docker invocations
+    per retry by six — and this loops with backoff for up to five minutes.
+    With one `ps` per round the information is exactly the same, and
+    consistent across services too: before, each query saw a different
+    instant.
     """
     statuses = _service_statuses(compose_path)
     return all(_service_is_ready(compose_path, name, statuses) for name in services)
@@ -189,10 +190,10 @@ def wait_for_healthy(
     wait_min: float = 1.0,
     wait_max: float = 15.0,
 ) -> None:
-    """Reintenta con backoff exponencial hasta que todos los `services`
-    reporten listos, o hasta agotar `timeout` segundos en total.
-    `wait_min`/`wait_max` acotan el backoff — configurables para poder
-    probar la lógica de reintento sin esperas reales de segundos."""
+    """Retry with exponential backoff until every service in `services`
+    reports ready, or until `timeout` seconds have elapsed in total.
+    `wait_min`/`wait_max` bound the backoff — configurable so the retry logic
+    can be tested without real multi-second waits."""
     retryer = Retrying(
         stop=stop_after_delay(timeout),
         wait=wait_exponential(multiplier=wait_min, min=wait_min, max=wait_max),
@@ -217,28 +218,28 @@ def _first_not_ready_service(compose_path: Path, services: list[str]) -> str | N
 def verify_panel_password_reached_the_container(
     compose_path: Path, expected: str, service: str = WIREGUARD_SERVICE, timeout: float = 20.0
 ) -> None:
-    """Comprueba que wg-easy recibió la contraseña del panel intacta.
+    """Check that wg-easy received the panel password intact.
 
-    Se lee del contenedor en marcha en vez de fiarse de lo que se escribió en
-    `wg.env`, por el mismo motivo que el SAN del certificado se relee del
-    archivo: entre lo que uno escribe y lo que el otro lado ve hay una capa
-    que puede transformarlo. Esa capa es la interpolación de variables de
-    Docker Compose, que se come cualquier `$` sin escapar.
+    It is read from the running container rather than trusting what was
+    written into `wg.env`, for the same reason the certificate's SAN is read
+    back from the file: between what one side writes and what the other sees
+    there is a layer that can transform it. That layer is Docker Compose's
+    variable interpolation, which eats any unescaped `$`.
 
-    Con la v14 esto atrapaba un incidente real y frecuente: el hash bcrypt
-    empieza por `$2b$` y llegaba mutilado. La v15 recibe la contraseña en
-    claro y el wizard prohíbe el `$` en ella, así que el fallo ya no debería
-    poder ocurrir — la comprobación se queda porque es barata y porque el
-    modo en que fallaría sigue siendo el peor posible: el contenedor arranca
-    sano, el panel responde, y lo único que pasa es que ninguna contraseña
-    entra nunca.
+    Under v14 this caught a real and frequent incident: the bcrypt hash starts
+    with `$2b$` and arrived mangled. v15 receives the password in the clear
+    and the wizard forbids `$` in it, so the failure should no longer be
+    possible — the check stays because it is cheap and because the way it
+    would fail remains the worst possible one: the container starts healthy,
+    the panel answers, and the only thing that happens is that no password
+    ever works.
     """
     result = compose.exec_in_service(
         compose_path, service, ["printenv", "INIT_PASSWORD"], timeout=timeout
     )
     if not result.ok:
-        # No se pudo preguntar (contenedor sin `printenv`, exec denegado). No
-        # es motivo para dar por fallido el despliegue.
+        # We could not ask (a container without `printenv`, exec denied).
+        # That is no reason to declare the deployment failed.
         return
 
     received = result.stdout.strip()
@@ -246,57 +247,58 @@ def verify_panel_password_reached_the_container(
         return
 
     raise DeploymentError(
-        what="El panel de WireGuard recibió una contraseña distinta de la configurada",
+        what="The WireGuard panel received a different password from the one configured",
         why=(
-            f"`INIT_PASSWORD` llegó al contenedor con {len(received)} caracteres en vez de "
-            f"{len(expected)}: Docker Compose interpola los valores de `env_file:`, así que "
-            "un `$` sin escapar se interpreta como una variable. Con la contraseña alterada, "
-            "el panel arranca y responde con normalidad pero rechaza el login, sin escribir "
-            "nada en sus logs."
+            f"`INIT_PASSWORD` reached the container with {len(received)} characters "
+            f"instead of {len(expected)}: Docker Compose interpolates the values of "
+            "`env_file:`, so an unescaped `$` is read as a variable. With the password "
+            "altered, the panel starts and answers normally but rejects every login, "
+            "writing nothing to its logs."
         ),
         steps=[
-            "Regenerar los archivos del proyecto: axion-wizard install",
-            "Elegir una contraseña de panel sin `$`, comilla invertida ni `!`.",
-            f"Recrear el contenedor: axion-wizard up {service}",
+            "Regenerate the project files: axion-wizard install",
+            "Choose a panel password without `$`, backtick or `!`.",
+            f"Recreate the container: axion-wizard up {service}",
         ],
     )
 
 
 def verify_wg_easy_tag(compose_path: Path, service: str = WIREGUARD_SERVICE) -> None:
-    """Verifica la tag *efectiva* del contenedor wg-easy ya desplegado (§6.4),
-    no solo la que quedó escrita en el `docker-compose.yml` generado."""
+    """Verify the *effective* tag of the deployed wg-easy container (§6.4),
+    not only the one written into the generated `docker-compose.yml`."""
     status = compose.get_service_status(compose_path, service)
     if status is None or not status.image:
         return
     _repo, tag = images.split_image_tag(status.image)
-    # Sin tag explícita Docker resuelve a `latest`, que hoy es v15 — el caso
-    # exacto que §6.4 existe para atajar, así que se trata como tal.
+    # With no explicit tag Docker resolves to `latest`, whatever that points
+    # at today — the exact case §6.4 exists to head off, so it is treated as
+    # one.
     effective_tag = tag if tag is not None else "latest"
     try:
         images.assert_wg_easy_tag_is_safe(effective_tag)
     except images.UnsafeWgEasyTagError as exc:
         raise DeploymentError(
-            what=f"wg-easy está corriendo una tag insegura: {status.image}",
+            what=f"wg-easy is running an unsafe tag: {status.image}",
             why=str(exc),
             steps=[
-                "Detener el stack: axion-wizard down",
-                f"Verificar que docker-compose.yml fija la imagen en {images.WIREGUARD_IMAGE}",
-                "Volver a desplegar: axion-wizard up",
+                "Stop the stack: axion-wizard down",
+                f"Check docker-compose.yml pins the image to {images.WIREGUARD_IMAGE}",
+                "Deploy again: axion-wizard up",
             ],
         ) from exc
 
 
 class DeployStep(Step):
-    """Levanta el stack y espera a que esté realmente operativo (§4.6).
+    """Bring the stack up and wait until it is genuinely operational (§4.6).
 
-    "Arrancado" no es lo mismo que "listo": `docker compose up -d` vuelve en
-    cuanto los contenedores existen, mucho antes de que PostgreSQL acepte
-    conexiones o Mattermost responda. De ahí que tras el despliegue se espere
-    a los healthchecks con backoff antes de dar el paso por bueno.
+    "Started" is not the same as "ready": `docker compose up -d` returns as
+    soon as the containers exist, long before PostgreSQL accepts connections
+    or Mattermost answers. Hence waiting on the healthchecks with backoff
+    after deploying, before taking the step as done.
     """
 
     name = "deploy"
-    title = "Despliegue"
+    title = "Deployment"
 
     def run(self) -> StepResult:
         compose_path = self.context.project_dir / "docker-compose.yml"
@@ -304,49 +306,49 @@ class DeployStep(Step):
 
         if self.state.dry_run:
             console.print(
-                "[axion.info][dry-run][/] ejecutaría `docker compose up -d --build` "
-                f"para {', '.join(services)}"
+                "[axion.info][dry-run][/] would run `docker compose up -d --build` "
+                f"for {', '.join(services)}"
             )
             self._ensure_host_ip_forwarding()
-            return StepResult(name=self.name, ok=True, message="omitido por --dry-run")
+            return StepResult(name=self.name, ok=True, message="skipped by --dry-run")
 
         self._ensure_host_ip_forwarding()
         deploy(compose_path, services=services)
         wait_for_healthy(compose_path, services=services)
-        # Antes de dar el despliegue por bueno: si Mattermost se recreó, nginx
-        # sigue apuntando a la IP anterior y todo el stack devuelve 502 pese a
-        # estar los seis contenedores healthy.
+        # Before declaring the deployment good: if Mattermost was recreated,
+        # nginx still points at the previous IP and the whole stack returns
+        # 502 despite all six containers being healthy.
         if refresh_nginx(compose_path, services):
-            console.print("[axion.ok]nginx reiniciado[/] para reencontrar a Mattermost.")
-        # La tag que importa es la del contenedor en marcha, no la escrita en
-        # el compose: quien lo edite a mano puede acabar en otro major de
-        # wg-easy, que se configura de otra forma y falla sin un solo error
-        # en los logs (§6.4).
+            console.print("[axion.ok]nginx restarted[/] so it can find Mattermost again.")
+        # The tag that matters is the running container's, not the one written
+        # into the compose file: anyone hand-editing it can end up on another
+        # wg-easy major, which configures itself differently and fails without
+        # a single error in the logs (§6.4).
         verify_wg_easy_tag(compose_path)
-        # Y la contraseña que importa es la que el contenedor recibió, no la
-        # que se escribió en wg.env: Compose interpola los valores de env_file.
+        # And the password that matters is the one the container received, not
+        # the one written into wg.env: Compose interpolates env_file values.
         verify_panel_password_reached_the_container(
             compose_path,
             expected=self.context.require_config().wireguard_admin_password.get_secret_value(),
         )
 
-        console.print("[axion.ok]Stack levantado y saludable.[/]")
+        console.print("[axion.ok]Stack up and healthy.[/]")
         return StepResult(
-            name=self.name, ok=True, message=f"{len(services)} servicios operativos"
+            name=self.name, ok=True, message=f"{len(services)} services operational"
         )
 
     def _ensure_host_ip_forwarding(self) -> None:
-        """Activa el reenvío IP del host antes de levantar nada (§6.1).
+        """Enable the host's IP forwarding before bringing anything up (§6.1).
 
-        Solo aplica a Linux nativo con `network_mode: host`. Va *antes* del
-        despliegue porque es configuración del kernel del host, no del
-        contenedor: con el reenvío apagado, wg-easy arranca sin quejarse,
-        el túnel se establece y el handshake funciona — pero ningún paquete
-        llega a su destino, sin un solo error en ningún log.
+        Applies only to native Linux with `network_mode: host`. It comes
+        *before* the deployment because it is host kernel configuration, not
+        container configuration: with forwarding off, wg-easy starts without
+        complaint, the tunnel establishes and the handshake works — but no
+        packet reaches its destination, without a single error in any log.
 
-        Un fallo aquí no aborta: la VPN quedaría sin encaminar, pero
-        Mattermost, la IA y el acceso por LAN funcionan igual. Se avisa con
-        los pasos manuales y se sigue.
+        A failure here does not abort: the VPN would be left unable to route,
+        but Mattermost, the AI and LAN access work regardless. It warns with
+        the manual steps and carries on.
         """
         from axion_wizard.services import hostnet
 
@@ -362,14 +364,14 @@ class DeployStep(Step):
             console.print(f"[axion.info][dry-run][/] {result.detail}")
             return
         if not result.needs_attention:
-            console.print(f"[axion.ok]Reenvío IP del host:[/] {result.detail}")
+            console.print(f"[axion.ok]Host IP forwarding:[/] {result.detail}")
             return
 
         message = (
-            "El reenvío IP del host no quedó activo "
-            f"({result.detail}). El túnel de WireGuard se establecerá y el panel "
-            "mostrará el cliente como conectado, pero ningún paquete llegará a su "
-            "destino — y no aparecerá error en ningún log."
+            "The host's IP forwarding did not end up active "
+            f"({result.detail}). The WireGuard tunnel will establish and the panel "
+            "will show the client as connected, but no packet will reach its "
+            "destination — and no error will appear in any log."
         )
         self.context.warn(message)
         console.print(f"[axion.warn]{message}[/]")
@@ -380,7 +382,7 @@ class DeployStep(Step):
         from axion_wizard.services import compose as compose_service
 
         if self.state.dry_run:
-            return StepResult(name=self.name, ok=True, message="omitido por --dry-run")
+            return StepResult(name=self.name, ok=True, message="skipped by --dry-run")
 
         compose_path = self.context.project_dir / "docker-compose.yml"
         statuses = {s.service: s for s in compose_service.ps(compose_path)}
@@ -393,6 +395,6 @@ class DeployStep(Step):
         ]
         if unhealthy:
             return StepResult(
-                name=self.name, ok=False, message=f"no operativos: {', '.join(unhealthy)}"
+                name=self.name, ok=False, message=f"not operational: {', '.join(unhealthy)}"
             )
-        return StepResult(name=self.name, ok=True, message="todos los servicios operativos")
+        return StepResult(name=self.name, ok=True, message="all services operational")

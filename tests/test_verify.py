@@ -78,7 +78,7 @@ def test_check_https_responds_connection_error(mocker) -> None:
 def test_check_cert_has_san_missing_file(tmp_path: Path) -> None:
     result = verify.check_cert_has_san(tmp_path / "nope.crt")
     assert result.ok is False
-    assert "no existe" in result.detail
+    assert "does not exist" in result.detail
 
 
 def test_check_cert_has_san_ok(mocker, tmp_path: Path) -> None:
@@ -306,8 +306,8 @@ def test_all_checks_passed_false_when_one_fails() -> None:
 
 def test_render_checks_table_contains_all_check_names() -> None:
     results = [
-        verify.CheckResult("Contenedores healthy", True, "ok"),
-        verify.CheckResult("HTTPS responde", False, "boom"),
+        verify.CheckResult("Containers healthy", True, "ok"),
+        verify.CheckResult("HTTPS responds", False, "boom"),
     ]
     table = verify.render_checks_table(results)
     assert table.row_count == 2
@@ -325,31 +325,31 @@ def test_run_all_checks_calls_every_check(mocker) -> None:
 
     mocker.patch(
         "axion_wizard.steps.s09_verify.check_containers_healthy",
-        return_value=verify.CheckResult("Contenedores healthy", True),
+        return_value=verify.CheckResult("Containers healthy", True),
     )
     mocker.patch(
         "axion_wizard.steps.s09_verify.check_https_responds",
-        mocker.AsyncMock(return_value=verify.CheckResult("HTTPS responde", True)),
+        mocker.AsyncMock(return_value=verify.CheckResult("HTTPS responds", True)),
     )
     mocker.patch(
         "axion_wizard.steps.s09_verify.check_cert_has_san",
-        return_value=verify.CheckResult("Cert tiene SAN", True),
+        return_value=verify.CheckResult("Cert has SAN", True),
     )
     mocker.patch(
         "axion_wizard.steps.s09_verify.check_webhook_reachable",
-        return_value=verify.CheckResult("Webhook alcanzable", True),
+        return_value=verify.CheckResult("Webhook reachable", True),
     )
     mocker.patch(
         "axion_wizard.steps.s09_verify.check_model_loaded",
-        mocker.AsyncMock(return_value=verify.CheckResult("Modelo cargado", True)),
+        mocker.AsyncMock(return_value=verify.CheckResult("Model loaded", True)),
     )
     mocker.patch(
         "axion_wizard.steps.s09_verify.check_wireguard_panel",
-        mocker.AsyncMock(return_value=verify.CheckResult("Panel WireGuard", True)),
+        mocker.AsyncMock(return_value=verify.CheckResult("WireGuard panel", True)),
     )
     mocker.patch(
         "axion_wizard.steps.s09_verify.check_published_ports",
-        return_value=verify.CheckResult("Puertos publicados", True),
+        return_value=verify.CheckResult("Published ports", True),
     )
     mocker.patch(
         "axion_wizard.steps.s09_verify.check_websocket",
@@ -361,7 +361,7 @@ def test_run_all_checks_calls_every_check(mocker) -> None:
     assert verify.all_checks_passed(results) is True
     names = [r.name for r in results]
     assert "WebSocket Mattermost" in names
-    assert "Reenvío IP (WireGuard)" in names
+    assert "IP forwarding (WireGuard)" in names
 
 
 # --- puertos: sin privilegios no es lo mismo que "faltan" --------------------------
@@ -390,7 +390,7 @@ def test_published_ports_does_not_fail_when_it_cannot_inspect(mocker) -> None:
     result = verify.check_published_ports(Path("x"), WireguardVariant.HOST.value)
 
     assert result.ok is True
-    assert "privilegios" in result.detail
+    assert "no privileges" in result.detail
 
 
 def test_published_ports_still_fails_when_a_port_is_really_missing(mocker) -> None:

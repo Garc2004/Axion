@@ -1,11 +1,10 @@
-"""Paso 9 — Verificación final (§4.9).
+"""Step 9 — Final verification (§4.9).
 
-El mismo conjunto de comprobaciones que ejecuta `axion-wizard doctor`. A
-diferencia del paso de instalación, `doctor` no depende del estado
-persistido de una corrida de `install` — reconstruye lo que necesita
-(host, modelo, variante) leyendo directamente los artefactos ya escritos en
-el `project_dir` (`docker-compose.yml`, `.env`, `wg.env`), así que puede
-diagnosticar un stack desplegado por cualquier medio.
+The same set of checks `axion-wizard doctor` runs. Unlike the install step,
+`doctor` does not depend on the persisted state of an `install` run — it
+rebuilds what it needs (host, model, variant) by reading the artifacts
+already written into the `project_dir` (`docker-compose.yml`, `.env`,
+`wg.env`) directly, so it can diagnose a stack deployed by any means.
 """
 
 from __future__ import annotations
@@ -43,10 +42,10 @@ from axion_wizard.services.wireguard import build_panel_url
 from axion_wizard.steps.base import Step, StepResult
 
 DEFAULT_CHECK_TIMEOUT = 10.0
-#: Presupuesto total de reintento para las comprobaciones HTTP sensibles a
-#: la latencia de acceso LAN bajo Docker Desktop/WSL2 (§6.5) — ver
-#: `_check_url_with_retry`. Deliberadamente corto: `doctor` es un
-#: diagnóstico rápido, no otra espera de despliegue.
+#: Total retry budget for the HTTP checks sensitive to LAN access latency
+#: under Docker Desktop/WSL2 (§6.5) — see `_check_url_with_retry`.
+#: Deliberately short: `doctor` is a quick diagnosis, not another deployment
+#: wait.
 DEFAULT_CHECK_RETRY_TIMEOUT = 20.0
 
 
@@ -57,10 +56,10 @@ class CheckResult:
     detail: str = ""
 
 
-# El descubrimiento del despliegue vive en `axion_wizard.domain.deployment`: lo
-# necesitan `doctor`, `wireguard add-client` y el `restore()` del paso 3, y
-# ninguno de los tres es este paso. Se reexporta aquí para no romper a quien
-# ya lo importaba desde el módulo del paso 9.
+# Deployment discovery lives in `axion_wizard.domain.deployment`: `doctor`,
+# `wireguard add-client` and step 3's `restore()` all need it, and none of the
+# three is this step. It is re-exported here so as not to break anyone who was
+# already importing it from step 9's module.
 __all__ = [
     "DeploymentFacts",
     "discover_deployment",
@@ -71,15 +70,15 @@ __all__ = [
 
 
 def check_containers_healthy(compose_path: Path) -> CheckResult:
-    """Método: `docker compose ps --format json`."""
+    """Method: `docker compose ps --format json`."""
     statuses = compose.ps(compose_path)
     if not statuses:
-        return CheckResult("Contenedores healthy", False, "no se pudo leer `docker compose ps`")
+        return CheckResult("Containers healthy", False, "could not read `docker compose ps`")
     unhealthy = [s for s in statuses if not s.is_running or not s.is_healthy_or_no_healthcheck]
     if unhealthy:
         names = ", ".join(s.service for s in unhealthy)
-        return CheckResult("Contenedores healthy", False, f"no sanos: {names}")
-    return CheckResult("Contenedores healthy", True, f"{len(statuses)} servicios OK")
+        return CheckResult("Containers healthy", False, f"unhealthy: {names}")
+    return CheckResult("Containers healthy", True, f"{len(statuses)} services OK")
 
 
 async def _check_url_with_retry(
@@ -90,15 +89,15 @@ async def _check_url_with_retry(
     timeout: float = DEFAULT_CHECK_TIMEOUT,
     retry_timeout: float = DEFAULT_CHECK_RETRY_TIMEOUT,
 ) -> CheckResult:
-    """`GET url`, considerando OK cualquier respuesta que no sea 5xx.
+    """`GET url`, treating any non-5xx response as OK.
 
-    Reintenta con backoff corto en vez de un único intento: el acceso LAN
-    bajo Docker Desktop/WSL2 puede tardar varios segundos en responder
-    aunque funcione perfectamente (hallazgo real — un navegador o el propio
-    `install`, que sí reintenta al crear el cliente de WireGuard, veían el
-    servicio sin problema mientras un único intento de `doctor` lo marcaba
-    FALLO). No enmascara un fallo real: si nunca responde, sigue fallando
-    tras agotar `retry_timeout`.
+    It retries with a short backoff rather than making a single attempt: LAN
+    access under Docker Desktop/WSL2 can take several seconds to answer even
+    when it works perfectly (a real finding — a browser, or `install` itself,
+    which does retry when creating the WireGuard client, saw the service
+    without trouble while a single `doctor` attempt marked it FAIL). It masks
+    no real failure: if it never answers, it still fails once `retry_timeout`
+    is exhausted.
     """
     last_detail = ""
 
@@ -110,7 +109,7 @@ async def _check_url_with_retry(
         except httpx.HTTPError as exc:
             last_detail = str(exc)
             return False
-        last_detail = f"HTTP {response.status_code} en {url}"
+        last_detail = f"HTTP {response.status_code} at {url}"
         return response.status_code < 500
 
     retryer = AsyncRetrying(
@@ -131,25 +130,25 @@ async def check_https_responds(
     timeout: float = DEFAULT_CHECK_TIMEOUT,
     retry_timeout: float = DEFAULT_CHECK_RETRY_TIMEOUT,
 ) -> CheckResult:
-    """Método: `GET https://<host>` ignorando la verificación del cert autofirmado."""
+    """Method: `GET https://<host>`, skipping verification of the self-signed cert."""
     return await _check_url_with_retry(
-        "HTTPS responde",
+        "HTTPS responds",
         f"https://{host}",
-        verify=False,  # noqa: S501 - cert autofirmado a propósito, ver §4.4
+        verify=False,  # noqa: S501 - self-signed cert on purpose, see §4.4
         timeout=timeout,
         retry_timeout=retry_timeout,
     )
 
 
 def check_cert_has_san(cert_path: Path) -> CheckResult:
-    """Método: parsear con `cryptography`."""
+    """Method: parse it with `cryptography`."""
     if not cert_path.exists():
-        return CheckResult("Cert tiene SAN", False, f"{cert_path} no existe")
+        return CheckResult("Cert has SAN", False, f"{cert_path} does not exist")
     try:
         san_entries = certs.verify_certificate_has_san(cert_path)
     except ConfigError as exc:
-        return CheckResult("Cert tiene SAN", False, exc.what)
-    return CheckResult("Cert tiene SAN", True, ", ".join(san_entries))
+        return CheckResult("Cert has SAN", False, exc.what)
+    return CheckResult("Cert has SAN", True, ", ".join(san_entries))
 
 
 def check_webhook_reachable(
@@ -158,12 +157,12 @@ def check_webhook_reachable(
     fastapi_service: str = FASTAPI_SERVICE,
     timeout: float = 15.0,
 ) -> CheckResult:
-    """Método: `docker exec <mattermost>` → petición a `fastapi:8000/health`.
+    """Method: `docker exec <mattermost>` → a request to `fastapi:8000/health`.
 
-    `curl`, no `wget`: la imagen oficial de mattermost-team-edition no trae
-    wget (mismo hallazgo que el healthcheck del propio servicio, §4.6) —
-    esta comprobación fallaba siempre con "executable file not found in
-    $PATH", indistinguible de un webhook realmente inalcanzable.
+    `curl`, not `wget`: the official mattermost-team-edition image does not
+    ship wget (the same finding as the service's own healthcheck, §4.6) — this
+    check always failed with "executable file not found in $PATH",
+    indistinguishable from a genuinely unreachable webhook.
     """
     result = compose.exec_in_service(
         compose_path,
@@ -172,7 +171,7 @@ def check_webhook_reachable(
         timeout=timeout,
     )
     detail = result.stdout.strip() or result.stderr.strip()
-    return CheckResult("Webhook alcanzable", result.ok, detail)
+    return CheckResult("Webhook reachable", result.ok, detail)
 
 
 async def check_model_loaded(
@@ -180,13 +179,13 @@ async def check_model_loaded(
     base_url: str = ollama_service.OLLAMA_LOCAL_BASE_URL,
     timeout: float = DEFAULT_CHECK_TIMEOUT,
 ) -> CheckResult:
-    """Método: `GET /api/tags` en Ollama."""
+    """Method: `GET /api/tags` against Ollama."""
     installed = await ollama_service.list_installed_models(base_url=base_url, timeout=timeout)
     names = ollama_service.installed_model_names(installed)
     if expected_model in names:
-        return CheckResult("Modelo cargado", True, expected_model)
-    detail = f"'{expected_model}' no está entre los instalados: {sorted(names)}"
-    return CheckResult("Modelo cargado", False, detail)
+        return CheckResult("Model loaded", True, expected_model)
+    detail = f"'{expected_model}' is not among the installed models: {sorted(names)}"
+    return CheckResult("Model loaded", False, detail)
 
 
 async def check_wireguard_panel(
@@ -194,9 +193,9 @@ async def check_wireguard_panel(
     timeout: float = DEFAULT_CHECK_TIMEOUT,
     retry_timeout: float = DEFAULT_CHECK_RETRY_TIMEOUT,
 ) -> CheckResult:
-    """Método: `GET http://<host>:51821` — nunca https, ver §4.8."""
+    """Method: `GET http://<host>:51821` — never https, see §4.8."""
     return await _check_url_with_retry(
-        "Panel WireGuard",
+        "WireGuard panel",
         build_panel_url(host),
         timeout=timeout,
         retry_timeout=retry_timeout,
@@ -206,14 +205,15 @@ async def check_wireguard_panel(
 def check_published_ports(
     compose_path: Path, wireguard_variant: str, timeout: float = compose.DEFAULT_TIMEOUT
 ) -> CheckResult:
-    """Método: `docker compose ps` (nunca `ss`, ver §4.2).
+    """Method: `docker compose ps` (never `ss`, see §4.2).
 
-    En la variante `host`, WireGuard usa la red del host directamente y no
-    aparece en absoluto en `Publishers` — ahí se complementa con `psutil`,
-    que en Linux nativo sí ve los puertos correctamente… si el proceso puede
-    enumerar sockets. `doctor` no eleva, y sin privilegios `psutil` deniega
-    la consulta: antes eso se traducía en "faltan todos los puertos" y un
-    stack sano se reportaba roto. Ahora se dice que no se pudo comprobar.
+    In the `host` variant, WireGuard uses the host's network directly and does
+    not appear in `Publishers` at all — there it is supplemented with
+    `psutil`, which on native Linux does see the ports correctly… if the
+    process is allowed to enumerate sockets. `doctor` does not elevate, and
+    without privileges `psutil` denies the query: that used to translate into
+    "every port is missing" and reported a healthy stack as broken. Now it
+    says the check could not be performed.
     """
     statuses = {s.service: s for s in compose.ps(compose_path, timeout=timeout)}
     missing: list[str] = []
@@ -239,29 +239,29 @@ def check_published_ports(
                 missing.append(f"wireguard:{status.port}")
 
     if missing:
-        return CheckResult("Puertos publicados", False, f"faltan: {', '.join(missing)}")
+        return CheckResult("Published ports", False, f"missing: {', '.join(missing)}")
     if unverifiable:
         return CheckResult(
-            "Puertos publicados",
+            "Published ports",
             True,
-            f"nginx OK; sin privilegios para comprobar {', '.join(unverifiable)} "
-            "(reintentar con sudo para verificarlos)",
+            f"nginx OK; no privileges to check {', '.join(unverifiable)} "
+            "(retry with sudo to verify them)",
         )
-    return CheckResult("Puertos publicados", True, "todos los puertos esperados están publicados")
+    return CheckResult("Published ports", True, "every expected port is published")
 
 
 def check_ip_forwarding(wireguard_variant: str) -> CheckResult:
-    """Método: leer `net.ipv4.ip_forward` de `/proc/sys` (§6.1).
+    """Method: read `net.ipv4.ip_forward` from `/proc/sys` (§6.1).
 
-    Solo significa algo en la variante `host`: ahí el túnel depende del
-    reenvío del kernel del propio host. Es un fallo mudo —el handshake de
-    WireGuard funciona y el cliente aparece conectado, pero no pasa un solo
-    paquete— así que sin esta fila no hay forma de distinguirlo de un
-    problema del cliente o del router.
+    It only means anything in the `host` variant: there the tunnel depends on
+    the host kernel's own forwarding. It is a silent failure — the WireGuard
+    handshake works and the client shows as connected, but not one packet gets
+    through — so without this row there is no way to tell it apart from a
+    client or router problem.
     """
     from axion_wizard.services import hostnet
 
-    name = "Reenvío IP (WireGuard)"
+    name = "IP forwarding (WireGuard)"
     if not hostnet.is_applicable(hostnet.current_os_name(), wireguard_variant):
         return CheckResult(name, True, "no aplica: lo encamina Docker en esta variante")
     if hostnet.forwarding_is_active():
@@ -269,7 +269,7 @@ def check_ip_forwarding(wireguard_variant: str) -> CheckResult:
     return CheckResult(
         name,
         False,
-        "net.ipv4.ip_forward está a 0: el túnel se establecerá pero no encaminará "
+        "net.ipv4.ip_forward is 0: the tunnel will establish but will not route "
         f"nada. Arreglar con: sudo sysctl -w net.ipv4.ip_forward=1 (persistente en "
         f"{hostnet.SYSCTL_CONF_PATH})",
     )
@@ -277,45 +277,46 @@ def check_ip_forwarding(wireguard_variant: str) -> CheckResult:
 
 # --- WebSocket de Mattermost ---------------------------------------------------
 #
-# Por qué existe esta comprobación: el síntoma "la IA solo responde cuando
-# recargo con F5" no es que la IA no responda — es que responde y el mensaje
-# nunca llega al navegador. Mattermost empuja los mensajes nuevos por
-# WebSocket; al recargar, la página los re-pide por HTTP normal y aparecen de
-# golpe. Es decir: HTTP sano + WebSocket roto.
+# Why this check exists: the symptom "the AI only answers when I press F5" is
+# not the AI failing to answer — it is the AI answering and the message never
+# reaching the browser. Mattermost pushes new messages over a WebSocket; on
+# reload, the page re-fetches them over ordinary HTTP and they all appear at
+# once. Es decir: HTTP sano + WebSocket roto.
 #
-# `doctor` comprobaba `GET https://<host>` y lo daba por bueno, que es
-# exactamente el tráfico que sí funciona en ese escenario. Diagnosticarlo
-# exigía abrir las devtools del navegador a mano. Aquí se hace el handshake
-# de verdad y se distingue entre las dos causas, que piden arreglos opuestos.
+# `doctor` used to check `GET https://<host>` and pass it, which is exactly
+# the traffic that does work in that scenario. Diagnosing it took opening the
+# browser devtools by hand. Here the handshake is performed for real and the
+# two causes are told apart, since they call for opposite fixes.
 
 MATTERMOST_WEBSOCKET_PATH = "/api/v4/websocket"
 DEFAULT_WEBSOCKET_TIMEOUT = 10.0
 
 WEBSOCKET_STALL_HINT = (
-    "la conexión se abrió pero no completó el handshake: es la firma del bug de "
-    "stalls TCP del mirrored networking de WSL2 (moby/moby#48201). Síntoma típico: "
-    "los mensajes solo aparecen al recargar con F5."
+    "the connection opened but never completed the handshake: this is the signature "
+    "of the WSL2 mirrored-networking TCP stall bug (moby/moby#48201). Typical symptom: "
+    "messages only appear after pressing F5."
 )
 WEBSOCKET_REJECTED_HINT = (
-    "el servidor rechazó el handshake. Suele ser MM_SITEURL apuntando a un host "
-    "distinto del que usa el navegador, o nginx sin las cabeceras Upgrade/Connection."
+    "the server rejected the handshake. Usually MM_SITEURL pointing at a different "
+    "host from the one the browser uses, or nginx missing the Upgrade/Connection headers."
 )
 
 
 def _websocket_handshake_status(
     host: str, path: str = MATTERMOST_WEBSOCKET_PATH, timeout: float = DEFAULT_WEBSOCKET_TIMEOUT
 ) -> tuple[int | None, str]:
-    """Hace el handshake WebSocket a mano y devuelve `(código, detalle)`.
+    """Perform the WebSocket handshake by hand and return `(code, detail)`.
 
-    A pelo con `socket` + `ssl`, y no con `httpx`, porque un `101 Switching
-    Protocols` es un cambio de protocolo: h11 lo trata como tal y no deja
-    leer la línea de estado sin pelearse con la librería. Aquí solo hace
-    falta la primera línea de la respuesta, así que el socket crudo es a la
-    vez más simple y más fiable. El certificado no se verifica: es
-    autofirmado a propósito (§4.4).
+    Done bare with `socket` + `ssl` rather than with `httpx`, because a
+    `101 Switching Protocols` is a protocol change: h11 treats it as one and
+    will not let the status line be read without fighting the library. Only
+    the first line of the response is needed here, so the raw socket is both
+    simpler and more reliable. The certificate is not verified: it is
+    self-signed on purpose (§4.4).
 
-    `código` es `None` cuando no hubo respuesta (timeout, conexión cortada,
-    TLS fallido) — el caso que delata el stall de mirrored networking.
+    `code` is `None` when there was no response at all (timeout, dropped
+    connection, failed TLS) — the case that gives away the mirrored-networking
+    stall.
     """
     import base64
     import secrets as _secrets
@@ -353,7 +354,7 @@ def _websocket_handshake_status(
 
     first_line = status_line.split(b"\r\n", 1)[0].decode("latin-1").strip()
     if not first_line:
-        return None, "el servidor cerró la conexión sin responder"
+        return None, "the server closed the connection without answering"
 
     parts = first_line.split()
     if len(parts) < 2 or not parts[1].isdigit():
@@ -364,10 +365,10 @@ def _websocket_handshake_status(
 def check_websocket(
     host: str, timeout: float = DEFAULT_WEBSOCKET_TIMEOUT
 ) -> CheckResult:
-    """Método: handshake WebSocket real contra `wss://<host>/api/v4/websocket`.
+    """Method: a real WebSocket handshake against `wss://<host>/api/v4/websocket`.
 
-    Es la comprobación que separa "la IA no contesta" de "la IA contesta y el
-    navegador no se entera hasta que recargas".
+    This is the check that separates "the AI does not answer" from "the AI
+    answers and the browser does not find out until you reload".
     """
     name = "WebSocket Mattermost"
     status_code, detail = _websocket_handshake_status(host, timeout=timeout)
@@ -375,20 +376,21 @@ def check_websocket(
     if status_code is None:
         return CheckResult(name, False, f"{WEBSOCKET_STALL_HINT} ({detail})")
     if status_code == 101:
-        return CheckResult(name, True, "handshake 101, mensajería en tiempo real operativa")
+        return CheckResult(name, True, "handshake 101, real-time messaging operational")
     return CheckResult(name, False, f"HTTP {status_code} — {WEBSOCKET_REJECTED_HINT}")
 
 
-# --- Orquestación --------------------------------------------------------------
+# --- Orchestration -------------------------------------------------------------
 
 
 async def run_all_checks(facts: DeploymentFacts) -> list[CheckResult]:
     return [
         check_containers_healthy(facts.compose_path),
         await check_https_responds(facts.host),
-        # Va justo detrás del check de HTTPS a propósito: son el mismo host por
-        # el mismo puerto, y verlos consecutivos es lo que hace obvio el
-        # diagnóstico cuando uno pasa y el otro no (§ `check_websocket`).
+        # It sits immediately after the HTTPS check on purpose: same host,
+        # same port, and seeing them consecutively is what makes the
+        # diagnosis obvious when one passes and the other does not (see
+        # `check_websocket`).
         check_websocket(facts.host),
         check_cert_has_san(facts.cert_path),
         check_webhook_reachable(facts.compose_path),
@@ -404,8 +406,8 @@ def all_checks_passed(results: list[CheckResult]) -> bool:
 
 
 def render_checks_table(results: list[CheckResult]) -> Table:
-    table = ui.make_table("Verificación de AXION")
-    table.add_column("Comprobación", style="axion.label")
+    table = ui.make_table("AXION verification")
+    table.add_column("Check", style="axion.label")
     table.add_column("Resultado")
     table.add_column("Detalle", overflow="fold")
     for result in results:
@@ -414,35 +416,35 @@ def render_checks_table(results: list[CheckResult]) -> Table:
 
 
 class VerifyStep(Step):
-    """Paso 9 como parte del flujo de `install`.
+    """Step 9 as part of the `install` flow.
 
-    Reutiliza exactamente las mismas comprobaciones que `doctor` (§4.9), pero
-    partiendo de la configuración que ya está en el contexto en vez de
-    redescubrirla del disco: en mitad de un `install` los artefactos acaban
-    de escribirse y no hay nada que reconstruir.
+    It reuses exactly the same checks as `doctor` (§4.9), but starting from
+    the configuration already in the context rather than rediscovering it from
+    disk: in the middle of an `install` the artifacts have just been written
+    and there is nothing to rebuild.
     """
 
     name = "verify"
-    title = "Verificación final"
-    #: No se revalida al reanudar: `verify()` es `run()`, así que hacerlo
-    #: ejecutaría las nueve comprobaciones dos veces seguidas. Es además el
-    #: último paso — no hay nada después a lo que proteger.
+    title = "Final verification"
+    #: Not revalidated on resume: `verify()` is `run()`, so doing so would run
+    #: all nine checks twice in a row. It is also the last step — there is
+    #: nothing after it to protect.
     revalidate_on_resume = False
 
     def run(self) -> StepResult:
         if self.state.dry_run:
-            console.print("[axion.info][dry-run][/] ejecutaría las verificaciones finales")
-            return StepResult(name=self.name, ok=True, message="omitido por --dry-run")
+            console.print("[axion.info][dry-run][/] would run the final checks")
+            return StepResult(name=self.name, ok=True, message="skipped by --dry-run")
 
         results = asyncio.run(run_all_checks(self._facts()))
         console.print(render_checks_table(results))
 
         failed = [r.name for r in results if not r.ok]
         if failed:
-            # No se lanza: el stack está desplegado y el usuario necesita ver
-            # la tabla completa. El orquestador decide el código de salida.
+            # Nothing is raised: the stack is deployed and the user needs to
+            # see the whole table. The orchestrator decides the exit code.
             return StepResult(
-                name=self.name, ok=False, message=f"fallaron: {', '.join(failed)}"
+                name=self.name, ok=False, message=f"failed: {', '.join(failed)}"
             )
         return StepResult(name=self.name, ok=True, message=f"{len(results)} comprobaciones OK")
 

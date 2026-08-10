@@ -245,4 +245,4 @@ def test_deploy_step_warns_but_does_not_abort_when_forwarding_fails(
     DeployStep(GlobalState(project_dir=tmp_path), context)._ensure_host_ip_forwarding()
 
     assert len(context.warnings) == 1
-    assert "ningún paquete" in context.warnings[0]
+    assert "no packet" in context.warnings[0]

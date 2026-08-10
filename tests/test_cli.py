@@ -72,13 +72,13 @@ def test_doctor_reports_ok_against_a_healthy_stack(tmp_path, mocker) -> None:
     mocker.patch(
         "axion_wizard.steps.s09_verify.run_all_checks",
         mocker.AsyncMock(
-            return_value=[CheckResult("Contenedores healthy", True, "3 servicios OK")]
+            return_value=[CheckResult("Containers healthy", True, "3 services OK")]
         ),
     )
 
     result = runner.invoke(app, ["--project-dir", str(tmp_path), "doctor"])
     assert result.exit_code == 0
-    assert "Contenedores healthy" in result.stdout
+    assert "Containers healthy" in result.stdout
 
 
 def test_doctor_exits_nonzero_when_a_check_fails(tmp_path, mocker) -> None:
@@ -92,12 +92,12 @@ def test_doctor_exits_nonzero_when_a_check_fails(tmp_path, mocker) -> None:
 
     mocker.patch(
         "axion_wizard.steps.s09_verify.run_all_checks",
-        mocker.AsyncMock(return_value=[CheckResult("HTTPS responde", False, "connection refused")]),
+        mocker.AsyncMock(return_value=[CheckResult("HTTPS responds", False, "connection refused")]),
     )
 
     result = runner.invoke(app, ["--project-dir", str(tmp_path), "doctor"])
     assert result.exit_code == 1
-    assert "HTTPS responde" in result.stdout
+    assert "HTTPS responds" in result.stdout
 
 
 def _stub_deployment(tmp_path) -> None:
@@ -116,7 +116,7 @@ def test_doctor_does_not_request_elevation(tmp_path, mocker) -> None:
 
     mocker.patch(
         "axion_wizard.steps.s09_verify.run_all_checks",
-        mocker.AsyncMock(return_value=[CheckResult("Contenedores healthy", True, "ok")]),
+        mocker.AsyncMock(return_value=[CheckResult("Containers healthy", True, "ok")]),
     )
 
     runner.invoke(app, ["--project-dir", str(tmp_path), "doctor"])

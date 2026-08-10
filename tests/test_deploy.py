@@ -294,7 +294,7 @@ def test_verify_wg_easy_tag_raises_on_v14(mocker) -> None:
             image="ghcr.io/wg-easy/wg-easy:14",
         ),
     )
-    with pytest.raises(DeploymentError, match="v14|insegura"):
+    with pytest.raises(DeploymentError, match="v14|unsafe"):
         s06.verify_wg_easy_tag(Path("x"))
 
 
@@ -308,7 +308,7 @@ def test_verify_wg_easy_tag_rejects_untagged_image(mocker) -> None:
             image="ghcr.io/wg-easy/wg-easy",
         ),
     )
-    with pytest.raises(DeploymentError, match="insegura"):
+    with pytest.raises(DeploymentError, match="unsafe"):
         s06.verify_wg_easy_tag(Path("x"))
 
 
@@ -365,8 +365,8 @@ def test_panel_password_check_catches_a_mangled_value(mocker) -> None:
             Path("x"), expected="correct-horse-battery"
         )
 
-    assert "distinta de la configurada" in excinfo.value.what
-    assert "rechaza el login" in excinfo.value.why
+    assert "different password" in excinfo.value.what
+    assert "rejects every login" in excinfo.value.why
 
 
 def test_panel_password_check_is_silent_when_it_cannot_ask(mocker) -> None:

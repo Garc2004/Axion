@@ -1,18 +1,19 @@
-"""Paso 3 — Configuración interactiva (§4.3).
+"""Step 3 — Interactive configuration (§4.3).
 
-Reúne todo lo que el despliegue necesita y lo consolida en un `AxionConfig`
-inmutable. Es el único paso que pregunta, y termina con **una sola**
-confirmación sobre un resumen: hasta ese momento no se ha escrito nada al
-disco, así que cancelar aquí no deja nada a medias.
+Gathers everything the deployment needs and consolidates it into an immutable
+`AxionConfig`. It is the only step that asks anything, and it ends with **one
+single** confirmation over a summary: up to that moment nothing has been
+written to disk, so cancelling here leaves nothing half-done.
 
-Dos reglas de la spec se aplican aquí y no en otro sitio:
+Two of the spec's rules are enforced here and nowhere else:
 
-- La contraseña de PostgreSQL se genera con `secrets.token_hex`, nunca en
-  base64: `/`, `+` y `=` rompen la URL `postgres://user:pass@host:port/db`.
-- La del panel de WireGuard rechaza `$`, backtick y `!` con el motivo
-  escrito en el propio prompt, y exige el mínimo de longitud que wg-easy v15
-  impone para dejar entrar. Ya no se hashea: la v15 la quiere en claro en
-  `INIT_PASSWORD` y la hashea ella (ver `templates/wg.env.j2`).
+- The PostgreSQL password is generated with `secrets.token_hex`, never in
+  base64: `/`, `+` and `=` break the `postgres://user:pass@host:port/db` URL.
+- The WireGuard panel's password rejects `$`, backtick and `!` with the reason
+  written into the prompt itself, and enforces the minimum length wg-easy v15
+  requires in order to let anyone in. It is no longer hashed: v15 wants it in
+  the clear in `INIT_PASSWORD` and hashes it itself (see
+  `templates/wg.env.j2`).
 """
 
 from __future__ import annotations
@@ -35,19 +36,19 @@ from axion_wizard.steps.prompts import require_interactive_input
 from axion_wizard.utils import secrets as secret_utils
 
 ACCESS_MODE_CHOICES = {
-    "IP de la LAN (certificado autofirmado)": AccessMode.LAN,
-    "Dominio propio (Let's Encrypt DNS-01)": AccessMode.DOMAIN,
+    "LAN IP (self-signed certificate)": AccessMode.LAN,
+    "Own domain (Let's Encrypt DNS-01)": AccessMode.DOMAIN,
 }
 
-#: Usuario por defecto del panel, que la v15 exige y la v14 no tenía. Se
-#: ofrece como valor prerrellenado en vez de imponerlo: quien quiera otro solo
-#: tiene que escribirlo encima.
+#: Default panel username, which v15 requires and v14 did not have. It is
+#: offered pre-filled rather than imposed: anyone who wants another only has
+#: to type over it.
 DEFAULT_PANEL_USERNAME = "admin"
 
 
 class ConfigStep(Step):
     name = "config"
-    title = "Configuración"
+    title = "Configuration"
 
     def run(self) -> StepResult:
         if self.state.unattended:
@@ -59,35 +60,35 @@ class ConfigStep(Step):
         return StepResult(
             name=self.name,
             ok=True,
-            # Nunca los secretos (§9): solo lo que se puede enseñar.
+            # Never the secrets (§9): only what can be shown.
             data={"host": config.host, "ollama_model": config.ollama_model},
-            message=f"acceso {config.access_mode.value} en {config.host}",
+            message=f"{config.access_mode.value} access at {config.host}",
         )
 
     def verify(self) -> StepResult:
         config = self.context.require_config()
         if not config.host:
-            return StepResult(name=self.name, ok=False, message="host vacío")
+            return StepResult(name=self.name, ok=False, message="empty host")
         return StepResult(name=self.name, ok=True, message=f"host {config.host}")
 
     def restore(self) -> None:
-        """Reconstruye la configuración desde `.env` y `wg.env`.
+        """Rebuild the configuration from `.env` and `wg.env`.
 
-        Es lo que permite reanudar una instalación interrumpida sin volver a
-        preguntar nada: los valores ya están escritos en disco desde el paso
-        5, incluidos los secretos, así que no hace falta persistirlos aparte
-        (y §9 prohíbe hacerlo).
+        This is what lets an interrupted install resume without asking
+        anything again: the values have been on disk since step 5, secrets
+        included, so there is no need to persist them separately (and §9
+        forbids doing so).
         """
         self.context.config = load_config_from_artifacts(self.context.project_dir)
 
-    # --- camino interactivo --------------------------------------------------------
+    # --- interactive path ----------------------------------------------------------
 
     def _build_interactively(self) -> AxionConfig:
         import questionary
 
-        # Antes de abrir el primer prompt: sin terminal, `questionary` revienta
-        # con `NoConsoleScreenBufferError`, que acababa saliendo como
-        # "Error inesperado: No Windows console found" — crudo e inútil.
+        # Before opening the first prompt: with no terminal, `questionary`
+        # blows up with `NoConsoleScreenBufferError`, which used to surface as
+        # "Unexpected error: No Windows console found" — raw and useless.
         require_interactive_input("Interactive configuration")
 
         access_mode = self._ask_access_mode(questionary)
@@ -112,18 +113,18 @@ class ConfigStep(Step):
 
         console.print(render_summary(config, self.context.warnings))
         if not self.state.yes and not questionary.confirm(
-            "¿Aplicar esta configuración?", default=True
+            "Apply this configuration?", default=True
         ).ask():
             raise ConfigError(
-                what="Configuración no confirmada",
-                why="El usuario canceló antes de escribir nada al disco.",
-                steps=["Volver a ejecutar `axion-wizard install` cuando quieras."],
+                what="Configuration not confirmed",
+                why="The user cancelled before anything was written to disk.",
+                steps=["Run `axion-wizard install` again whenever you like."],
             )
         return config
 
     def _ask_access_mode(self, questionary: Any) -> AccessMode:
         answer = questionary.select(
-            "¿Cómo se accederá a AXION?", choices=list(ACCESS_MODE_CHOICES)
+            "How will AXION be reached?", choices=list(ACCESS_MODE_CHOICES)
         ).ask()
         if answer is None:
             raise _cancelled()
@@ -136,9 +137,9 @@ class ConfigStep(Step):
             suggested = network.lan_ip
 
         label = (
-            "IP de la LAN para acceder a AXION:"
+            "LAN IP to reach AXION on:"
             if access_mode is AccessMode.LAN
-            else "Dominio de acceso (p.ej. axion.midominio.com):"
+            else "Access domain (e.g. axion.example.com):"
         )
         answer = questionary.text(
             label, default=suggested, validate=_non_empty_validator
@@ -149,7 +150,7 @@ class ConfigStep(Step):
 
     def _ask_panel_username(self, questionary: Any) -> str:
         answer = questionary.text(
-            "Usuario del panel WireGuard:",
+            "WireGuard panel username:",
             default=DEFAULT_PANEL_USERNAME,
             validate=_panel_username_validator,
         ).ask()
@@ -159,23 +160,23 @@ class ConfigStep(Step):
 
     def _ask_panel_password(self, questionary: Any) -> str:
         console.print(
-            f"[axion.dim]Mínimo {secret_utils.MIN_PANEL_PASSWORD_LENGTH} caracteres "
-            "(es lo que exige wg-easy para dejar entrar), y sin "
+            f"[axion.dim]At least {secret_utils.MIN_PANEL_PASSWORD_LENGTH} characters "
+            "(what wg-easy requires in order to let you in), and no "
             + ", ".join(f"`{char}`" for char in secret_utils.FORBIDDEN_PASSWORD_CHAR_REASONS)
-            + ": rompen la interpretación del shell y de los archivos .env.[/]"
+            + ": they break shell and .env file interpretation.[/]"
         )
         while True:
             answer = questionary.password(
-                "Contraseña del panel WireGuard:", validate=_panel_password_validator
+                "WireGuard panel password:", validate=_panel_password_validator
             ).ask()
             if answer is None:
                 raise _cancelled()
-            repeated = questionary.password("Repite la contraseña:").ask()
+            repeated = questionary.password("Repeat the password:").ask()
             if repeated is None:
                 raise _cancelled()
             if answer == repeated:
                 return answer
-            console.print("[axion.error]Las contraseñas no coinciden.[/]")
+            console.print("[axion.error]The passwords do not match.[/]")
 
     def _ask_model(self, questionary: Any) -> str:
         import asyncio
@@ -191,13 +192,13 @@ class ConfigStep(Step):
         default = self._current_model_choice(choices) or default
 
         answer = questionary.select(
-            "Modelo de IA a usar:", choices=choices, default=default
+            "AI model to use:", choices=choices, default=default
         ).ask()
         if answer is None:
             raise _cancelled()
         if answer == ollama.OTHER_MODEL_SENTINEL:
             free = questionary.text(
-                "Nombre del modelo en Ollama:", validate=_non_empty_validator
+                "Model name in Ollama:", validate=_non_empty_validator
             ).ask()
             if free is None:
                 raise _cancelled()
@@ -205,14 +206,14 @@ class ConfigStep(Step):
         return str(answer)
 
     def _current_model_choice(self, choices: list[Any]) -> Any | None:
-        """La opción correspondiente al modelo que este proyecto ya usa.
+        """The option matching the model this project already uses.
 
-        Sin esto, el prompt viene marcado sobre la recomendación del catálogo
-        aunque el usuario tenga otro modelo puesto: quien hizo
-        `axion-wizard model set qwen2.5:3b` y luego reinstala pierde su
-        elección con solo pulsar Enter, y no hay nada que se lo diga. Es el
-        mismo problema que ya obligó a conservar la contraseña de PostgreSQL y
-        el token del webhook entre ejecuciones.
+        Without this, the prompt comes pre-selected on the catalogue's
+        recommendation even when the user has another model set: anyone who
+        ran `axion-wizard model set qwen2.5:3b` and then reinstalls loses
+        their choice by simply pressing Enter, with nothing to tell them. It
+        is the same problem that already forced preserving the PostgreSQL
+        password and the webhook token across runs.
         """
         from axion_wizard.steps.s05_compose import existing_env_value
 
@@ -221,17 +222,20 @@ class ConfigStep(Step):
             return None
         return next((choice for choice in choices if choice.value == current), None)
 
-    # --- camino desatendido -----------------------------------------------------------
+    # --- unattended path --------------------------------------------------------------
 
     def _build_from_file(self) -> AxionConfig:
         path = self.state.config_path
         if path is None:
             raise ConfigError(
-                what="`--unattended` requiere `--config`",
-                why="Sin prompts no hay de dónde sacar host, contraseñas ni modelo.",
+                what="`--unattended` requires `--config`",
+                why=(
+                    "With no prompts there is nowhere to get the host, passwords or "
+                    "model from."
+                ),
                 steps=[
-                    "Pasar un archivo TOML: axion-wizard install --unattended --config axion.toml",
-                    "Ver el formato esperado en el README.",
+                    "Pass a TOML file: axion-wizard install --unattended --config axion.toml",
+                    "See the expected format in the README.",
                 ],
             )
         return load_config_from_toml(path, self.context.project_dir, self._variant())
@@ -240,69 +244,69 @@ class ConfigStep(Step):
         return WireguardVariant(self.context.require_environment().wireguard_variant)
 
 
-# --- carga desde archivo / artefactos --------------------------------------------------
+# --- loading from file / artifacts -----------------------------------------------------
 
 
 def load_config_from_toml(
     path: Path, project_dir: Path, variant: WireguardVariant
 ) -> AxionConfig:
-    """Lee un `axion.toml` para el modo `--unattended` (§3).
+    """Read an `axion.toml` for `--unattended` mode (§3).
 
-    La contraseña del panel viene en claro (`wireguard_admin_password`).
-    Antes se admitía además un hash bcrypt ya calculado, para que un archivo
-    de CI no tuviera que llevar la contraseña real; con wg-easy v15 esa
-    alternativa dejó de existir, porque es el propio panel el que hashea y
-    solo acepta `INIT_PASSWORD` en claro. Quien no quiera el valor dentro del
-    TOML tiene que mantenerlo fuera del repositorio, como cualquier otro
-    secreto de despliegue.
+    The panel password arrives in the clear (`wireguard_admin_password`). An
+    already-computed bcrypt hash used to be accepted as well, so a CI file
+    would not have to carry the real password; with wg-easy v15 that
+    alternative ceased to exist, because the panel itself does the hashing and
+    only accepts `INIT_PASSWORD` in the clear. Anyone who does not want the
+    value inside the TOML has to keep that file out of the repository, like
+    any other deployment secret.
 
-    El usuario (`wireguard_admin_username`) es opcional: si falta se usa
-    `DEFAULT_PANEL_USERNAME`, que es lo que el camino interactivo ofrece
-    prerrellenado.
+    The username (`wireguard_admin_username`) is optional: if absent,
+    `DEFAULT_PANEL_USERNAME` is used, which is what the interactive path
+    offers pre-filled.
     """
     if not path.exists():
         raise ConfigError(
-            what=f"No se encontró el archivo de configuración {path}",
-            why="`--unattended` lo necesita para saber qué desplegar.",
-            steps=[f"Comprobar la ruta pasada en --config: {path}"],
+            what=f"Configuration file {path} was not found",
+            why="`--unattended` needs it in order to know what to deploy.",
+            steps=[f"Check the path given to --config: {path}"],
         )
     try:
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
     except (tomllib.TOMLDecodeError, OSError) as exc:
         raise ConfigError(
-            what=f"No se pudo leer {path}",
+            what=f"Could not read {path}",
             why=str(exc),
-            steps=["Revisar la sintaxis TOML del archivo."],
+            steps=["Check the file's TOML syntax."],
         ) from exc
 
     password = raw.get("wireguard_admin_password")
     if not password:
         if raw.get("wireguard_admin_password_hash"):
-            # Mensaje propio en vez de "falta la contraseña": quien viene de
-            # una versión anterior tiene la clave puesta y necesita saber que
-            # ya no sirve, no que se la ha dejado.
+            # Its own message rather than "the password is missing": anyone
+            # arriving from an earlier version has the key set and needs to
+            # know it no longer works, not that they forgot it.
             raise ConfigError(
-                what="`wireguard_admin_password_hash` ya no se admite",
+                what="`wireguard_admin_password_hash` is no longer accepted",
                 why=(
-                    "Servía para wg-easy v14, que recibía un hash bcrypt. La v15 hashea "
-                    "ella misma y solo acepta la contraseña en claro."
+                    "It served wg-easy v14, which received a bcrypt hash. v15 hashes "
+                    "the password itself and only accepts it in the clear."
                 ),
                 steps=[
-                    "Sustituirla por `wireguard_admin_password` con la contraseña real.",
-                    "Mantener el axion.toml fuera del control de versiones.",
+                    "Replace it with `wireguard_admin_password` holding the real password.",
+                    "Keep axion.toml out of version control.",
                 ],
             )
         raise ConfigError(
-            what="Falta la contraseña del panel WireGuard en el archivo de configuración",
-            why="Se necesita `wireguard_admin_password` para configurar wg-easy.",
-            steps=["Añadir `wireguard_admin_password` al TOML."],
+            what="The WireGuard panel password is missing from the configuration file",
+            why="`wireguard_admin_password` is required in order to configure wg-easy.",
+            steps=["Add `wireguard_admin_password` to the TOML."],
         )
 
-    # Las credenciales se validan aquí además de en el modelo. `AxionConfig`
-    # las rechazaría igual, pero envuelto en un `ValidationError` de Pydantic
-    # que sale como "la configuración de axion.toml no es válida": correcto y
-    # poco útil. Este camino no tiene a nadie delante para releer el prompt,
-    # así que el motivo tiene que estar en el título del error.
+    # The credentials are validated here as well as in the model.
+    # `AxionConfig` would reject them anyway, but wrapped in a Pydantic
+    # `ValidationError` that surfaces as "the configuration in axion.toml is
+    # not valid": correct and not much use. This path has nobody in front of
+    # it to re-read a prompt, so the reason has to be in the error's title.
     try:
         secret_utils.validate_wireguard_username(
             str(raw.get("wireguard_admin_username") or DEFAULT_PANEL_USERNAME)
@@ -310,17 +314,17 @@ def load_config_from_toml(
         secret_utils.validate_wireguard_password(str(password))
     except secret_utils.InvalidEnvValueError as exc:
         raise ConfigError(
-            what="Las credenciales del panel WireGuard tienen un carácter prohibido",
+            what="The WireGuard panel credentials contain a forbidden character",
             why=str(exc),
-            steps=["Elegir otro valor sin `$`, comilla invertida ni `!`."],
+            steps=["Choose another value without `$`, backtick or `!`."],
         ) from exc
     except secret_utils.ShortCredentialError as exc:
         raise ConfigError(
-            what="Las credenciales del panel WireGuard son demasiado cortas",
+            what="The WireGuard panel credentials are too short",
             why=str(exc),
             steps=[
-                f"Usar una contraseña de al menos {secret_utils.MIN_PANEL_PASSWORD_LENGTH} "
-                "caracteres en `wireguard_admin_password`.",
+                f"Use a password of at least {secret_utils.MIN_PANEL_PASSWORD_LENGTH} "
+                "characters in `wireguard_admin_password`.",
             ],
         ) from exc
 
@@ -345,25 +349,26 @@ def load_config_from_toml(
         )
     except ValueError as exc:
         raise ConfigError(
-            what=f"La configuración de {path} no es válida",
+            what=f"The configuration in {path} is not valid",
             why=str(exc),
-            steps=["Corregir los valores señalados y reintentar."],
+            steps=["Correct the values flagged above and retry."],
         ) from exc
 
 
 def existing_postgres_password(project_dir: Path) -> str | None:
-    """Contraseña de PostgreSQL ya escrita en un `.env` de una corrida
-    anterior de este mismo `project_dir`, si la hay.
+    """The PostgreSQL password already written into a `.env` from a previous
+    run of this same `project_dir`, if there is one.
 
-    Postgres solo aplica `POSTGRES_PASSWORD` la *primera* vez que inicializa
-    su volumen de datos; en cualquier arranque posterior lo ignora por
-    completo. Generar una nueva al azar en cada `install` dejaba a Postgres,
-    ya inicializado, con una contraseña vieja que ya no coincidía con la que
-    el wizard acababa de escribir en `.env` — Mattermost no lograba
-    autenticarse, y nada en la salida del wizard explicaba por qué (incidente
-    real, repetido: el `.axion-wizard-state.json` no siempre refleja con
-    fiabilidad si el volumen ya se inicializó antes). Leer lo que ya hay en
-    disco, si lo hay, es lo único que garantiza coherencia entre corridas.
+    Postgres only applies `POSTGRES_PASSWORD` the *first* time it initialises
+    its data volume; on any later start it ignores it entirely. Generating a
+    fresh random one on every `install` left an already-initialised Postgres
+    holding an old password that no longer matched the one the wizard had just
+    written into `.env` — Mattermost could not authenticate, and nothing in
+    the wizard's output explained why (a real, repeated incident:
+    `.axion-wizard-state.json` does not always reliably reflect whether the
+    volume was initialised before). Reading what is already on disk, when
+    there is something, is the only thing that guarantees consistency across
+    runs.
     """
     from axion_wizard.domain.deployment import env_value
 
@@ -371,11 +376,11 @@ def existing_postgres_password(project_dir: Path) -> str | None:
 
 
 def load_config_from_artifacts(project_dir: Path) -> AxionConfig:
-    """Reconstruye `AxionConfig` desde `.env` y `wg.env` ya escritos.
+    """Rebuild `AxionConfig` from the already-written `.env` and `wg.env`.
 
-    Lo usa `restore()` al reanudar. El `wireguard_variant` se deduce del
-    propio `docker-compose.yml`, igual que hace `doctor`, para no depender de
-    que el paso 1 se haya vuelto a ejecutar en esta sesión.
+    Used by `restore()` when resuming. The `wireguard_variant` is inferred
+    from `docker-compose.yml` itself, as `doctor` does, so as not to depend on
+    step 1 having run again in this session.
     """
     from axion_wizard.domain.deployment import (
         detect_wireguard_variant_from_compose,
@@ -403,16 +408,15 @@ def load_config_from_artifacts(project_dir: Path) -> AxionConfig:
         if not value
     ]
     if missing or not (host and password and panel_username and panel_password and model):
-        # La segunda mitad de la condición es redundante en tiempo de
-        # ejecución, pero es lo que permite al type checker estrechar los
-        # `str | None` que devuelve `dotenv_values` para el resto de la
-        # función, sin sembrarla de `assert`.
+        # The second half of the condition is redundant at runtime, but it is
+        # what lets the type checker narrow the `str | None` values for the
+        # rest of the function without seeding it with `assert`s.
         raise ConfigError(
-            what="No se pudo reconstruir la configuración para reanudar",
-            why=f"Faltan valores en .env/wg.env: {', '.join(missing)}.",
+            what="The configuration could not be rebuilt in order to resume",
+            why=f"Values missing from .env/wg.env: {', '.join(missing)}.",
             steps=[
-                "Borrar `.axion-wizard-state.json` para empezar la instalación de cero.",
-                "O restaurar los archivos `.env` y `wg.env` del proyecto.",
+                "Delete `.axion-wizard-state.json` to start the install from scratch.",
+                "Or restore the project's `.env` and `wg.env` files.",
             ],
         )
 
@@ -445,38 +449,38 @@ def _looks_like_ip(value: str) -> bool:
     return True
 
 
-# --- presentación y validadores ----------------------------------------------------------
+# --- presentation and validators ---------------------------------------------------------
 
 
 def render_summary(config: AxionConfig, warnings: list[str] | None = None) -> Panel:
-    """Resumen previo a la única confirmación del flujo (§4.3).
+    """The summary preceding the flow's single confirmation (§4.3).
 
-    Los secretos salen enmascarados: §9 no admite excepciones ni siquiera en
-    la pantalla que el usuario acaba de rellenar.
+    Secrets come out masked: §9 admits no exceptions, not even on the screen
+    the user has just filled in.
     """
     table = Table.grid(padding=(0, 2))
     table.add_column(style="axion.label")
     table.add_column(overflow="fold")
 
-    table.add_row("Modo de acceso", config.access_mode.value)
+    table.add_row("Access mode", config.access_mode.value)
     table.add_row("Host", f"[axion.info]{config.host}[/]")
-    table.add_row("Variante WireGuard", config.wireguard_variant.value)
-    table.add_row("Modelo de IA", config.ollama_model)
+    table.add_row("WireGuard variant", config.wireguard_variant.value)
+    table.add_row("AI model", config.ollama_model)
     masked = f"[axion.secret]{secret_utils.MASK}[/]"
-    table.add_row("Contraseña PostgreSQL", f"{masked} (generada, 64 hex)")
+    table.add_row("PostgreSQL password", f"{masked} (generated, 64 hex)")
     table.add_row(
-        "Panel WireGuard", f"{config.wireguard_admin_username} / {masked}"
+        "WireGuard panel", f"{config.wireguard_admin_username} / {masked}"
     )
-    table.add_row("Directorio", str(config.project_dir))
+    table.add_row("Directory", str(config.project_dir))
 
     if warnings:
         table.add_row("", "")
         for warning in warnings:
-            table.add_row(ui.warn("Aviso"), warning)
+            table.add_row(ui.warn("Warning"), warning)
 
     return Panel(
         table,
-        title="[axion.heading]Resumen de la configuración[/]",
+        title="[axion.heading]Configuration summary[/]",
         title_align="left",
         border_style="axion.border",
         padding=(1, 2),
@@ -487,10 +491,10 @@ def _describe_model(model: ollama.ModelInfo, recommended: Any, hardware: Any) ->
     marker = (
         f"{ui.GLYPH_OK} " if recommended is not None and model.name == recommended.name else "  "
     )
-    size = f"{model.size_gb:.1f} GB" if model.size_bytes else "tamaño desconocido"
+    size = f"{model.size_gb:.1f} GB" if model.size_bytes else "size unknown"
     reason = ollama.suitability_reason(model, hardware.ram_total_gb, hardware.has_gpu)
     if model.installed:
-        note = "ya instalado"
+        note = "already installed"
     else:
         note = reason or "compatible"
     return f"{marker}{model.name} — {size} — {note}"
@@ -499,16 +503,16 @@ def _describe_model(model: ollama.ModelInfo, recommended: Any, hardware: Any) ->
 def build_model_choices(
     catalog: list[ollama.ModelInfo], recommended: ollama.ModelInfo | None, hardware: Any
 ) -> tuple[list[Any], Any]:
-    """Opciones de `questionary` para elegir modelo, y cuál viene marcada.
+    """The `questionary` options for choosing a model, and which is selected.
 
-    Cada opción lleva el **nombre del modelo como valor**, en vez de
-    devolver el texto que se pinta y buscarlo después por índice: ese ida y
-    vuelta obligaba a que la lista de descripciones y el catálogo siguieran
-    alineados posición a posición, una invariante que nada garantizaba.
+    Each option carries the **model name as its value**, rather than returning
+    the text that gets drawn and looking it up afterwards by index: that round
+    trip required the description list and the catalogue to stay aligned
+    position by position, an invariant nothing guaranteed.
 
-    Vive aquí, y no en el paso 3, porque `axion-wizard model choose` ofrece
-    exactamente la misma lista con el mismo orden y las mismas etiquetas: es
-    el catálogo de §5, no un detalle del instalador.
+    It lives here, and not in step 3, because `axion-wizard model choose`
+    offers exactly the same list in the same order with the same labels: it is
+    §5's catalogue, not an installer detail.
     """
     import questionary
 
@@ -516,10 +520,10 @@ def build_model_choices(
         questionary.Choice(title=_describe_model(model, recommended, hardware), value=model.name)
         for model in catalog
     ]
-    # §5: siempre una salida de escape con entrada libre — la librería de
-    # Ollama crece constantemente y cualquier lista se queda corta.
+    # §5: always an escape hatch with free-text entry — Ollama's library grows
+    # constantly and any list falls short.
     choices.append(
-        questionary.Choice(title="Otro (escribir nombre)", value=ollama.OTHER_MODEL_SENTINEL)
+        questionary.Choice(title="Other (type a name)", value=ollama.OTHER_MODEL_SENTINEL)
     )
 
     default = None
@@ -531,17 +535,17 @@ def build_model_choices(
 
 
 def _non_empty_validator(value: str) -> bool | str:
-    return True if value.strip() else "No puede estar vacío."
+    return True if value.strip() else "This cannot be empty."
 
 
 def _panel_password_validator(value: str) -> bool | str:
-    """Valida en vivo, dentro del prompt, para que el motivo se lea junto al
-    campo y no como un error después de haberla escrito dos veces.
+    """Validate live, inside the prompt, so the reason reads next to the field
+    rather than as an error after typing it twice.
 
-    El mínimo de longitud no es cosmético: `INIT_PASSWORD` no lo valida, así
-    que una contraseña corta crea la cuenta igual y solo falla *después*, al
-    intentar entrar, con un 400 que desde fuera parece "contraseña
-    incorrecta". Aquí todavía se puede corregir.
+    The minimum length is not cosmetic: `INIT_PASSWORD` does not validate it,
+    so a short password creates the account anyway and only fails *later*, on
+    trying to log in, with a 400 that from the outside looks like "wrong
+    password". Here it can still be corrected.
     """
     try:
         secret_utils.validate_wireguard_password(value)
@@ -560,7 +564,7 @@ def _panel_username_validator(value: str) -> bool | str:
 
 def _cancelled() -> ConfigError:
     return ConfigError(
-        what="Configuración cancelada",
-        why="Se interrumpió un prompt antes de terminar; no se escribió nada al disco.",
-        steps=["Volver a ejecutar `axion-wizard install` cuando quieras."],
+        what="Configuration cancelled",
+        why="A prompt was interrupted before finishing; nothing was written to disk.",
+        steps=["Run `axion-wizard install` again whenever you like."],
     )
