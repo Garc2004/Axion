@@ -130,6 +130,49 @@ def resolve_compose_project_name(project_dir: Path) -> str:
     return f"{PROJECT_NAME_PREFIX}-{secret_utils.generate_hex_secret(4)}"
 
 
+def assert_no_wg_easy_v14_volume(project_dir: Path) -> None:
+    """Aborta si este despliegue lo escribió wg-easy v14.
+
+    La v15 no sabe leer el volumen de la v14. Si se la deja arrancar encima,
+    no falla: se encuentra un almacén que no reconoce, arranca su asistente
+    de instalación y queda un panel **vacío** — sin ninguno de los clientes
+    de antes. Los túneles de todos los dispositivos ya configurados dejan de
+    funcionar a la vez, y nada en los logs dice que había datos que migrar.
+
+    De ahí que esto pare la instalación en vez de avisar y seguir: al
+    terminar el paso ya sería tarde, y quien haya llegado aquí desde una
+    versión anterior del wizard no tiene por qué saber que la migración
+    existe. Los pasos explican cómo hacerla, y sobrescribir la carpeta sigue
+    siendo posible a propósito, no por descuido.
+    """
+    from axion_wizard.domain.deployment import wg_easy_major_in_compose
+    from axion_wizard.domain.images import WG_EASY_MIN_SAFE_MAJOR
+
+    compose_path = project_dir / "docker-compose.yml"
+    major = wg_easy_major_in_compose(compose_path)
+    if major is None or major >= WG_EASY_MIN_SAFE_MAJOR:
+        return
+
+    raise ConfigError(
+        what=f"Este despliegue usa wg-easy v{major} y el wizard ya instala la v15",
+        why=(
+            "La v15 no lee el almacén de configuración de la v14. Si arranca sobre "
+            "este volumen, muestra su asistente de instalación con el panel vacío y "
+            "todos los clientes de WireGuard ya dados de alta dejan de conectar — sin "
+            "ningún error que lo explique."
+        ),
+        steps=[
+            f"Abrir el panel actual (http://<host>:{51821}) y usar su botón de "
+            "backup para descargar `wg0.json`.",
+            "Volver a ejecutar `axion-wizard install`: el panel v15 arrancará en su "
+            "asistente, donde hay que elegir que ya se tiene una configuración y "
+            "subir ese `wg0.json`.",
+            "Si no hay clientes que conservar, borrar el volumen y empezar limpio: "
+            "axion-wizard uninstall --purge",
+        ],
+    )
+
+
 def _render(template_name: str, context: dict) -> str:
     template_text = read_template_text(template_name)
     template = jinja2.Template(
@@ -266,9 +309,8 @@ def render_wg_env(config: AxionConfig) -> str:
         "wg.env.j2",
         {
             "host": config.host,
-            "wireguard_admin_password_hash": (
-                config.wireguard_admin_password_hash.get_secret_value()
-            ),
+            "wireguard_admin_username": config.wireguard_admin_username,
+            "wireguard_admin_password": config.wireguard_admin_password.get_secret_value(),
         },
     )
 
@@ -606,9 +648,10 @@ class ComposeStep(Step):
             self._announce_dry_run(compose_path)
             return StepResult(name=self.name, ok=True, message="omitido por --dry-run")
 
-        # Antes de que render_compose_to_disk sobrescriba docker-compose.yml:
-        # la migración desde una versión antigua del wizard lee el `name:`
-        # de ese archivo tal como está *ahora*, no del que se está por escribir.
+        # Las dos comprobaciones siguientes leen el `docker-compose.yml` tal
+        # como está *ahora*, antes de que `render_compose_to_disk` lo
+        # sobrescriba: después ya no queda registro de con qué se desplegó.
+        assert_no_wg_easy_v14_volume(self.context.project_dir)
         project_name = resolve_compose_project_name(self.context.project_dir)
 
         backup_path = render_compose_to_disk(

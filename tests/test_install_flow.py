@@ -23,7 +23,8 @@ def _config(tmp_path: Path, **overrides) -> AxionConfig:
         host="192.168.1.50",
         wireguard_variant=WireguardVariant.PORTS,
         postgres_password="a" * 64,
-        wireguard_admin_password_hash="$2b$12$" + "b" * 53,
+        wireguard_admin_username="admin",
+        wireguard_admin_password="correct-horse-battery-staple",
         ollama_model="qwen2.5:1.5b",
         project_dir=tmp_path,
     )
@@ -319,7 +320,9 @@ def test_config_is_rebuilt_from_env_files(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     (tmp_path / "wg.env").write_text(
-        "WG_HOST=192.168.1.50\nPASSWORD_HASH=$2b$12$" + "b" * 53 + "\n", encoding="utf-8"
+        "INIT_HOST=192.168.1.50\nINIT_USERNAME=admin\n"
+        "INIT_PASSWORD=correct-horse-battery-staple\n",
+        encoding="utf-8",
     )
 
     config = load_config_from_artifacts(tmp_path)
@@ -328,6 +331,13 @@ def test_config_is_rebuilt_from_env_files(tmp_path: Path) -> None:
     assert config.ollama_model == "qwen2.5:1.5b"
     assert config.postgres_password.get_secret_value() == "a" * 64
     assert config.access_mode is AccessMode.LAN
+    # Las credenciales del panel también vuelven. Con la v14 solo se guardaba
+    # el hash, así que el paso 8 tenía que volver a pedir la contraseña a
+    # mitad de la instalación; ahora se reanuda sin preguntar nada.
+    assert config.wireguard_admin_username == "admin"
+    assert (
+        config.wireguard_admin_password.get_secret_value() == "correct-horse-battery-staple"
+    )
 
 
 def test_rebuilding_config_fails_clearly_when_env_is_missing(tmp_path: Path) -> None:
@@ -340,30 +350,30 @@ def test_rebuilding_config_fails_clearly_when_env_is_missing(tmp_path: Path) -> 
 # --- carga desde TOML (--unattended) ---------------------------------------------------------
 
 
-def test_toml_config_hashes_a_plaintext_password(tmp_path: Path) -> None:
+def test_toml_config_reads_a_plaintext_password(tmp_path: Path) -> None:
     from axion_wizard.steps.s03_config import load_config_from_toml
-    from axion_wizard.utils.secrets import verify_password
 
     toml = tmp_path / "axion.toml"
     toml.write_text(
         'access_mode = "lan"\nhost = "192.168.1.50"\n'
-        'wireguard_admin_password = "panel-seguro"\nollama_model = "qwen2.5:1.5b"\n',
+        'wireguard_admin_password = "panel-seguro-y-largo"\nollama_model = "qwen2.5:1.5b"\n',
         encoding="utf-8",
     )
 
     config = load_config_from_toml(toml, tmp_path, WireguardVariant.PORTS)
 
     assert config.host == "192.168.1.50"
-    assert verify_password(
-        "panel-seguro", config.wireguard_admin_password_hash.get_secret_value()
-    )
+    assert config.wireguard_admin_password.get_secret_value() == "panel-seguro-y-largo"
+    # Sin `wireguard_admin_username` se usa el mismo por defecto que ofrece
+    # el camino interactivo.
+    assert config.wireguard_admin_username == "admin"
     # Sin `postgres_password` en el TOML se genera una: hex, nunca base64.
     generated = config.postgres_password.get_secret_value()
     assert len(generated) == 64
     assert not set(generated) & set("/+=")
 
 
-def testexisting_postgres_password_reads_from_env(tmp_path: Path) -> None:
+def test_existing_postgres_password_reads_from_env(tmp_path: Path) -> None:
     """Unidad directa de la función que comparten el camino interactivo y
     el `--unattended`: ambos deben quedar coherentes con lo que Postgres ya
     tiene inicializado."""
@@ -373,7 +383,7 @@ def testexisting_postgres_password_reads_from_env(tmp_path: Path) -> None:
     assert existing_postgres_password(tmp_path) == "c" * 64
 
 
-def testexisting_postgres_password_none_without_env(tmp_path: Path) -> None:
+def test_existing_postgres_password_none_without_env(tmp_path: Path) -> None:
     from axion_wizard.steps.s03_config import existing_postgres_password
 
     assert existing_postgres_password(tmp_path) is None
@@ -476,7 +486,7 @@ def test_summary_masks_every_secret(tmp_path: Path) -> None:
     rendered = capture.get()
 
     assert config.postgres_password.get_secret_value() not in rendered
-    assert config.wireguard_admin_password_hash.get_secret_value() not in rendered
+    assert config.wireguard_admin_password.get_secret_value() not in rendered
     assert "****" in rendered
     assert config.host in rendered
 

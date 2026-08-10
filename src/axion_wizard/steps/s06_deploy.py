@@ -214,29 +214,27 @@ def _first_not_ready_service(compose_path: Path, services: list[str]) -> str | N
     return None
 
 
-#: Un hash bcrypt son 60 caracteres: `$2b$` + coste + `$` + 22 de sal + 31 de
-#: digest. Cualquier otra longitud significa que llegó mutilado.
-BCRYPT_HASH_LENGTH = 60
-
-
-def verify_password_hash_reached_the_container(
-    compose_path: Path, service: str = WIREGUARD_SERVICE, timeout: float = 20.0
+def verify_panel_password_reached_the_container(
+    compose_path: Path, expected: str, service: str = WIREGUARD_SERVICE, timeout: float = 20.0
 ) -> None:
-    """Comprueba que wg-easy recibió el hash bcrypt entero.
+    """Comprueba que wg-easy recibió la contraseña del panel intacta.
 
     Se lee del contenedor en marcha en vez de fiarse de lo que se escribió en
     `wg.env`, por el mismo motivo que el SAN del certificado se relee del
     archivo: entre lo que uno escribe y lo que el otro lado ve hay una capa
-    que puede transformarlo. Aquí esa capa es la interpolación de variables de
-    Docker Compose, que convierte `$2b$12$GktCd...` en `$2b$12.96FL219a` si el
-    `$` no va escapado.
+    que puede transformarlo. Esa capa es la interpolación de variables de
+    Docker Compose, que se come cualquier `$` sin escapar.
 
-    El fallo que atrapa no da ninguna señal por sí solo: el contenedor arranca
+    Con la v14 esto atrapaba un incidente real y frecuente: el hash bcrypt
+    empieza por `$2b$` y llegaba mutilado. La v15 recibe la contraseña en
+    claro y el wizard prohíbe el `$` en ella, así que el fallo ya no debería
+    poder ocurrir — la comprobación se queda porque es barata y porque el
+    modo en que fallaría sigue siendo el peor posible: el contenedor arranca
     sano, el panel responde, y lo único que pasa es que ninguna contraseña
     entra nunca.
     """
     result = compose.exec_in_service(
-        compose_path, service, ["printenv", "PASSWORD_HASH"], timeout=timeout
+        compose_path, service, ["printenv", "INIT_PASSWORD"], timeout=timeout
     )
     if not result.ok:
         # No se pudo preguntar (contenedor sin `printenv`, exec denegado). No
@@ -244,20 +242,21 @@ def verify_password_hash_reached_the_container(
         return
 
     received = result.stdout.strip()
-    if received.startswith("$2") and len(received) == BCRYPT_HASH_LENGTH:
+    if received == expected:
         return
 
     raise DeploymentError(
-        what="El panel de WireGuard recibió una contraseña corrupta",
+        what="El panel de WireGuard recibió una contraseña distinta de la configurada",
         why=(
-            f"`PASSWORD_HASH` llegó al contenedor con {len(received)} caracteres en vez de "
-            f"{BCRYPT_HASH_LENGTH}: Docker Compose interpretó los `$` del hash bcrypt como "
-            "variables y se los comió. Con el hash roto, el panel arranca y responde con "
-            "normalidad pero rechaza cualquier contraseña, sin escribir nada en sus logs."
+            f"`INIT_PASSWORD` llegó al contenedor con {len(received)} caracteres en vez de "
+            f"{len(expected)}: Docker Compose interpola los valores de `env_file:`, así que "
+            "un `$` sin escapar se interpreta como una variable. Con la contraseña alterada, "
+            "el panel arranca y responde con normalidad pero rechaza el login, sin escribir "
+            "nada en sus logs."
         ),
         steps=[
             "Regenerar los archivos del proyecto: axion-wizard install",
-            "Comprobar que en wg.env el hash lleva los `$` escapados como `$$`.",
+            "Elegir una contraseña de panel sin `$`, comilla invertida ni `!`.",
             f"Recrear el contenedor: axion-wizard up {service}",
         ],
     )
@@ -320,12 +319,16 @@ class DeployStep(Step):
         if refresh_nginx(compose_path, services):
             console.print("[axion.ok]nginx reiniciado[/] para reencontrar a Mattermost.")
         # La tag que importa es la del contenedor en marcha, no la escrita en
-        # el compose: quien lo edite a mano puede acabar en wg-easy v15, que
-        # ignora WG_HOST/PASSWORD_HASH sin un solo error en los logs (§6.4).
+        # el compose: quien lo edite a mano puede acabar en otro major de
+        # wg-easy, que se configura de otra forma y falla sin un solo error
+        # en los logs (§6.4).
         verify_wg_easy_tag(compose_path)
         # Y la contraseña que importa es la que el contenedor recibió, no la
-        # que se escribió en wg.env: Compose interpola los `$` del hash.
-        verify_password_hash_reached_the_container(compose_path)
+        # que se escribió en wg.env: Compose interpola los valores de env_file.
+        verify_panel_password_reached_the_container(
+            compose_path,
+            expected=self.context.require_config().wireguard_admin_password.get_secret_value(),
+        )
 
         console.print("[axion.ok]Stack levantado y saludable.[/]")
         return StepResult(

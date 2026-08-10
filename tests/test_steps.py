@@ -1,6 +1,7 @@
 """Tests de los pasos individuales del flujo de instalación."""
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -43,7 +44,8 @@ def _config(tmp_path: Path, variant=WireguardVariant.PORTS) -> AxionConfig:
         host="192.168.1.50",
         wireguard_variant=variant,
         postgres_password="a" * 64,
-        wireguard_admin_password_hash="$2b$12$" + "b" * 53,
+        wireguard_admin_username="admin",
+        wireguard_admin_password="correct-horse-battery-staple",
         ollama_model="qwen2.5:1.5b",
         project_dir=tmp_path,
     )
@@ -613,16 +615,26 @@ def test_compose_step_dry_run_writes_nothing(tmp_path: Path, mocker) -> None:
 # --- paso 8: wireguard -------------------------------------------------------------------
 
 
-def test_wireguard_step_skips_without_a_password_instead_of_failing(
+def test_wireguard_step_survives_a_panel_that_will_not_answer(
     tmp_path: Path, mocker
 ) -> None:
     """El stack ya está levantado: no crear el cliente inicial no es un fallo
-    del despliegue, y se puede hacer luego con `wireguard add-client`."""
+    del despliegue, y se puede hacer luego con `wireguard add-client`.
+
+    Antes esta rama solo se daba si el usuario dejaba el prompt vacío. Ahora
+    que el paso no pregunta, cubre además que el panel no responda o rechace
+    las credenciales — que es donde de verdad conviene no tirar abajo una
+    instalación que por lo demás terminó bien.
+    """
+    from axion_wizard.errors import NetworkError
     from axion_wizard.steps.s08_wireguard import WireguardStep
 
+    mocker.patch(
+        "axion_wizard.steps.s08_wireguard.wg.wait_for_panel_ready",
+        side_effect=NetworkError(what="el panel no respondió", why="timeout", steps=[]),
+    )
     context = _context(tmp_path)
     step = WireguardStep(GlobalState(project_dir=tmp_path, quiet=True), context)
-    mocker.patch.object(step, "_ask_password", return_value=None)
 
     result = step.run()
 
@@ -630,13 +642,43 @@ def test_wireguard_step_skips_without_a_password_instead_of_failing(
     assert any("add-client" in w for w in context.warnings)
 
 
-def test_wireguard_step_does_not_prompt_when_unattended(tmp_path: Path) -> None:
+def test_wireguard_step_uses_the_credentials_it_already_has(
+    tmp_path: Path, mocker
+) -> None:
+    """No vuelve a preguntar la contraseña a mitad de la instalación.
+
+    Con wg-easy v14 no había alternativa —solo se guardaba el hash bcrypt—,
+    así que el usuario la escribía dos veces en la misma ejecución sin
+    ningún motivo visible. La v15 la quiere en claro, o sea que ya está en
+    `AxionConfig`.
+    """
     from axion_wizard.steps.s08_wireguard import WireguardStep
 
-    context = _context(tmp_path)
-    step = WireguardStep(GlobalState(project_dir=tmp_path, unattended=True), context)
+    mocker.patch("axion_wizard.steps.s08_wireguard.wg.wait_for_panel_ready")
+    login = mocker.AsyncMock()
+    panel = mocker.MagicMock()
+    panel.__aenter__ = mocker.AsyncMock(return_value=panel)
+    panel.__aexit__ = mocker.AsyncMock(return_value=False)
+    panel.login = login
+    mocker.patch(
+        "axion_wizard.steps.s08_wireguard.wg.WireguardPanelClient", return_value=panel
+    )
+    mocker.patch(
+        "axion_wizard.steps.s08_wireguard.wg.create_client_with_qr",
+        new=mocker.AsyncMock(
+            return_value=SimpleNamespace(id="1", name="primer-cliente", config_text="[i]")
+        ),
+    )
+    mocker.patch("axion_wizard.steps.s08_wireguard.wg.render_qr_terminal", return_value="")
+    ask = mocker.patch("questionary.password")
 
-    assert step._ask_password() is None
+    context = _context(tmp_path)
+    step = WireguardStep(GlobalState(project_dir=tmp_path, quiet=True), context)
+    result = step.run()
+
+    assert result.ok is True
+    ask.assert_not_called()
+    login.assert_awaited_once_with("admin", "correct-horse-battery-staple")
 
 
 # --- paso 9: bot y webhook de Mattermost ---------------------------------------------
@@ -985,13 +1027,30 @@ def test_network_step_skips_the_cgnat_question_without_a_terminal(
     assert facts.cgnat is False
 
 
-def test_wireguard_step_does_not_prompt_without_a_terminal(tmp_path: Path, mocker) -> None:
+def test_wireguard_step_works_unattended(tmp_path: Path, mocker) -> None:
+    """Sin terminal y sin prompts, el cliente inicial se crea igual: es la
+    diferencia práctica de tener la contraseña en claro en vez de un hash."""
     from axion_wizard.steps.s08_wireguard import WireguardStep
 
+    mocker.patch("axion_wizard.steps.s08_wireguard.wg.wait_for_panel_ready")
+    panel = mocker.MagicMock()
+    panel.__aenter__ = mocker.AsyncMock(return_value=panel)
+    panel.__aexit__ = mocker.AsyncMock(return_value=False)
+    panel.login = mocker.AsyncMock()
     mocker.patch(
-        "axion_wizard.steps.s08_wireguard.interactive_input_available", return_value=False
+        "axion_wizard.steps.s08_wireguard.wg.WireguardPanelClient", return_value=panel
     )
-    context = _context(tmp_path)
-    step = WireguardStep(GlobalState(project_dir=tmp_path), context)
+    mocker.patch(
+        "axion_wizard.steps.s08_wireguard.wg.create_client_with_qr",
+        new=mocker.AsyncMock(
+            return_value=SimpleNamespace(id="1", name="primer-cliente", config_text="[i]")
+        ),
+    )
+    mocker.patch("axion_wizard.steps.s08_wireguard.wg.render_qr_terminal", return_value="")
 
-    assert step._ask_password() is None
+    context = _context(tmp_path)
+    step = WireguardStep(
+        GlobalState(project_dir=tmp_path, unattended=True, quiet=True), context
+    )
+
+    assert step.run().ok is True

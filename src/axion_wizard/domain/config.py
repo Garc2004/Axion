@@ -1,10 +1,17 @@
 """Modelo Pydantic de la configuración completa del wizard (§4.3).
 
-Los secretos (`postgres_password`, `wireguard_admin_password_hash`) se
-guardan como `SecretStr` para que Pydantic los enmascare en `repr()`/`str()`
-por defecto — nunca deben aparecer en consola ni en logs (§9). Las tags de
+Los secretos (`postgres_password`, `wireguard_admin_password`) se guardan
+como `SecretStr` para que Pydantic los enmascare en `repr()`/`str()` por
+defecto — nunca deben aparecer en consola ni en logs (§9). Las tags de
 imagen (§6.4) están deliberadamente fuera de este modelo: no son
 configurables por el usuario, viven en `axion_wizard.domain.images`.
+
+La contraseña del panel viaja aquí **en claro**, no como hash. No es un
+descuido: wg-easy v15 la quiere así en `INIT_PASSWORD` y la hashea ella al
+arrancar. Tenerla en claro además arregla algo que con la v14 no tenía
+arreglo — el paso 8 podía guardar el hash pero no volver a deducir la
+contraseña, así que tenía que pedírsela otra vez al usuario para dar de alta
+el primer cliente.
 """
 
 from __future__ import annotations
@@ -15,7 +22,12 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 from axion_wizard.detect.platform import WIREGUARD_VARIANT_HOST, WIREGUARD_VARIANT_PORTS
-from axion_wizard.utils.secrets import FORBIDDEN_PASSWORD_CHAR_REASONS, register_secret
+from axion_wizard.utils.secrets import (
+    FORBIDDEN_PASSWORD_CHAR_REASONS,
+    register_secret,
+    validate_wireguard_password,
+    validate_wireguard_username,
+)
 
 
 class AccessMode(StrEnum):
@@ -41,7 +53,10 @@ class AxionConfig(BaseModel):
     host: str = Field(..., description="IP LAN o dominio de acceso, según access_mode.")
     wireguard_variant: WireguardVariant
     postgres_password: SecretStr
-    wireguard_admin_password_hash: SecretStr
+    wireguard_admin_username: str = Field(
+        ..., description="Usuario administrador del panel wg-easy (v15 lo exige)."
+    )
+    wireguard_admin_password: SecretStr
     ollama_model: str
     project_dir: Path
 
@@ -73,15 +88,25 @@ class AxionConfig(BaseModel):
             )
         return value
 
-    @field_validator("wireguard_admin_password_hash")
+    @field_validator("wireguard_admin_password")
     @classmethod
-    def _wireguard_hash_looks_like_bcrypt(cls, value: SecretStr) -> SecretStr:
-        raw = value.get_secret_value()
-        if not raw.startswith(("$2a$", "$2b$", "$2y$")):
-            raise ValueError(
-                "wireguard_admin_password_hash no parece un hash bcrypt "
-                "($2a$/$2b$/$2y$) — ¿se guardó la contraseña en claro por error?"
-            )
+    def _wireguard_password_is_usable(cls, value: SecretStr) -> SecretStr:
+        """Las mismas reglas que el prompt del paso 3, aplicadas otra vez aquí.
+
+        El prompt es el sitio amable para fallar, pero no es el único camino
+        hasta este modelo: `--unattended` lo construye desde un `axion.toml`
+        y la TUI desde su formulario. Validar en el modelo es lo que garantiza
+        que ninguno de los tres pueda escribir un `INIT_PASSWORD` que wg-easy
+        vaya a aceptar al crear la cuenta y a rechazar al hacer login.
+        """
+        validate_wireguard_password(value.get_secret_value())
+        return value
+
+    @field_validator("wireguard_admin_username")
+    @classmethod
+    def _wireguard_username_is_usable(cls, value: str) -> str:
+        value = value.strip()
+        validate_wireguard_username(value)
         return value
 
     @model_validator(mode="after")
@@ -91,7 +116,7 @@ class AxionConfig(BaseModel):
         genera —logs de contenedores, stderr de Docker— donde aparecen
         incrustados en medio de otro texto."""
         register_secret(self.postgres_password.get_secret_value())
-        register_secret(self.wireguard_admin_password_hash.get_secret_value())
+        register_secret(self.wireguard_admin_password.get_secret_value())
         return self
 
 

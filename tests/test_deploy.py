@@ -278,27 +278,29 @@ def test_verify_wg_easy_tag_accepts_safe_tag(mocker) -> None:
         "axion_wizard.steps.s06_deploy.compose.get_service_status",
         return_value=ContainerStatus(
             service="wireguard", name="w", state="running", health=None,
-            image="ghcr.io/wg-easy/wg-easy:14",
+            image="ghcr.io/wg-easy/wg-easy:15.3.0",
         ),
     )
     s06.verify_wg_easy_tag(Path("x"))  # no debe lanzar
 
 
-def test_verify_wg_easy_tag_raises_on_v15(mocker) -> None:
+def test_verify_wg_easy_tag_raises_on_v14(mocker) -> None:
+    """Un compose editado a mano puede dejar el contenedor en la v14, que
+    ignora las INIT_* y expone otra API. Nada de eso da error visible."""
     mocker.patch(
         "axion_wizard.steps.s06_deploy.compose.get_service_status",
         return_value=ContainerStatus(
             service="wireguard", name="w", state="running", health=None,
-            image="ghcr.io/wg-easy/wg-easy:15",
+            image="ghcr.io/wg-easy/wg-easy:14",
         ),
     )
-    with pytest.raises(DeploymentError, match="v15|insegura"):
+    with pytest.raises(DeploymentError, match="v14|insegura"):
         s06.verify_wg_easy_tag(Path("x"))
 
 
 def test_verify_wg_easy_tag_rejects_untagged_image(mocker) -> None:
-    """Sin tag explícita Docker resuelve a `latest`, que hoy es v15 — el
-    caso exacto que §6.4 existe para atajar."""
+    """Sin tag explícita Docker resuelve a `latest`, que puede dejar de
+    apuntar a la v15 sin previo aviso — el caso que §6.4 existe para atajar."""
     mocker.patch(
         "axion_wizard.steps.s06_deploy.compose.get_service_status",
         return_value=ContainerStatus(
@@ -316,7 +318,7 @@ def test_verify_wg_easy_tag_handles_port_qualified_registry(mocker) -> None:
         "axion_wizard.steps.s06_deploy.compose.get_service_status",
         return_value=ContainerStatus(
             service="wireguard", name="w", state="running", health=None,
-            image="localhost:5000/wg-easy:14",
+            image="localhost:5000/wg-easy:15.3.0",
         ),
     )
     s06.verify_wg_easy_tag(Path("x"))  # no debe lanzar
@@ -335,37 +337,45 @@ def test_verify_wg_easy_tag_noop_when_image_missing(mocker) -> None:
     s06.verify_wg_easy_tag(Path("x"))  # no debe lanzar
 
 
-# --- el hash tiene que llegar entero al contenedor ---------------------------------
+# --- la contraseña tiene que llegar entera al contenedor ---------------------------
 
 
-def test_password_hash_check_passes_with_a_whole_bcrypt_hash(mocker) -> None:
-    entero = "$2b$12$" + "a" * 53
-    assert len(entero) == 60
+def test_panel_password_check_passes_when_it_arrives_intact(mocker) -> None:
     mocker.patch(
         "axion_wizard.steps.s06_deploy.compose.exec_in_service",
-        return_value=CommandResult(args=[], returncode=0, stdout=entero + "\n", stderr=""),
+        return_value=CommandResult(
+            args=[], returncode=0, stdout="correct-horse-battery\n", stderr=""
+        ),
     )
-    s06.verify_password_hash_reached_the_container(Path("x"))  # no debe lanzar
+    s06.verify_panel_password_reached_the_container(
+        Path("x"), expected="correct-horse-battery"
+    )  # no debe lanzar
 
 
-def test_password_hash_check_catches_the_mangled_value(mocker) -> None:
-    """El valor real observado en vivo tras la interpolación de Compose."""
+def test_panel_password_check_catches_a_mangled_value(mocker) -> None:
+    """Compose interpola los valores de `env_file:`. Con la v14 esto atrapaba
+    un hash bcrypt destrozado; el modo de fallo es el mismo aunque ahora la
+    contraseña vaya en claro: el panel arranca sano y no deja entrar."""
     mocker.patch(
         "axion_wizard.steps.s06_deploy.compose.exec_in_service",
-        return_value=CommandResult(args=[], returncode=0, stdout="$2b$12.96FL219a\n", stderr=""),
+        return_value=CommandResult(args=[], returncode=0, stdout="correct-horse-\n", stderr=""),
     )
     with pytest.raises(DeploymentError) as excinfo:
-        s06.verify_password_hash_reached_the_container(Path("x"))
+        s06.verify_panel_password_reached_the_container(
+            Path("x"), expected="correct-horse-battery"
+        )
 
-    assert "corrupta" in excinfo.value.what
-    assert "rechaza cualquier contraseña" in excinfo.value.why
+    assert "distinta de la configurada" in excinfo.value.what
+    assert "rechaza el login" in excinfo.value.why
 
 
-def test_password_hash_check_is_silent_when_it_cannot_ask(mocker) -> None:
+def test_panel_password_check_is_silent_when_it_cannot_ask(mocker) -> None:
     """Sin `printenv` o sin exec no se puede afirmar nada; dar el despliegue
     por fallido sería peor que no comprobarlo."""
     mocker.patch(
         "axion_wizard.steps.s06_deploy.compose.exec_in_service",
         return_value=CommandResult(args=[], returncode=126, stdout="", stderr="no such file"),
     )
-    s06.verify_password_hash_reached_the_container(Path("x"))  # no debe lanzar
+    s06.verify_panel_password_reached_the_container(
+        Path("x"), expected="correct-horse-battery"
+    )  # no debe lanzar

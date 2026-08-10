@@ -1,22 +1,29 @@
 """Paso 8 — WireGuard: primer cliente y QR en terminal (§4.8).
 
-El panel de wg-easy v14 sirve **HTTP puro, no HTTPS**: abrirlo con `https://`
-da `ERR_SSL_PROTOCOL_ERROR`. La URL se construye siempre con `http://`
+El panel de wg-easy sirve **HTTP puro, no HTTPS**: abrirlo con `https://` da
+`ERR_SSL_PROTOCOL_ERROR`. La URL se construye siempre con `http://`
 explícito y se advierte en pantalla, porque es el error que todo el mundo
 comete al ver que el resto del stack va por TLS.
 
 El QR se dibuja con caracteres de bloque Unicode en la propia terminal: el
 usuario escanea desde el móvil sin tener que abrir el panel en un navegador.
+
+Este paso ya no pregunta nada. Con wg-easy v14 tenía que volver a pedir la
+contraseña del panel a mitad de la instalación —lo único guardado era su
+hash bcrypt, y de un hash no se saca la contraseña—, así que el usuario la
+escribía dos veces en la misma ejecución sin ningún motivo visible. La v15
+la quiere en claro, o sea que ya está en `AxionConfig` y en `wg.env`, y el
+cliente se crea solo.
 """
 
 from __future__ import annotations
 
 import asyncio
 
+from axion_wizard.errors import AxionError
 from axion_wizard.render.console import console
 from axion_wizard.services import wireguard as wg
 from axion_wizard.steps.base import Step, StepResult
-from axion_wizard.steps.prompts import interactive_input_available
 
 DEFAULT_CLIENT_NAME = "primer-cliente"
 
@@ -44,19 +51,28 @@ class WireguardStep(Step):
         console.print(f"[axion.info]Panel WireGuard:[/] {panel_url}")
         console.print(f"[axion.warn]{wg.PANEL_HTTPS_WARNING}[/]")
 
-        password = self._ask_password()
-        if password is None:
+        try:
+            client = asyncio.run(
+                self._create_client(
+                    panel_url,
+                    config.wireguard_admin_username,
+                    config.wireguard_admin_password.get_secret_value(),
+                )
+            )
+        except AxionError as exc:
             # No es un fallo del despliegue: el stack está levantado y el
-            # cliente se puede crear luego con `wireguard add-client`.
+            # cliente se puede crear luego con `wireguard add-client`. Antes
+            # este camino solo se daba si el usuario dejaba el prompt vacío;
+            # ahora cubre además que el panel no responda o rechace las
+            # credenciales, que es donde de verdad conviene no tirar abajo
+            # una instalación que por lo demás terminó bien.
             message = (
-                "Sin cliente WireGuard inicial. Créalo cuando quieras con: "
-                "axion-wizard wireguard add-client <nombre>"
+                f"No se pudo crear el cliente WireGuard inicial ({exc}). "
+                "Créalo cuando quieras con: axion-wizard wireguard add-client <nombre>"
             )
             self.context.warn(message)
             console.print(f"[axion.warn]{message}[/]")
-            return StepResult(name=self.name, ok=True, message="omitido por el usuario")
-
-        client = asyncio.run(self._create_client(panel_url, password))
+            return StepResult(name=self.name, ok=True, message="sin cliente inicial")
 
         console.print(f"\n[axion.ok]Cliente creado:[/] {client.name} (id {client.id})\n")
         console.print(wg.render_qr_terminal(client.config_text))
@@ -80,23 +96,11 @@ class WireguardStep(Step):
             return StepResult(name=self.name, ok=False, message=str(exc))
         return StepResult(name=self.name, ok=True, message=f"panel operativo en {panel_url}")
 
-    def _ask_password(self) -> str | None:
-        """La contraseña del panel es la que el usuario eligió en el paso 3,
-        pero no se reutiliza desde memoria a propósito: lo que se guardó es su
-        hash bcrypt (§9), y de un hash no se saca la contraseña."""
-        if self.state.unattended or not interactive_input_available():
-            return None
-
-        import questionary
-
-        answer = questionary.password(
-            "Contraseña del panel WireGuard (la del paso 3, vacío para omitir):"
-        ).ask()
-        return (answer or "").strip() or None
-
     @staticmethod
-    async def _create_client(panel_url: str, password: str) -> wg.WireguardClient:
+    async def _create_client(
+        panel_url: str, username: str, password: str
+    ) -> wg.WireguardClient:
         await wg.wait_for_panel_ready(panel_url)
         async with wg.WireguardPanelClient(panel_url) as panel:
-            await panel.login(password)
+            await panel.login(username, password)
             return await wg.create_client_with_qr(panel, DEFAULT_CLIENT_NAME)

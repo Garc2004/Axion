@@ -9,7 +9,11 @@ from axion_wizard.domain.config import (
     WireguardVariant,
     describe_forbidden_wireguard_password_chars,
 )
-from axion_wizard.utils.secrets import generate_hex_secret, hash_password
+from axion_wizard.utils.secrets import (
+    MIN_PANEL_PASSWORD_LENGTH,
+    MIN_PANEL_USERNAME_LENGTH,
+    generate_hex_secret,
+)
 
 
 def _valid_kwargs(**overrides) -> dict:
@@ -18,7 +22,8 @@ def _valid_kwargs(**overrides) -> dict:
         host="192.168.1.50",
         wireguard_variant=WireguardVariant.PORTS,
         postgres_password=generate_hex_secret(),
-        wireguard_admin_password_hash=hash_password("correct-horse-battery-staple"),
+        wireguard_admin_username="admin",
+        wireguard_admin_password="correct-horse-battery-staple",
         ollama_model="qwen2.5:1.5b",
         project_dir=Path("/tmp/axion"),
     )
@@ -60,22 +65,50 @@ def test_postgres_password_accepts_hex() -> None:
     assert config.postgres_password.get_secret_value()
 
 
-def test_wireguard_hash_rejects_plaintext() -> None:
-    with pytest.raises(ValidationError, match="bcrypt"):
-        AxionConfig(**_valid_kwargs(wireguard_admin_password_hash="not-a-hash"))
+# --- credenciales del panel: las reglas son de wg-easy, no nuestras --------------
+#
+# El modelo las revalida aunque el prompt ya lo haga, porque el prompt no es
+# el único camino hasta aquí: `--unattended` construye desde un `axion.toml`
+# y la TUI desde su formulario. Una contraseña corta no falla al crear la
+# cuenta —`INIT_PASSWORD` no valida longitud— sino después, al entrar.
 
 
-def test_wireguard_hash_accepts_bcrypt() -> None:
-    hashed = hash_password("correct-horse-battery-staple-42")
-    config = AxionConfig(**_valid_kwargs(wireguard_admin_password_hash=hashed))
-    assert config.wireguard_admin_password_hash.get_secret_value().startswith("$2")
+@pytest.mark.parametrize("bad_char", ["$", "`", "!"])
+def test_panel_password_rejects_chars_that_break_env_interpolation(bad_char: str) -> None:
+    with pytest.raises(ValidationError):
+        AxionConfig(
+            **_valid_kwargs(wireguard_admin_password=f"larga-de-sobra{bad_char}ya")
+        )
+
+
+def test_panel_password_rejects_one_below_the_minimum() -> None:
+    short = "a" * (MIN_PANEL_PASSWORD_LENGTH - 1)
+    with pytest.raises(ValidationError, match=str(MIN_PANEL_PASSWORD_LENGTH)):
+        AxionConfig(**_valid_kwargs(wireguard_admin_password=short))
+
+
+def test_panel_password_accepts_exactly_the_minimum() -> None:
+    exact = "a" * MIN_PANEL_PASSWORD_LENGTH
+    config = AxionConfig(**_valid_kwargs(wireguard_admin_password=exact))
+    assert config.wireguard_admin_password.get_secret_value() == exact
+
+
+def test_panel_username_rejects_one_below_the_minimum() -> None:
+    short = "a" * (MIN_PANEL_USERNAME_LENGTH - 1)
+    with pytest.raises(ValidationError, match=str(MIN_PANEL_USERNAME_LENGTH)):
+        AxionConfig(**_valid_kwargs(wireguard_admin_username=short))
+
+
+def test_panel_username_is_stripped() -> None:
+    config = AxionConfig(**_valid_kwargs(wireguard_admin_username="  admin  "))
+    assert config.wireguard_admin_username == "admin"
 
 
 def test_secrets_masked_in_repr() -> None:
     config = AxionConfig(**_valid_kwargs())
     rendered = repr(config)
     assert config.postgres_password.get_secret_value() not in rendered
-    assert config.wireguard_admin_password_hash.get_secret_value() not in rendered
+    assert config.wireguard_admin_password.get_secret_value() not in rendered
 
 
 def test_describe_forbidden_wireguard_password_chars_matches_secrets_module() -> None:

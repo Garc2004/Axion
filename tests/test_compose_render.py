@@ -13,7 +13,7 @@ from axion_wizard.domain.stack import MANAGED_SERVICES
 from axion_wizard.errors import ConfigError
 from axion_wizard.services import compose as compose_service
 from axion_wizard.steps import s05_compose as s05
-from axion_wizard.utils.secrets import generate_hex_secret, hash_password
+from axion_wizard.utils.secrets import generate_hex_secret
 
 
 def make_config(**overrides) -> AxionConfig:
@@ -22,7 +22,8 @@ def make_config(**overrides) -> AxionConfig:
         host="192.168.1.50",
         wireguard_variant=WireguardVariant.PORTS,
         postgres_password=generate_hex_secret(),
-        wireguard_admin_password_hash=hash_password("correct-horse-battery-staple"),
+        wireguard_admin_username="admin",
+        wireguard_admin_password="correct-horse-battery-staple",
         ollama_model="qwen2.5:1.5b",
         project_dir=Path("."),
     )
@@ -379,14 +380,39 @@ def test_render_compose_passes_the_webhook_token_through_to_fastapi() -> None:
     assert "MM_WEBHOOK_TOKEN" in text
 
 
-def test_render_wg_env_contains_bcrypt_hash_and_host() -> None:
+def test_render_wg_env_contains_init_credentials_and_host() -> None:
     config = make_config(host="axion.example.com")
     text = s05.render_wg_env(config)
-    assert "WG_HOST=axion.example.com" in text
-    # El hash va con los `$` escapados como `$$`: Compose interpola los
-    # valores de `env_file:` y sin escapar llega destrozado al contenedor.
-    escaped = config.wireguard_admin_password_hash.get_secret_value().replace("$", "$$")
-    assert f"PASSWORD_HASH={escaped}" in text
+    assert "INIT_HOST=axion.example.com" in text
+    assert "INIT_USERNAME=admin" in text
+    assert f"INIT_PASSWORD={config.wireguard_admin_password.get_secret_value()}" in text
+    # Sin `INIT_ENABLED` el resto de las INIT_* no se aplica y el panel
+    # arranca en su asistente web esperando a que alguien lo rellene.
+    assert "INIT_ENABLED=true" in text
+
+
+def test_render_wg_env_allows_plain_http() -> None:
+    """Sin `INSECURE=true`, wg-easy v15 se niega a servir por HTTP y el panel
+    no responde en absoluto — y su URL se construye siempre con http://."""
+    assert "INSECURE=true" in s05.render_wg_env(make_config())
+
+
+def test_render_wg_env_no_longer_writes_v14_keys() -> None:
+    """`WG_HOST` y `PASSWORD_HASH` son de la v14, que la v15 ignora en
+    silencio. Dejarlos asignados haría creer que configuran algo.
+
+    Se miran solo las líneas de asignación: los comentarios de la plantilla
+    sí nombran las dos claves, precisamente para explicar por qué ya no
+    están.
+    """
+    assignments = [
+        line for line in s05.render_wg_env(make_config()).splitlines()
+        if line and not line.lstrip().startswith("#")
+    ]
+    keys = {line.split("=", 1)[0] for line in assignments if "=" in line}
+    assert "PASSWORD_HASH" not in keys
+    assert "WG_HOST" not in keys
+    assert {"INIT_HOST", "INIT_USERNAME", "INIT_PASSWORD", "INIT_ENABLED"} <= keys
 
 
 def test_render_nginx_conf_uses_host_as_server_name() -> None:
@@ -905,45 +931,45 @@ def test_existing_env_value_survives_a_file_it_cannot_decode(tmp_path: Path) -> 
     assert s05.preserved_env_values(tmp_path) == dict.fromkeys(s05.PRESERVED_ENV_KEYS, "")
 
 
-# --- el hash bcrypt debe sobrevivir a la interpolación de Compose -----------------
+# --- la contraseña del panel debe sobrevivir a la interpolación de Compose --------
 #
-# Regresión de un fallo mudo y confirmado en vivo: `wg.env` contenía
-# `PASSWORD_HASH=$2b$12$GktCd...` y al contenedor le llegaba
+# Regresión de un fallo mudo y confirmado en vivo con wg-easy v14: `wg.env`
+# contenía `PASSWORD_HASH=$2b$12$GktCd...` y al contenedor le llegaba
 # `$2b$12.96FL219a`. Docker Compose SÍ interpola los valores de `env_file:`
 # —al contrario de lo que afirmaba el comentario de la plantilla— y se comía
-# `$GktCd...` como variable indefinida. El panel de wg-easy arrancaba sano y
-# rechazaba cualquier contraseña, sin escribir nada en sus logs.
+# `$GktCd...` como variable indefinida. El panel arrancaba sano y rechazaba
+# cualquier contraseña, sin escribir nada en sus logs.
+#
+# La v15 recibe la contraseña en claro, así que el hash y su escape
+# desaparecieron. El peligro no: cualquier `$` en la contraseña volvería a
+# ser interpolado igual. Lo que lo evita ahora es que `$` esté prohibido en
+# ella, y eso es lo que sostienen estos tests.
 
 
-def test_wg_env_escapes_the_dollars_of_the_bcrypt_hash() -> None:
+def test_the_panel_password_cannot_contain_an_interpolable_dollar() -> None:
+    with pytest.raises(ValueError, match=r"\$"):
+        make_config(wireguard_admin_password="tiene$dolar-y-es-bastante-larga")
+
+
+def test_wg_env_password_survives_a_compose_interpolation_round_trip() -> None:
+    """Lo que Compose entregaría al contenedor es exactamente lo escrito.
+
+    Sin `$` no hay nada que expandir, que es justo la propiedad que la
+    validación de la contraseña garantiza — de ahí que ya no haga falta
+    escapar nada en la plantilla.
+    """
     config = make_config()
-    raw_hash = config.wireguard_admin_password_hash.get_secret_value()
-    text = s05.render_wg_env(config)
-
-    assert raw_hash.startswith("$2b$")
-    assert f"PASSWORD_HASH={raw_hash.replace('$', '$$')}" in text
-    # y no queda ningún `$` suelto que Compose pueda interpretar
-    hash_line = next(line for line in text.splitlines() if line.startswith("PASSWORD_HASH="))
-    assert "$$2b$$12$$" in hash_line
-    assert "$2b$12$" not in hash_line.replace("$$", "")
-
-
-def test_wg_env_escaped_hash_round_trips_to_the_original() -> None:
-    """Deshacer el escape debe devolver exactamente el hash bcrypt: es lo que
-    hará Compose al pasárselo al contenedor."""
-    config = make_config()
-    raw_hash = config.wireguard_admin_password_hash.get_secret_value()
-    hash_line = next(
+    raw = config.wireguard_admin_password.get_secret_value()
+    line = next(
         line
         for line in s05.render_wg_env(config).splitlines()
-        if line.startswith("PASSWORD_HASH=")
+        if line.startswith("INIT_PASSWORD=")
     )
-    escaped = hash_line.split("=", 1)[1]
 
-    assert escaped.replace("$$", "$") == raw_hash
-    assert len(escaped.replace("$$", "$")) == 60
+    assert line.split("=", 1)[1] == raw
+    assert "$" not in raw
 
 
-def test_wg_host_is_not_mangled_by_the_escaping() -> None:
+def test_wg_host_is_not_mangled() -> None:
     text = s05.render_wg_env(make_config(host="192.168.1.50"))
-    assert "WG_HOST=192.168.1.50" in text
+    assert "INIT_HOST=192.168.1.50" in text

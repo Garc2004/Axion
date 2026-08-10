@@ -9,8 +9,10 @@ Dos reglas de la spec se aplican aquí y no en otro sitio:
 
 - La contraseña de PostgreSQL se genera con `secrets.token_hex`, nunca en
   base64: `/`, `+` y `=` rompen la URL `postgres://user:pass@host:port/db`.
-- La del panel de WireGuard se valida *antes* de hashearla, rechazando `$`,
-  backtick y `!` con el motivo escrito en el propio prompt.
+- La del panel de WireGuard rechaza `$`, backtick y `!` con el motivo
+  escrito en el propio prompt, y exige el mínimo de longitud que wg-easy v15
+  impone para dejar entrar. Ya no se hashea: la v15 la quiere en claro en
+  `INIT_PASSWORD` y la hashea ella (ver `templates/wg.env.j2`).
 """
 
 from __future__ import annotations
@@ -37,10 +39,10 @@ ACCESS_MODE_CHOICES = {
     "Dominio propio (Let's Encrypt DNS-01)": AccessMode.DOMAIN,
 }
 
-#: Longitud mínima que se le exige a la contraseña del panel. La spec no fija
-#: una; esta es la del propio wg-easy y evita que el panel quede abierto de
-#: hecho con una contraseña de tres letras.
-MIN_PANEL_PASSWORD_LENGTH = 8
+#: Usuario por defecto del panel, que la v15 exige y la v14 no tenía. Se
+#: ofrece como valor prerrellenado en vez de imponerlo: quien quiera otro solo
+#: tiene que escribirlo encima.
+DEFAULT_PANEL_USERNAME = "admin"
 
 
 class ConfigStep(Step):
@@ -90,6 +92,7 @@ class ConfigStep(Step):
 
         access_mode = self._ask_access_mode(questionary)
         host = self._ask_host(questionary, access_mode)
+        panel_username = self._ask_panel_username(questionary)
         panel_password = self._ask_panel_password(questionary)
         model = self._ask_model(questionary)
 
@@ -101,7 +104,8 @@ class ConfigStep(Step):
                 existing_postgres_password(self.context.project_dir)
                 or secret_utils.generate_hex_secret()
             ),
-            wireguard_admin_password_hash=SecretStr(secret_utils.hash_password(panel_password)),
+            wireguard_admin_username=panel_username,
+            wireguard_admin_password=SecretStr(panel_password),
             ollama_model=model,
             project_dir=self.context.project_dir,
         )
@@ -143,9 +147,20 @@ class ConfigStep(Step):
             raise _cancelled()
         return answer.strip()
 
+    def _ask_panel_username(self, questionary: Any) -> str:
+        answer = questionary.text(
+            "Usuario del panel WireGuard:",
+            default=DEFAULT_PANEL_USERNAME,
+            validate=_panel_username_validator,
+        ).ask()
+        if answer is None:
+            raise _cancelled()
+        return answer.strip()
+
     def _ask_panel_password(self, questionary: Any) -> str:
         console.print(
-            "[axion.dim]La contraseña del panel WireGuard no puede contener "
+            f"[axion.dim]Mínimo {secret_utils.MIN_PANEL_PASSWORD_LENGTH} caracteres "
+            "(es lo que exige wg-easy para dejar entrar), y sin "
             + ", ".join(f"`{char}`" for char in secret_utils.FORBIDDEN_PASSWORD_CHAR_REASONS)
             + ": rompen la interpretación del shell y de los archivos .env.[/]"
         )
@@ -233,9 +248,17 @@ def load_config_from_toml(
 ) -> AxionConfig:
     """Lee un `axion.toml` para el modo `--unattended` (§3).
 
-    La contraseña del panel puede venir en claro (`wireguard_admin_password`,
-    que se hashea aquí) o ya hasheada (`wireguard_admin_password_hash`), para
-    que un archivo de CI no tenga que llevar la contraseña real.
+    La contraseña del panel viene en claro (`wireguard_admin_password`).
+    Antes se admitía además un hash bcrypt ya calculado, para que un archivo
+    de CI no tuviera que llevar la contraseña real; con wg-easy v15 esa
+    alternativa dejó de existir, porque es el propio panel el que hashea y
+    solo acepta `INIT_PASSWORD` en claro. Quien no quiera el valor dentro del
+    TOML tiene que mantenerlo fuera del repositorio, como cualquier otro
+    secreto de despliegue.
+
+    El usuario (`wireguard_admin_username`) es opcional: si falta se usa
+    `DEFAULT_PANEL_USERNAME`, que es lo que el camino interactivo ofrece
+    prerrellenado.
     """
     if not path.exists():
         raise ConfigError(
@@ -253,25 +276,53 @@ def load_config_from_toml(
         ) from exc
 
     password = raw.get("wireguard_admin_password")
-    password_hash = raw.get("wireguard_admin_password_hash")
-    if not password_hash:
-        if not password:
+    if not password:
+        if raw.get("wireguard_admin_password_hash"):
+            # Mensaje propio en vez de "falta la contraseña": quien viene de
+            # una versión anterior tiene la clave puesta y necesita saber que
+            # ya no sirve, no que se la ha dejado.
             raise ConfigError(
-                what="Falta la contraseña del panel WireGuard en el archivo de configuración",
+                what="`wireguard_admin_password_hash` ya no se admite",
                 why=(
-                    "Se necesita `wireguard_admin_password` (en claro, se hashea aquí) "
-                    "o `wireguard_admin_password_hash` (bcrypt ya calculado)."
+                    "Servía para wg-easy v14, que recibía un hash bcrypt. La v15 hashea "
+                    "ella misma y solo acepta la contraseña en claro."
                 ),
-                steps=["Añadir una de las dos claves al TOML."],
+                steps=[
+                    "Sustituirla por `wireguard_admin_password` con la contraseña real.",
+                    "Mantener el axion.toml fuera del control de versiones.",
+                ],
             )
-        try:
-            password_hash = secret_utils.hash_password(str(password))
-        except secret_utils.WeakPasswordError as exc:
-            raise ConfigError(
-                what="La contraseña del panel WireGuard contiene un carácter prohibido",
-                why=str(exc),
-                steps=["Elegir otra contraseña sin `$`, backtick ni `!`."],
-            ) from exc
+        raise ConfigError(
+            what="Falta la contraseña del panel WireGuard en el archivo de configuración",
+            why="Se necesita `wireguard_admin_password` para configurar wg-easy.",
+            steps=["Añadir `wireguard_admin_password` al TOML."],
+        )
+
+    # Las credenciales se validan aquí además de en el modelo. `AxionConfig`
+    # las rechazaría igual, pero envuelto en un `ValidationError` de Pydantic
+    # que sale como "la configuración de axion.toml no es válida": correcto y
+    # poco útil. Este camino no tiene a nadie delante para releer el prompt,
+    # así que el motivo tiene que estar en el título del error.
+    try:
+        secret_utils.validate_wireguard_username(
+            str(raw.get("wireguard_admin_username") or DEFAULT_PANEL_USERNAME)
+        )
+        secret_utils.validate_wireguard_password(str(password))
+    except secret_utils.InvalidEnvValueError as exc:
+        raise ConfigError(
+            what="Las credenciales del panel WireGuard tienen un carácter prohibido",
+            why=str(exc),
+            steps=["Elegir otro valor sin `$`, comilla invertida ni `!`."],
+        ) from exc
+    except secret_utils.ShortCredentialError as exc:
+        raise ConfigError(
+            what="Las credenciales del panel WireGuard son demasiado cortas",
+            why=str(exc),
+            steps=[
+                f"Usar una contraseña de al menos {secret_utils.MIN_PANEL_PASSWORD_LENGTH} "
+                "caracteres en `wireguard_admin_password`.",
+            ],
+        ) from exc
 
     try:
         return AxionConfig(
@@ -285,7 +336,10 @@ def load_config_from_toml(
                     or secret_utils.generate_hex_secret()
                 )
             ),
-            wireguard_admin_password_hash=SecretStr(str(password_hash)),
+            wireguard_admin_username=str(
+                raw.get("wireguard_admin_username") or DEFAULT_PANEL_USERNAME
+            ),
+            wireguard_admin_password=SecretStr(str(password)),
             ollama_model=str(raw.get("ollama_model", "")),
             project_dir=project_dir,
         )
@@ -329,24 +383,26 @@ def load_config_from_artifacts(project_dir: Path) -> AxionConfig:
         host_from_site_url,
     )
 
-    host = env_value(project_dir, "WG_HOST", filename="wg.env") or host_from_site_url(
+    host = env_value(project_dir, "INIT_HOST", filename="wg.env") or host_from_site_url(
         env_value(project_dir, "MM_SITEURL") or ""
     )
     password = env_value(project_dir, "POSTGRES_PASSWORD")
-    password_hash = env_value(project_dir, "PASSWORD_HASH", filename="wg.env")
+    panel_username = env_value(project_dir, "INIT_USERNAME", filename="wg.env")
+    panel_password = env_value(project_dir, "INIT_PASSWORD", filename="wg.env")
     model = env_value(project_dir, "OLLAMA_MODEL")
 
     missing = [
         name
         for name, value in (
-            ("WG_HOST/MM_SITEURL", host),
+            ("INIT_HOST/MM_SITEURL", host),
             ("POSTGRES_PASSWORD", password),
-            ("PASSWORD_HASH", password_hash),
+            ("INIT_USERNAME", panel_username),
+            ("INIT_PASSWORD", panel_password),
             ("OLLAMA_MODEL", model),
         )
         if not value
     ]
-    if missing or not (host and password and password_hash and model):
+    if missing or not (host and password and panel_username and panel_password and model):
         # La segunda mitad de la condición es redundante en tiempo de
         # ejecución, pero es lo que permite al type checker estrechar los
         # `str | None` que devuelve `dotenv_values` para el resto de la
@@ -372,7 +428,8 @@ def load_config_from_artifacts(project_dir: Path) -> AxionConfig:
         host=host,
         wireguard_variant=WireguardVariant(variant),
         postgres_password=SecretStr(password),
-        wireguard_admin_password_hash=SecretStr(password_hash),
+        wireguard_admin_username=panel_username,
+        wireguard_admin_password=SecretStr(panel_password),
         ollama_model=model,
         project_dir=project_dir,
     )
@@ -407,7 +464,9 @@ def render_summary(config: AxionConfig, warnings: list[str] | None = None) -> Pa
     table.add_row("Modelo de IA", config.ollama_model)
     masked = f"[axion.secret]{secret_utils.MASK}[/]"
     table.add_row("Contraseña PostgreSQL", f"{masked} (generada, 64 hex)")
-    table.add_row("Panel WireGuard", f"{masked} (hash bcrypt)")
+    table.add_row(
+        "Panel WireGuard", f"{config.wireguard_admin_username} / {masked}"
+    )
     table.add_row("Directorio", str(config.project_dir))
 
     if warnings:
@@ -477,12 +536,24 @@ def _non_empty_validator(value: str) -> bool | str:
 
 def _panel_password_validator(value: str) -> bool | str:
     """Valida en vivo, dentro del prompt, para que el motivo se lea junto al
-    campo y no como un error después de haberla escrito dos veces."""
-    if len(value) < MIN_PANEL_PASSWORD_LENGTH:
-        return f"Mínimo {MIN_PANEL_PASSWORD_LENGTH} caracteres."
+    campo y no como un error después de haberla escrito dos veces.
+
+    El mínimo de longitud no es cosmético: `INIT_PASSWORD` no lo valida, así
+    que una contraseña corta crea la cuenta igual y solo falla *después*, al
+    intentar entrar, con un 400 que desde fuera parece "contraseña
+    incorrecta". Aquí todavía se puede corregir.
+    """
     try:
         secret_utils.validate_wireguard_password(value)
-    except secret_utils.WeakPasswordError as exc:
+    except (secret_utils.WeakPasswordError, secret_utils.ShortCredentialError) as exc:
+        return str(exc)
+    return True
+
+
+def _panel_username_validator(value: str) -> bool | str:
+    try:
+        secret_utils.validate_wireguard_username(value.strip())
+    except (secret_utils.InvalidEnvValueError, secret_utils.ShortCredentialError) as exc:
         return str(exc)
     return True
 

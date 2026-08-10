@@ -144,7 +144,8 @@ async def test_a_valid_form_builds_the_config_and_starts(tmp_path: Path, mocker)
     assert config.host == "192.168.1.50"
     assert config.ollama_model == "qwen2.5:1.5b"
     # La contraseña nunca se guarda en claro: solo su hash bcrypt (§9).
-    assert config.wireguard_admin_password_hash.get_secret_value().startswith("$2b$")
+    assert config.wireguard_admin_username == "admin"
+    assert config.wireguard_admin_password.get_secret_value() == "contrasena-buena"
     assert config.postgres_password.get_secret_value() != "contrasena-buena"
 
 
@@ -449,7 +450,8 @@ async def test_tui_closing_summary_comes_from_the_shared_renderer(
         host="192.168.1.50",
         wireguard_variant=WireguardVariant.PORTS,
         postgres_password=SecretStr("a" * 64),
-        wireguard_admin_password_hash=SecretStr("$2b$12$" + "b" * 53),
+        wireguard_admin_username="admin",
+        wireguard_admin_password=SecretStr("correct-horse-battery-staple"),
         ollama_model="qwen2.5:3b",
         project_dir=tmp_path,
     )

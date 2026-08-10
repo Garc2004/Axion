@@ -129,6 +129,40 @@ def detect_wireguard_variant_from_compose(compose_path: Path) -> str:
     return WireguardVariant.PORTS.value
 
 
+def wg_easy_major_in_compose(compose_path: Path) -> int | None:
+    """Major version of the wg-easy image pinned in an existing compose file.
+
+    `None` when there is no compose file, no wireguard service, or the tag
+    cannot be parsed — all of which mean "nothing to migrate from".
+
+    Read *before* the compose file is regenerated, because afterwards the
+    only record of which wg-easy wrote the data volume is gone. Same reason
+    `resolve_compose_project_name` reads the old `name:` first.
+    """
+    from axion_wizard.domain.images import parse_wg_easy_major_version, split_image_tag
+
+    if not compose_path.exists():
+        return None
+    yaml = YAML(typ="safe")
+    try:
+        data = yaml.load(compose_path.read_text(encoding="utf-8")) or {}
+    except (YAMLError, OSError, UnicodeDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    services = data.get("services")
+    if not isinstance(services, dict):
+        return None
+    service = services.get(WIREGUARD_SERVICE)
+    if not isinstance(service, dict):
+        return None
+    image = service.get("image")
+    if not isinstance(image, str):
+        return None
+    _repo, tag = split_image_tag(image)
+    return parse_wg_easy_major_version(tag) if tag else None
+
+
 def discover_deployment(project_dir: Path) -> DeploymentFacts:
     """Rebuild host/model/variant by reading `docker-compose.yml`, `.env` and
     `wg.env` from `project_dir` — without this, `doctor` could not run against
@@ -145,13 +179,19 @@ def discover_deployment(project_dir: Path) -> DeploymentFacts:
             ],
         )
 
-    host = env_value(project_dir, "WG_HOST", filename="wg.env") or host_from_site_url(
-        env_value(project_dir, "MM_SITEURL") or ""
+    # `INIT_HOST` is wg-easy v15's name for it; `WG_HOST` was v14's. Both are
+    # accepted so that `doctor` can still diagnose a deployment written by an
+    # older wizard — which is exactly when a diagnosis is most useful, since
+    # that deployment is the one that needs migrating.
+    host = (
+        env_value(project_dir, "INIT_HOST", filename="wg.env")
+        or env_value(project_dir, "WG_HOST", filename="wg.env")
+        or host_from_site_url(env_value(project_dir, "MM_SITEURL") or "")
     )
     if not host:
         raise ConfigError(
             what="Could not determine the access host",
-            why="Neither wg.env (WG_HOST) nor .env (MM_SITEURL) holds a usable value.",
+            why="Neither wg.env (INIT_HOST/WG_HOST) nor .env (MM_SITEURL) holds a usable value.",
             steps=["Check that .env and wg.env are not corrupt or empty."],
         )
 

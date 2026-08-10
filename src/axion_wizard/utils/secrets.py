@@ -5,17 +5,21 @@ Reglas no negociables de la spec:
 - La contraseña de PostgreSQL es hex, nunca base64: `/`, `+` y `=` rompen la
   URL de conexión `postgres://user:pass@host:port/db`.
 - La contraseña del panel WireGuard rechaza `$`, backtick y `!` antes de
-  aceptarse, y se hashea con bcrypt en Python (nunca invocando el contenedor).
+  aceptarse.
 - Los secretos nunca se imprimen en consola ni en logs, ni siquiera con
   `--verbose`: usar `mask_secret()` en cualquier punto de salida.
+
+Aquí ya no se hashea nada. wg-easy v14 quería un hash bcrypt en
+`PASSWORD_HASH`; la v15 quiere la contraseña en claro en `INIT_PASSWORD` y la
+hashea ella al arrancar. El `$` sigue prohibido por el mismo motivo de
+siempre —Docker Compose interpola los valores de `env_file:`— pero ahora
+protege a la contraseña misma en vez de a su hash.
 """
 
 from __future__ import annotations
 
 import re
 import secrets
-
-import bcrypt
 
 MASK = "****"
 
@@ -46,6 +50,30 @@ class WeakPasswordError(InvalidEnvValueError):
         super().__init__(char, label="la contraseña")
 
 
+class ShortCredentialError(ValueError):
+    """Una credencial del panel es más corta de lo que wg-easy v15 acepta."""
+
+    def __init__(self, label: str, minimum: int, actual: int) -> None:
+        self.minimum = minimum
+        self.actual = actual
+        super().__init__(
+            f"{label} necesita al menos {minimum} caracteres (tiene {actual}): "
+            "wg-easy v15 rechaza el formulario de login por debajo de ese "
+            "mínimo, así que la cuenta quedaría creada y sin poder entrar"
+        )
+
+
+#: Mínimos que wg-easy v15 impone con zod sobre `UserLoginSchema`. No son
+#: una política nuestra: son los que valida el propio panel al recibir el
+#: login. Si `INIT_PASSWORD` queda por debajo, el contenedor crea la cuenta
+#: igual —`INIT_*` no valida longitud— pero después ningún login pasa la
+#: validación, y el panel devuelve un 400 que desde fuera parece
+#: "contraseña incorrecta". Se comprueba aquí, en el prompt, para que el
+#: fallo llegue mientras aún se puede corregir.
+MIN_PANEL_PASSWORD_LENGTH = 12
+MIN_PANEL_USERNAME_LENGTH = 2
+
+
 def generate_hex_secret(nbytes: int = 32) -> str:
     """Secreto hexadecimal seguro para URLs de conexión y variables `.env`.
 
@@ -56,12 +84,32 @@ def generate_hex_secret(nbytes: int = 32) -> str:
 
 
 def validate_wireguard_password(password: str) -> None:
-    """Lanza `WeakPasswordError` con el motivo si `password` contiene un
-    carácter prohibido. No valida longitud ni complejidad — solo lo que
-    rompería el panel de wg-easy o el propio shell del wizard."""
+    """Valida la contraseña del panel: caracteres y longitud mínima.
+
+    Los caracteres prohibidos protegen la interpolación del `.env`; la
+    longitud es la que wg-easy v15 exige para dejar entrar (ver
+    `MIN_PANEL_PASSWORD_LENGTH`). No se valida complejidad: eso ya no lo
+    mira nadie más abajo, y una regla que solo aplica el wizard no protege
+    de nada que el panel no acepte igual.
+    """
     for char in password:
         if char in FORBIDDEN_PASSWORD_CHAR_REASONS:
             raise WeakPasswordError(char)
+    if len(password) < MIN_PANEL_PASSWORD_LENGTH:
+        raise ShortCredentialError(
+            "la contraseña del panel", MIN_PANEL_PASSWORD_LENGTH, len(password)
+        )
+
+
+def validate_wireguard_username(username: str) -> None:
+    """Valida el usuario del panel, que la v15 introdujo y la v14 no tenía."""
+    for char in username:
+        if char in FORBIDDEN_PASSWORD_CHAR_REASONS:
+            raise InvalidEnvValueError(char, label="el usuario del panel")
+    if len(username) < MIN_PANEL_USERNAME_LENGTH:
+        raise ShortCredentialError(
+            "el usuario del panel", MIN_PANEL_USERNAME_LENGTH, len(username)
+        )
 
 
 def validate_env_value(value: str, *, label: str = "el valor") -> None:
@@ -72,20 +120,6 @@ def validate_env_value(value: str, *, label: str = "el valor") -> None:
     for char in value:
         if char in FORBIDDEN_PASSWORD_CHAR_REASONS:
             raise InvalidEnvValueError(char, label=label)
-
-
-def hash_password(password: str) -> str:
-    """Hash bcrypt generado en Python, nunca invocando el contenedor de wg-easy.
-
-    Valida contra `validate_wireguard_password` primero: un hash de una
-    contraseña inválida sería una falsa sensación de seguridad.
-    """
-    validate_wireguard_password(password)
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("ascii")
-
-
-def verify_password(password: str, hashed: str) -> bool:
-    return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("ascii"))
 
 
 def mask_secret(value: str) -> str:

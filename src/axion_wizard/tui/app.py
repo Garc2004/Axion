@@ -38,7 +38,7 @@ from axion_wizard.domain.config import AccessMode, AxionConfig, WireguardVariant
 from axion_wizard.errors import AxionError
 from axion_wizard.render import ui
 from axion_wizard.steps.context import InstallContext
-from axion_wizard.steps.s03_config import existing_postgres_password
+from axion_wizard.steps.s03_config import DEFAULT_PANEL_USERNAME, existing_postgres_password
 from axion_wizard.utils import secrets as secret_utils
 
 if TYPE_CHECKING:
@@ -138,9 +138,12 @@ class ConfigScreen(Screen):
 
             yield Static("2 · Seguridad", classes="section-title")
             with Vertical(classes="section"):
+                yield Label("Usuario del panel WireGuard")
+                yield Input(value=DEFAULT_PANEL_USERNAME, id="panel_username")
                 yield Label("Contraseña del panel WireGuard")
                 yield Static(
-                    "No puede contener "
+                    f"Mínimo {secret_utils.MIN_PANEL_PASSWORD_LENGTH} caracteres "
+                    "(lo que wg-easy exige para dejar entrar), y sin "
                     + ", ".join(f"`{c}`" for c in secret_utils.FORBIDDEN_PASSWORD_CHAR_REASONS)
                     + ": rompen el shell y los archivos .env.",
                     classes="hint",
@@ -219,6 +222,7 @@ class ConfigScreen(Screen):
 
     def _build_config(self) -> AxionConfig:
         host = self.query_one("#host", Input).value.strip()
+        username = self.query_one("#panel_username", Input).value.strip()
         password = self.query_one("#panel_password", Input).value
         repeated = self.query_one("#panel_password_repeat", Input).value
         model = self.query_one("#model", Input).value.strip()
@@ -229,12 +233,17 @@ class ConfigScreen(Screen):
             raise ValueError("Indica el modelo de Ollama a usar.")
         if password != repeated:
             raise ValueError("Las contraseñas no coinciden.")
+        # Las mismas reglas que el prompt de la CLI, y por el mismo motivo:
+        # `INIT_PASSWORD` no valida longitud, así que una contraseña corta
+        # crea la cuenta del panel igual y solo falla después, al entrar.
         try:
+            secret_utils.validate_wireguard_username(username)
             secret_utils.validate_wireguard_password(password)
-        except secret_utils.WeakPasswordError as exc:
+        except (
+            secret_utils.InvalidEnvValueError,
+            secret_utils.ShortCredentialError,
+        ) as exc:
             raise ValueError(str(exc)) from exc
-        if len(password) < 8:
-            raise ValueError("La contraseña del panel debe tener al menos 8 caracteres.")
 
         access_mode = AccessMode(str(self.query_one("#access_mode", Select).value))
         variant = self.app.detected_variant  # type: ignore[attr-defined]
@@ -256,7 +265,8 @@ class ConfigScreen(Screen):
                     existing_postgres_password(self._state.project_dir)
                     or secret_utils.generate_hex_secret()
                 ),
-                wireguard_admin_password_hash=SecretStr(secret_utils.hash_password(password)),
+                wireguard_admin_username=username,
+                wireguard_admin_password=SecretStr(password),
                 ollama_model=model,
                 project_dir=self._state.project_dir,
             )

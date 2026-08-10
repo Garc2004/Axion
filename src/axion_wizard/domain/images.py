@@ -1,14 +1,20 @@
 """Tags de imagen Docker fijadas — nunca `latest` (§6.4).
 
 No son configurables por el usuario: si lo fueran, un `axion.toml` con
-`wireguard_image: ...:latest` reintroduciría exactamente el problema que
-esta tabla existe para evitar (wg-easy `latest` apunta a v15, que ignora
-`WG_HOST`, `PASSWORD_HASH`, `WG_DEFAULT_ADDRESS` y `WG_DEFAULT_DNS`).
+`wireguard_image: ...:latest` dejaría al wizard configurando un wg-easy que
+no es el que sabe configurar, y ese fallo es mudo — el panel arranca, y
+simplemente ninguna credencial entra nunca.
+
+Esa tag fijada apunta ahora a wg-easy **v15**. La v14 se configuraba con
+`WG_HOST`/`PASSWORD_HASH`; la v15 es una reescritura completa que los ignora
+y se configura con variables `INIT_*` (ver `templates/wg.env.j2`). El
+guardián de abajo se mantiene, invertido: antes rechazaba v15, ahora rechaza
+cualquier cosa que no lo sea.
 """
 
 from __future__ import annotations
 
-WIREGUARD_IMAGE = "ghcr.io/wg-easy/wg-easy:14"
+WIREGUARD_IMAGE = "ghcr.io/wg-easy/wg-easy:15.3.0"
 MATTERMOST_IMAGE = "mattermost/mattermost-team-edition:10.5.1"
 POSTGRES_IMAGE = "postgres:15.13-alpine"
 NGINX_IMAGE = "nginx:1.27-alpine"
@@ -44,11 +50,17 @@ def ollama_image_for(gpu_acceleration: str) -> str:
 
     return OLLAMA_ROCM_IMAGE if gpu_acceleration == GPU_ACCELERATION_ROCM else OLLAMA_IMAGE
 
-#: prefijo de wg-easy cuyo major version 15+ reescribió la configuración por
-#: variables de entorno; ver `assert_wg_easy_tag_is_safe`.
+#: Repositorio de wg-easy y el rango de major versions que este wizard sabe
+#: configurar; ver `assert_wg_easy_tag_is_safe`.
+#:
+#: v14 y v15 no comparten *nada* de su configuración: la v14 leía
+#: `WG_HOST`/`PASSWORD_HASH` (bcrypt) y la v15 usa `INIT_*` con la contraseña
+#: en claro, usuario incluido, y solo en el primer arranque. Aceptar las dos
+#: significaría mantener dos clientes de API y dos plantillas de `wg.env`
+#: para un panel que el usuario ve una vez; se fija una sola.
 WG_EASY_REPOSITORY = "ghcr.io/wg-easy/wg-easy"
-WG_EASY_MIN_SAFE_MAJOR = 14
-WG_EASY_MAX_SAFE_MAJOR = 14
+WG_EASY_MIN_SAFE_MAJOR = 15
+WG_EASY_MAX_SAFE_MAJOR = 15
 
 
 class UnpinnedImageError(ValueError):
@@ -56,7 +68,7 @@ class UnpinnedImageError(ValueError):
 
 
 class UnsafeWgEasyTagError(ValueError):
-    """La tag efectiva de wg-easy no es la v14 que este wizard sabe configurar."""
+    """La tag efectiva de wg-easy no es la v15 que este wizard sabe configurar."""
 
 
 def split_image_tag(image: str) -> tuple[str, str | None]:
@@ -96,21 +108,33 @@ def parse_wg_easy_major_version(tag: str) -> int | None:
 def assert_wg_easy_tag_is_safe(effective_tag: str) -> None:
     """Verifica la tag *efectiva* del contenedor wg-easy ya desplegado.
 
-    v15 es una reescritura completa que ignora `WG_HOST`, `PASSWORD_HASH`,
-    `WG_DEFAULT_ADDRESS` y `WG_DEFAULT_DNS` (se configura por asistente web o
-    variables `INIT_*`), rompiendo el flujo entero de forma no obvia.
+    Cada major version de wg-easy se configura de una forma incompatible con
+    la anterior, y equivocarse no da error: el panel arranca, responde, y lo
+    único que pasa es que las credenciales que el wizard configuró no sirven
+    —o, en una v14, que la API a la que llama no existe—. De ahí que se
+    compruebe la tag del contenedor en marcha y no solo la escrita en el
+    `docker-compose.yml`, que cualquiera puede haber editado a mano.
     """
     if effective_tag == "latest":
         raise UnsafeWgEasyTagError(
-            "wg-easy está corriendo con la tag 'latest', que en la práctica apunta a v15+"
+            "wg-easy está corriendo con la tag 'latest': lo que apunte hoy puede "
+            "dejar de ser la v15 sin previo aviso"
         )
     major = parse_wg_easy_major_version(effective_tag)
     if major is None:
         raise UnsafeWgEasyTagError(
             f"no se pudo determinar el major version de la tag {effective_tag!r}"
         )
-    if not (WG_EASY_MIN_SAFE_MAJOR <= major <= WG_EASY_MAX_SAFE_MAJOR):
+    if major < WG_EASY_MIN_SAFE_MAJOR:
         raise UnsafeWgEasyTagError(
-            f"wg-easy {effective_tag} (v{major}) no es la v14 que este wizard sabe configurar "
-            f"(WG_HOST/PASSWORD_HASH/WG_DEFAULT_ADDRESS/WG_DEFAULT_DNS dejarían de aplicarse)"
+            f"wg-easy {effective_tag} (v{major}) es anterior a la v15 que este wizard "
+            "configura: la v14 espera WG_HOST/PASSWORD_HASH y expone otra API "
+            "(/api/wireguard/client), así que ni las credenciales ni el alta de "
+            "clientes funcionarían"
+        )
+    if major > WG_EASY_MAX_SAFE_MAJOR:
+        raise UnsafeWgEasyTagError(
+            f"wg-easy {effective_tag} (v{major}) es posterior a la v15 que este wizard "
+            "configura: cada major cambia su configuración por completo, y el fallo "
+            "sería mudo — el panel arranca y ninguna credencial entra"
         )

@@ -63,13 +63,24 @@ def test_parse_wg_easy_major_version_unparseable() -> None:
     assert images.parse_wg_easy_major_version("edge") is None
 
 
-def test_assert_wg_easy_tag_is_safe_accepts_v14() -> None:
-    images.assert_wg_easy_tag_is_safe("14")  # no debe lanzar
+@pytest.mark.parametrize("tag", ["15", "15.3", "15.3.0", "v15.3.0"])
+def test_assert_wg_easy_tag_is_safe_accepts_v15(tag: str) -> None:
+    images.assert_wg_easy_tag_is_safe(tag)  # no debe lanzar
 
 
-def test_assert_wg_easy_tag_is_safe_rejects_v15() -> None:
-    with pytest.raises(images.UnsafeWgEasyTagError, match="v15"):
-        images.assert_wg_easy_tag_is_safe("15")
+def test_assert_wg_easy_tag_is_safe_rejects_v14() -> None:
+    """La v14 espera `WG_HOST`/`PASSWORD_HASH` y expone `/api/wireguard/client`.
+    Contra ella, ni las credenciales que escribe el wizard ni el alta de
+    clientes funcionan — y ninguna de las dos cosas da error visible."""
+    with pytest.raises(images.UnsafeWgEasyTagError, match="v14"):
+        images.assert_wg_easy_tag_is_safe("14")
+
+
+def test_assert_wg_easy_tag_is_safe_rejects_a_future_major() -> None:
+    """Cada major cambia la configuración por completo; no se da por bueno
+    uno que este wizard no ha visto."""
+    with pytest.raises(images.UnsafeWgEasyTagError, match="v16"):
+        images.assert_wg_easy_tag_is_safe("16.0.0")
 
 
 def test_assert_wg_easy_tag_is_safe_rejects_latest() -> None:

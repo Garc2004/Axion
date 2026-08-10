@@ -31,8 +31,8 @@ def run_compose_up(state: GlobalState, service: str | None = None) -> None:
 
     # §6.4 exige comprobar la tag *efectiva* del contenedor, no solo la que
     # quedó escrita en el compose: quien edite el archivo a mano puede acabar
-    # corriendo wg-easy v15, que ignora WG_HOST/PASSWORD_HASH en silencio y
-    # deja el panel inutilizable sin un solo error en los logs.
+    # corriendo otro major de wg-easy, que se configura de forma
+    # incompatible y deja el panel inutilizable sin un solo error en los logs.
     if WIREGUARD_SERVICE in services:
         s06_deploy.verify_wg_easy_tag(compose_path)
 

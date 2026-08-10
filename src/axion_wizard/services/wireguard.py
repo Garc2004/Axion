@@ -1,11 +1,24 @@
 """Panel wg-easy: espera, autenticación, creación de cliente y QR (§4.8).
 
-**Nota de implementación:** el contrato REST de wg-easy v14 (`/api/session`,
-`/api/wireguard/client`) no está versionado ni documentado formalmente por
-el proyecto — este módulo lo sigue de la mejor forma posible y valida la
-forma de cada respuesta antes de usarla, en vez de asumir campos a ciegas,
-para fallar con un `NetworkError`/`DeploymentError` accionable si el panel
-responde de una forma inesperada.
+**Nota de implementación:** el contrato REST de wg-easy no está versionado ni
+documentado formalmente por el proyecto — este módulo lo sigue de la mejor
+forma posible y valida la forma de cada respuesta antes de usarla, en vez de
+asumir campos a ciegas, para fallar con un `NetworkError`/`DeploymentError`
+accionable si el panel responde de una forma inesperada.
+
+Está escrito contra la **v15** (verificado sobre la etiqueta `v15.3.0`), que
+cambió el contrato entero respecto a la v14:
+
+    v14                                  v15
+    POST /api/session {password}         POST /api/session {username, password, remember}
+    GET  /api/wireguard/client           GET  /api/client
+    POST /api/wireguard/client           POST /api/client  -> devuelve el clientId
+    GET  /api/wireguard/client/<id>/…    GET  /api/client/<id>/configuration
+
+El cambio más útil es el último: la v14 respondía `{"success": true}` sin el
+objeto creado, así que había que listar antes y después y comparar ids para
+averiguar cuál era el nuevo. La v15 devuelve `clientId` directamente y todo
+ese baile desapareció.
 """
 
 from __future__ import annotations
@@ -26,14 +39,19 @@ DEFAULT_READY_TIMEOUT = 60.0
 DEFAULT_HTTP_TIMEOUT = 10.0
 
 PANEL_HTTPS_WARNING = (
-    "El panel de WireGuard (wg-easy v14) sirve HTTP puro, no HTTPS. "
+    "El panel de WireGuard sirve HTTP puro, no HTTPS (arranca con INSECURE=true). "
     "Abrirlo con https:// da ERR_SSL_PROTOCOL_ERROR — usar siempre http://."
 )
 
 
 def build_panel_url(host: str, port: int = DEFAULT_PANEL_PORT) -> str:
-    """wg-easy v14 sirve HTTP puro: construir siempre con `http://` explícito
-    (§4.8) — nunca `https://`, aunque el resto del stack use TLS."""
+    """El panel sirve HTTP puro: construir siempre con `http://` explícito
+    (§4.8) — nunca `https://`, aunque el resto del stack use TLS.
+
+    En la v15 esto es además una consecuencia declarada: el `wg.env` que
+    genera el wizard pone `INSECURE=true`, sin lo cual el panel directamente
+    se niega a responder por HTTP.
+    """
     return f"http://{host}:{port}"
 
 
@@ -120,15 +138,38 @@ class WireguardPanelClient:
                 ],
             ) from exc
 
-    async def login(self, password: str) -> None:
+    async def login(self, username: str, password: str) -> None:
+        """Autentica contra el panel v15.
+
+        Tres detalles del contrato que no se pueden omitir:
+
+        - `username` es obligatorio. La v14 no tenía usuarios.
+        - `remember` también, aunque parezca opcional: su esquema zod lo
+          declara `z.boolean()` sin `.optional()`, así que omitirlo devuelve
+          un 400 de validación que no menciona el campo que falta.
+        - Un 200 **no** significa que se haya entrado. Con 2FA activo el
+          panel responde 200 con `{"status": "TOTP_REQUIRED"}` y sin sesión;
+          darlo por bueno dejaba al wizard llamando a `/api/client` sin
+          autenticar y fallando después con un 401 que parecía otra cosa.
+        """
         response = await self._send(
-            self._client.post, "/api/session", json={"password": password}
+            self._client.post,
+            "/api/session",
+            json={"username": username, "password": password, "remember": False},
         )
         if response.status_code == 401:
             raise DeploymentError(
-                what="El panel de WireGuard rechazó la contraseña",
-                why="La contraseña no coincide con el hash configurado en wg.env (PASSWORD_HASH).",
-                steps=["Verificar la contraseña del panel introducida en el paso 3."],
+                what="El panel de WireGuard rechazó las credenciales",
+                why=(
+                    f"El usuario {username!r} y su contraseña no coinciden con los que "
+                    "wg-easy tiene guardados."
+                ),
+                steps=[
+                    "Verificar el usuario y la contraseña del panel del paso 3 "
+                    "(INIT_USERNAME / INIT_PASSWORD en wg.env).",
+                    "Recordar que INIT_* solo se aplica en el primer arranque: si el "
+                    "volumen ya existía, valen las credenciales de entonces.",
+                ],
             )
         if response.status_code >= 400:
             raise DeploymentError(
@@ -137,14 +178,44 @@ class WireguardPanelClient:
                 steps=["Revisar los logs del contenedor wireguard."],
             )
 
-    async def list_clients(self) -> list[dict[str, Any]]:
-        """Todos los clientes ya dados de alta en el panel.
+        status = self._json_status(response)
+        if status == "TOTP_REQUIRED":
+            raise DeploymentError(
+                what="El panel de WireGuard pide un segundo factor",
+                why=(
+                    "La cuenta del panel tiene 2FA activo, y el wizard no tiene de "
+                    "dónde sacar el código."
+                ),
+                steps=[
+                    f"Crear el cliente desde el panel: {self.base_url}",
+                    "O desactivar temporalmente el 2FA de esa cuenta y reintentar.",
+                ],
+            )
+        if status == "INVALID_TOTP_CODE":
+            raise DeploymentError(
+                what="El panel de WireGuard rechazó el segundo factor",
+                why="wg-easy respondió INVALID_TOTP_CODE al autenticar.",
+                steps=[f"Crear el cliente desde el panel: {self.base_url}"],
+            )
 
-        Es lo único que permite saber el `id` que le tocó a un cliente
-        recién creado (ver `create_client`): wg-easy v14 nunca devuelve el
-        objeto creado, así que hay que volver a listar y comparar.
+    @staticmethod
+    def _json_status(response: httpx.Response) -> str | None:
+        """El campo `status` de una respuesta del panel, si lo trae.
+
+        Un cuerpo que no sea JSON no es motivo para abortar: solo significa
+        que no hay estado que interpretar.
         """
-        response = await self._send(self._client.get, "/api/wireguard/client")
+        try:
+            data = response.json()
+        except ValueError:
+            return None
+        if isinstance(data, dict) and isinstance(data.get("status"), str):
+            return data["status"]
+        return None
+
+    async def list_clients(self) -> list[dict[str, Any]]:
+        """Todos los clientes ya dados de alta en el panel."""
+        response = await self._send(self._client.get, "/api/client")
         if response.status_code >= 400:
             raise DeploymentError(
                 what="No se pudo listar los clientes del panel de WireGuard",
@@ -174,25 +245,14 @@ class WireguardPanelClient:
     async def create_client(self, name: str) -> str:
         """Crea un cliente y devuelve su id.
 
-        wg-easy v14 responde `{"success": true}` a `POST
-        /api/wireguard/client` — nunca el cliente creado, aunque su capa de
-        servicio interna sí lo construye: la ruta del servidor descarta ese
-        valor de vuelta (confirmado en su código fuente). El propio frontend
-        oficial de wg-easy hace exactamente lo mismo que aquí: ignora esa
-        respuesta y vuelve a listar para encontrar el nuevo.
-
-        Comparar por *nombre* no sirve: wg-easy no exige nombres únicos, solo
-        que no esté vacío, así que dos clientes pueden compartir nombre y
-        sería ambiguo cuál es el nuevo. Se compara el listado de ids antes y
-        después en su lugar.
+        La v15 responde `{"success": true, "clientId": ...}`, así que el id
+        sale de la propia respuesta. La v14 no lo devolvía —solo
+        `{"success": true}`— y obligaba a listar antes y después y comparar
+        ids para deducir cuál era el nuevo, con la ambigüedad extra de que
+        wg-easy nunca ha exigido nombres únicos. Ese rodeo entero
+        desapareció con el cambio de versión.
         """
-        before = {
-            entry["id"] for entry in await self.list_clients() if isinstance(entry.get("id"), str)
-        }
-
-        response = await self._send(
-            self._client.post, "/api/wireguard/client", json={"name": name}
-        )
+        response = await self._send(self._client.post, "/api/client", json={"name": name})
         if response.status_code >= 400:
             raise DeploymentError(
                 what=f"El panel de WireGuard no pudo crear el cliente '{name}'",
@@ -200,22 +260,16 @@ class WireguardPanelClient:
                 steps=["Revisar los logs del contenedor wireguard."],
             )
 
-        after = await self.list_clients()
-        new_entries = [
-            entry
-            for entry in after
-            if isinstance(entry.get("id"), str) and entry["id"] not in before
-        ]
-        client_id = _pick_new_client_id(new_entries, name)
+        client_id = _client_id_from_creation(response)
         if client_id is None:
             raise DeploymentError(
-                what="No se pudo identificar el cliente recién creado en el panel",
+                what="El panel no devolvió el id del cliente recién creado",
                 why=(
-                    f"El listado de clientes no cambió de forma reconocible al crear '{name}' "
-                    f"({len(before)} antes, {len(after)} después)."
+                    f"Se esperaba `clientId` en la respuesta a la creación de '{name}'; "
+                    f"llegó: {response.text.strip()[:200] or '(cuerpo vacío)'}"
                 ),
                 steps=[
-                    f"Comprobar en el panel si '{name}' se creó igual, en http://<host>:51821.",
+                    f"Comprobar en el panel si '{name}' se creó igual, en {self.base_url}",
                     "Reportar este error — el contrato de la API de wg-easy pudo haber cambiado.",
                 ],
             )
@@ -223,7 +277,7 @@ class WireguardPanelClient:
 
     async def get_client_configuration(self, client_id: str) -> str:
         response = await self._send(
-            self._client.get, f"/api/wireguard/client/{client_id}/configuration"
+            self._client.get, f"/api/client/{client_id}/configuration"
         )
         if response.status_code >= 400:
             raise DeploymentError(
@@ -234,24 +288,26 @@ class WireguardPanelClient:
         return response.text
 
 
-def _pick_new_client_id(new_entries: list[dict[str, Any]], name: str) -> str | None:
-    """Cuál de los clientes que aparecieron tras la creación es el que se
-    acaba de pedir.
+def _client_id_from_creation(response: httpx.Response) -> str | None:
+    """El `clientId` de la respuesta a `POST /api/client`, si viene.
 
-    El caso normal es uno solo. Si hay más de uno —otra alta concurrente
-    contra el mismo panel, por ejemplo—, se prioriza el que coincide en
-    nombre y, si aun así hay varios (wg-easy no exige nombres únicos), el
-    más reciente por `createdAt`.
+    Se acepta un id numérico además de una cadena: el esquema del panel lo
+    declara como el identificador de la fila, y confiar en que siempre
+    llegue serializado como texto es exactamente el tipo de suposición que
+    este módulo evita en el resto de respuestas.
     """
-    if not new_entries:
+    try:
+        data = response.json()
+    except ValueError:
         return None
-    if len(new_entries) == 1:
-        return str(new_entries[0]["id"])
-
-    matching_name = [entry for entry in new_entries if entry.get("name") == name]
-    candidates = matching_name or new_entries
-    candidates.sort(key=lambda entry: str(entry.get("createdAt") or ""), reverse=True)
-    return str(candidates[0]["id"])
+    if not isinstance(data, dict):
+        return None
+    client_id = data.get("clientId")
+    if isinstance(client_id, str) and client_id:
+        return client_id
+    if isinstance(client_id, int):
+        return str(client_id)
+    return None
 
 
 def render_qr_terminal(data: str) -> str:

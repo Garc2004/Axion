@@ -57,16 +57,43 @@ def test_weak_password_error_is_an_invalid_env_value_error() -> None:
     assert issubclass(sec.WeakPasswordError, sec.InvalidEnvValueError)
 
 
-def test_hash_password_rejects_forbidden_chars_before_hashing() -> None:
+# --- credenciales del panel: longitud minima (wg-easy v15) ------------------
+#
+# El wizard ya no hashea nada: la v15 recibe la contrasena en claro y la
+# hashea ella. Lo que si valida aqui es la longitud, porque `INIT_PASSWORD`
+# no la valida: una contrasena corta crea la cuenta igual y solo falla
+# despues, al entrar, con un 400 que parece "contrasena incorrecta".
+
+
+def test_password_below_the_minimum_is_rejected() -> None:
+    with pytest.raises(sec.ShortCredentialError):
+        sec.validate_wireguard_password("a" * (sec.MIN_PANEL_PASSWORD_LENGTH - 1))
+
+
+def test_password_at_the_minimum_is_accepted() -> None:
+    sec.validate_wireguard_password("a" * sec.MIN_PANEL_PASSWORD_LENGTH)  # no debe lanzar
+
+
+def test_forbidden_chars_are_checked_before_length() -> None:
+    """Una contrasena larga con un caracter prohibido sigue fallando por el
+    caracter, que es el motivo accionable."""
     with pytest.raises(sec.WeakPasswordError):
-        sec.hash_password("bad`password")
+        sec.validate_wireguard_password("bad`password-pero-larga")
 
 
-def test_hash_password_produces_verifiable_bcrypt_hash() -> None:
-    hashed = sec.hash_password("correct-horse-battery-staple-42")
-    assert hashed.startswith("$2")
-    assert sec.verify_password("correct-horse-battery-staple-42", hashed) is True
-    assert sec.verify_password("wrong-password", hashed) is False
+def test_username_below_the_minimum_is_rejected() -> None:
+    with pytest.raises(sec.ShortCredentialError):
+        sec.validate_wireguard_username("a" * (sec.MIN_PANEL_USERNAME_LENGTH - 1))
+
+
+def test_username_at_the_minimum_is_accepted() -> None:
+    sec.validate_wireguard_username("a" * sec.MIN_PANEL_USERNAME_LENGTH)  # no debe lanzar
+
+
+def test_short_credential_error_names_the_minimum() -> None:
+    """El mensaje llega al prompt tal cual; sin el numero no es accionable."""
+    with pytest.raises(sec.ShortCredentialError, match=str(sec.MIN_PANEL_PASSWORD_LENGTH)):
+        sec.validate_wireguard_password("corta")
 
 
 def test_mask_secret_never_leaks_original_value() -> None:
