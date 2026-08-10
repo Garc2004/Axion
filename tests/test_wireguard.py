@@ -77,34 +77,79 @@ def test_wait_for_panel_ready_raises_network_error_on_timeout(mocker) -> None:
         )
 
 
-# --- _extract_client_id ----------------------------------------------------------
+# --- _pick_new_client_id ----------------------------------------------------------
 
 
-def test_extract_client_id_top_level() -> None:
-    response = httpx.Response(200, json={"id": "abc-123"})
-    assert wg._extract_client_id(response, "my-phone") == "abc-123"
+def test_pick_new_client_id_single_candidate() -> None:
+    assert wg._pick_new_client_id([{"id": "abc", "name": "my-phone"}], "my-phone") == "abc"
 
 
-def test_extract_client_id_nested_client() -> None:
-    response = httpx.Response(200, json={"client": {"id": "nested-id"}})
-    assert wg._extract_client_id(response, "my-phone") == "nested-id"
+def test_pick_new_client_id_no_candidates_returns_none() -> None:
+    assert wg._pick_new_client_id([], "my-phone") is None
 
 
-def test_extract_client_id_clients_list_matching_name() -> None:
-    response = httpx.Response(
-        200, json={"clients": [{"name": "other", "id": "1"}, {"name": "my-phone", "id": "2"}]}
+def test_pick_new_client_id_multiple_candidates_prefers_matching_name() -> None:
+    """Concurrencia real: otra alta contra el mismo panel entre el listado
+    de "antes" y el de "después"."""
+    candidates = [
+        {"id": "other", "name": "otro-dispositivo", "createdAt": "2026-01-01T00:00:00.000Z"},
+        {"id": "wanted", "name": "my-phone", "createdAt": "2026-01-01T00:00:01.000Z"},
+    ]
+    assert wg._pick_new_client_id(candidates, "my-phone") == "wanted"
+
+
+def test_pick_new_client_id_ties_on_name_prefer_newest() -> None:
+    """wg-easy no exige nombres únicos (§ investigación de fuente real):
+    dos clientes nuevos pueden compartir nombre, y ahí gana el más reciente."""
+    candidates = [
+        {"id": "older", "name": "my-phone", "createdAt": "2026-01-01T00:00:00.000Z"},
+        {"id": "newer", "name": "my-phone", "createdAt": "2026-01-01T00:00:01.000Z"},
+    ]
+    assert wg._pick_new_client_id(candidates, "my-phone") == "newer"
+
+
+# --- WireguardPanelClient.list_clients ---------------------------------------------
+
+
+def test_list_clients_returns_bare_array(mocker) -> None:
+    """wg-easy v14 responde un array JSON suelto, sin envolver (confirmado
+    contra su código fuente), a diferencia de otros endpoints del panel."""
+    mock_inner = _inner_client(
+        mocker,
+        get=mocker.AsyncMock(
+            return_value=httpx.Response(200, json=[{"id": "abc", "name": "my-phone"}])
+        ),
     )
-    assert wg._extract_client_id(response, "my-phone") == "2"
+    panel = _client_with_mocked_httpx(mocker, mock_inner)
+    clients = asyncio.run(panel.list_clients())
+    assert clients == [{"id": "abc", "name": "my-phone"}]
 
 
-def test_extract_client_id_unrecognized_shape_returns_none() -> None:
-    response = httpx.Response(200, json={"unexpected": True})
-    assert wg._extract_client_id(response, "my-phone") is None
+def test_list_clients_rejects_a_non_array_body(mocker) -> None:
+    mock_inner = _inner_client(
+        mocker, get=mocker.AsyncMock(return_value=httpx.Response(200, json={"clients": []}))
+    )
+    panel = _client_with_mocked_httpx(mocker, mock_inner)
+    with pytest.raises(DeploymentError, match="forma esperada"):
+        asyncio.run(panel.list_clients())
 
 
-def test_extract_client_id_non_json_body_returns_none() -> None:
-    response = httpx.Response(200, text="not json")
-    assert wg._extract_client_id(response, "my-phone") is None
+def test_list_clients_rejects_non_json_body(mocker) -> None:
+    mock_inner = _inner_client(
+        mocker, get=mocker.AsyncMock(return_value=httpx.Response(200, text="not json"))
+    )
+    panel = _client_with_mocked_httpx(mocker, mock_inner)
+    with pytest.raises(DeploymentError, match="JSON válido"):
+        asyncio.run(panel.list_clients())
+
+
+def test_list_clients_http_error_raises_deployment_error(mocker) -> None:
+    mock_inner = _inner_client(
+        mocker, get=mocker.AsyncMock(return_value=httpx.Response(500, text="boom"))
+    )
+    panel = _client_with_mocked_httpx(mocker, mock_inner)
+    with pytest.raises(DeploymentError, match="No se pudo listar"):
+        asyncio.run(panel.list_clients())
 
 
 # --- WireguardPanelClient.login ---------------------------------------------------
@@ -159,29 +204,73 @@ def test_login_connection_error_raises_network_error(mocker) -> None:
 
 
 def test_create_client_success(mocker) -> None:
+    """wg-easy v14 responde `{"success": true}` a la creación, nunca el
+    cliente creado (confirmado contra su código fuente real) — el id sale
+    de comparar el listado de antes y de después, no de la respuesta del
+    POST."""
     mock_inner = _inner_client(
-        mocker, post=mocker.AsyncMock(return_value=httpx.Response(200, json={"id": "abc"}))
+        mocker,
+        get=mocker.AsyncMock(
+            side_effect=[
+                httpx.Response(200, json=[]),
+                httpx.Response(200, json=[{"id": "abc", "name": "my-phone"}]),
+            ]
+        ),
+        post=mocker.AsyncMock(return_value=httpx.Response(200, json={"success": True})),
     )
     panel = _client_with_mocked_httpx(mocker, mock_inner)
     client_id = asyncio.run(panel.create_client("my-phone"))
     assert client_id == "abc"
 
 
+def test_create_client_only_considers_ids_absent_from_the_before_listing(mocker) -> None:
+    """Un cliente que ya existía antes de esta alta no debe confundirse con
+    el nuevo, aunque siga apareciendo en el listado de después."""
+    mock_inner = _inner_client(
+        mocker,
+        get=mocker.AsyncMock(
+            side_effect=[
+                httpx.Response(200, json=[{"id": "ya-existia", "name": "otro"}]),
+                httpx.Response(
+                    200,
+                    json=[
+                        {"id": "ya-existia", "name": "otro"},
+                        {"id": "nuevo", "name": "my-phone"},
+                    ],
+                ),
+            ]
+        ),
+        post=mocker.AsyncMock(return_value=httpx.Response(200, json={"success": True})),
+    )
+    panel = _client_with_mocked_httpx(mocker, mock_inner)
+    assert asyncio.run(panel.create_client("my-phone")) == "nuevo"
+
+
 def test_create_client_http_error_raises_deployment_error(mocker) -> None:
     mock_inner = _inner_client(
-        mocker, post=mocker.AsyncMock(return_value=httpx.Response(400, text="bad name"))
+        mocker,
+        get=mocker.AsyncMock(return_value=httpx.Response(200, json=[])),
+        post=mocker.AsyncMock(return_value=httpx.Response(400, text="bad name")),
     )
     panel = _client_with_mocked_httpx(mocker, mock_inner)
     with pytest.raises(DeploymentError, match="no pudo crear"):
         asyncio.run(panel.create_client("my-phone"))
 
 
-def test_create_client_unrecognized_response_raises_deployment_error(mocker) -> None:
+def test_create_client_when_the_listing_shows_no_new_client_raises_deployment_error(
+    mocker,
+) -> None:
+    """Defensivo: si tras un POST que devolvió éxito el listado no cambia,
+    algo no encaja con lo que la API documenta — mejor fallar accionable
+    que devolver un id equivocado."""
+    same_listing = httpx.Response(200, json=[{"id": "sin-cambios", "name": "otro"}])
     mock_inner = _inner_client(
-        mocker, post=mocker.AsyncMock(return_value=httpx.Response(200, json={"weird": True}))
+        mocker,
+        get=mocker.AsyncMock(side_effect=[same_listing, same_listing]),
+        post=mocker.AsyncMock(return_value=httpx.Response(200, json={"success": True})),
     )
     panel = _client_with_mocked_httpx(mocker, mock_inner)
-    with pytest.raises(DeploymentError, match="id reconocible"):
+    with pytest.raises(DeploymentError, match="No se pudo identificar"):
         asyncio.run(panel.create_client("my-phone"))
 
 
@@ -209,7 +298,9 @@ def test_create_client_connection_error_raises_network_error(mocker) -> None:
     salir como NetworkError accionable, no como un httpx.ConnectError crudo
     convertido en 'Error inesperado'."""
     mock_inner = _inner_client(
-        mocker, post=mocker.AsyncMock(side_effect=httpx.ConnectError("refused"))
+        mocker,
+        get=mocker.AsyncMock(return_value=httpx.Response(200, json=[])),
+        post=mocker.AsyncMock(side_effect=httpx.ConnectError("refused")),
     )
     panel = _client_with_mocked_httpx(mocker, mock_inner)
     with pytest.raises(NetworkError, match="No se pudo contactar"):

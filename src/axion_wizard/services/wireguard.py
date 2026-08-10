@@ -137,10 +137,59 @@ class WireguardPanelClient:
                 steps=["Revisar los logs del contenedor wireguard."],
             )
 
+    async def list_clients(self) -> list[dict[str, Any]]:
+        """Todos los clientes ya dados de alta en el panel.
+
+        Es lo único que permite saber el `id` que le tocó a un cliente
+        recién creado (ver `create_client`): wg-easy v14 nunca devuelve el
+        objeto creado, así que hay que volver a listar y comparar.
+        """
+        response = await self._send(self._client.get, "/api/wireguard/client")
+        if response.status_code >= 400:
+            raise DeploymentError(
+                what="No se pudo listar los clientes del panel de WireGuard",
+                why=response.text.strip()[:500] or f"HTTP {response.status_code}",
+                steps=["Revisar los logs del contenedor wireguard."],
+            )
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise DeploymentError(
+                what="La lista de clientes del panel no es JSON válido",
+                why=response.text.strip()[:500],
+                steps=[
+                    "Reportar este error — el contrato de la API de wg-easy pudo haber cambiado."
+                ],
+            ) from exc
+        if not isinstance(data, list):
+            raise DeploymentError(
+                what="La lista de clientes del panel no tiene la forma esperada",
+                why=f"Se esperaba un array JSON; llegó {type(data).__name__}.",
+                steps=[
+                    "Reportar este error — el contrato de la API de wg-easy pudo haber cambiado."
+                ],
+            )
+        return [entry for entry in data if isinstance(entry, dict)]
+
     async def create_client(self, name: str) -> str:
-        """Crea un cliente y devuelve su id. Valida la forma de la respuesta
-        en vez de asumir un campo concreto, porque el contrato de wg-easy no
-        está formalmente documentado."""
+        """Crea un cliente y devuelve su id.
+
+        wg-easy v14 responde `{"success": true}` a `POST
+        /api/wireguard/client` — nunca el cliente creado, aunque su capa de
+        servicio interna sí lo construye: la ruta del servidor descarta ese
+        valor de vuelta (confirmado en su código fuente). El propio frontend
+        oficial de wg-easy hace exactamente lo mismo que aquí: ignora esa
+        respuesta y vuelve a listar para encontrar el nuevo.
+
+        Comparar por *nombre* no sirve: wg-easy no exige nombres únicos, solo
+        que no esté vacío, así que dos clientes pueden compartir nombre y
+        sería ambiguo cuál es el nuevo. Se compara el listado de ids antes y
+        después en su lugar.
+        """
+        before = {
+            entry["id"] for entry in await self.list_clients() if isinstance(entry.get("id"), str)
+        }
+
         response = await self._send(
             self._client.post, "/api/wireguard/client", json={"name": name}
         )
@@ -150,13 +199,24 @@ class WireguardPanelClient:
                 why=response.text.strip()[:500] or f"HTTP {response.status_code}",
                 steps=["Revisar los logs del contenedor wireguard."],
             )
-        client_id = _extract_client_id(response, name)
+
+        after = await self.list_clients()
+        new_entries = [
+            entry
+            for entry in after
+            if isinstance(entry.get("id"), str) and entry["id"] not in before
+        ]
+        client_id = _pick_new_client_id(new_entries, name)
         if client_id is None:
             raise DeploymentError(
-                what="La respuesta del panel al crear el cliente no trae un id reconocible",
-                why=f"Cuerpo recibido: {response.text.strip()[:500]}",
+                what="No se pudo identificar el cliente recién creado en el panel",
+                why=(
+                    f"El listado de clientes no cambió de forma reconocible al crear '{name}' "
+                    f"({len(before)} antes, {len(after)} después)."
+                ),
                 steps=[
-                    "Reportar este error — el contrato de la API de wg-easy pudo haber cambiado."
+                    f"Comprobar en el panel si '{name}' se creó igual, en http://<host>:51821.",
+                    "Reportar este error — el contrato de la API de wg-easy pudo haber cambiado.",
                 ],
             )
         return client_id
@@ -174,24 +234,24 @@ class WireguardPanelClient:
         return response.text
 
 
-def _extract_client_id(response: httpx.Response, name: str) -> str | None:
-    try:
-        data = response.json()
-    except ValueError:
-        return None
+def _pick_new_client_id(new_entries: list[dict[str, Any]], name: str) -> str | None:
+    """Cuál de los clientes que aparecieron tras la creación es el que se
+    acaba de pedir.
 
-    if isinstance(data, dict):
-        if isinstance(data.get("id"), str):
-            return data["id"]
-        client = data.get("client")
-        if isinstance(client, dict) and isinstance(client.get("id"), str):
-            return client["id"]
-        clients = data.get("clients")
-        if isinstance(clients, list):
-            for entry in clients:
-                if isinstance(entry, dict) and entry.get("name") == name and entry.get("id"):
-                    return str(entry["id"])
-    return None
+    El caso normal es uno solo. Si hay más de uno —otra alta concurrente
+    contra el mismo panel, por ejemplo—, se prioriza el que coincide en
+    nombre y, si aun así hay varios (wg-easy no exige nombres únicos), el
+    más reciente por `createdAt`.
+    """
+    if not new_entries:
+        return None
+    if len(new_entries) == 1:
+        return str(new_entries[0]["id"])
+
+    matching_name = [entry for entry in new_entries if entry.get("name") == name]
+    candidates = matching_name or new_entries
+    candidates.sort(key=lambda entry: str(entry.get("createdAt") or ""), reverse=True)
+    return str(candidates[0]["id"])
 
 
 def render_qr_terminal(data: str) -> str:

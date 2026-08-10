@@ -273,6 +273,35 @@ Si algún día se retoma, la nota queda aquí.
 
 ---
 
+## 6.e Bugfix v0.2.1 — el alta de cliente WireGuard fallaba siempre
+
+Al probar el paso 8 en una instalación real: `POST /api/wireguard/client`
+devolvió `{"success":true}` y `_extract_client_id` no encontró ningún campo
+reconocible — error de despliegue, instalación cortada ahí.
+
+No era un cambio de contrato, como decía el mensaje de error: es como wg-easy
+v14 se comportó **siempre**. Se verificó contra el código fuente real del
+proyecto (`github.com/wg-easy/wg-easy`, rama/tag v14): la ruta del servidor
+construye el cliente completo por dentro y **descarta el valor de vuelta**,
+devolviendo solo `{"success":true}`. El propio frontend oficial de wg-easy
+hace lo mismo que la corrección: ignora esa respuesta y vuelve a listar. Dato
+importante que cambia el diseño: wg-easy **no exige nombres de cliente
+únicos**, así que comparar por nombre habría sido ambiguo.
+
+Arreglado en `services/wireguard.py`: `create_client` ahora lista los
+clientes antes de crear, crea, vuelve a listar, y toma el `id` que aparece
+en la segunda lista y no en la primera (`_pick_new_client_id`, con
+desempate por nombre y luego por `createdAt` para el caso de alta
+concurrente). `_extract_client_id` —código muerto ahora— se borró. 30 tests
+en `test_wireguard.py`, reescritos donde hacía falta.
+
+**Sin verificar en vivo por quien escribe esto**: no hay contraseña en claro
+del panel a mano, solo el hash bcrypt — sin ella no hay forma de loguearse
+contra la API real para probarlo de punta a punta. Queda pendiente confirmar
+en la próxima ejecución real de `axion-wizard install` (retoma en el paso 8).
+
+---
+
 ## 7. Pendientes
 
 1. **Crear el bot en Mattermost.** El *paso* 9 (§6.d) ya se detiene a pedir el
