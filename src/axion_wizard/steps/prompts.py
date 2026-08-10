@@ -1,11 +1,11 @@
-"""Guardas para los pasos que preguntan algo.
+"""Guards for the steps that ask something.
 
-Sin una terminal real, `questionary` no falla con algo que se pueda leer:
-en Windows lanza `NoConsoleScreenBufferError("No Windows console found. Are
-you running cmd.exe?")`, y en POSIX se queda esperando o devuelve `None` a
-mitad del flujo. Ninguna de las dos cosas le dice al usuario qué hacer, y la
-primera acababa saliendo por el manejador genérico como
-`Error inesperado: ...`, que es exactamente lo que §8 prohíbe.
+Without a real terminal, `questionary` does not fail in any readable way: on
+Windows it raises `NoConsoleScreenBufferError("No Windows console found. Are
+you running cmd.exe?")`, and on POSIX it either waits forever or returns
+`None` halfway through the flow. Neither tells the user what to do, and the
+first used to surface through the generic handler as `Unexpected error: …`,
+which is exactly what §8 forbids.
 """
 
 from __future__ import annotations
@@ -16,15 +16,15 @@ from axion_wizard.errors import ConfigError
 
 
 def interactive_input_available() -> bool:
-    """`True` si hay una terminal al otro lado a la que preguntar.
+    """`True` if there is a terminal on the other end to ask.
 
-    Se exigen **stdin y stdout** a la vez. Podría parecer que basta con
-    stdin, porque lo que se quiere es leer una respuesta, pero questionary
-    va sobre prompt_toolkit, que *dibuja* el prompt: en Windows necesita un
-    búfer de pantalla de consola real y, si la salida está redirigida,
-    revienta con `NoConsoleScreenBufferError` aunque stdin siga siendo una
-    TTY. Comprobar solo stdin dejaba pasar `axion-wizard install > log.txt`
-    y el flujo moría a mitad del paso 2.
+    **Both stdin and stdout** are required. It might look as though stdin
+    alone would do, since the point is to read an answer, but questionary
+    sits on prompt_toolkit, which *draws* the prompt: on Windows it needs a
+    real console screen buffer and, if output is redirected, it blows up with
+    `NoConsoleScreenBufferError` even while stdin is still a TTY. Checking
+    only stdin let `axion-wizard install > log.txt` through, and the flow died
+    halfway through step 2.
     """
     for stream in (sys.stdin, sys.stdout):
         try:
@@ -36,17 +36,17 @@ def interactive_input_available() -> bool:
 
 
 def require_interactive_input(what: str) -> None:
-    """Lanza `ConfigError` accionable si no se puede preguntar nada."""
+    """Raise an actionable `ConfigError` if nothing can be asked."""
     if interactive_input_available():
         return
     raise ConfigError(
-        what=f"{what} necesita una terminal interactiva",
+        what=f"{what} needs an interactive terminal",
         why=(
-            "La entrada o la salida no son una terminal (tubería, redirección o CI), "
-            "así que no se puede dibujar el prompt ni leer la respuesta."
+            "Input or output is not a terminal (a pipe, a redirection, or CI), so the "
+            "prompt cannot be drawn and the answer cannot be read."
         ),
         steps=[
-            "Ejecutarlo directamente en una terminal, sin tuberías ni redirecciones.",
-            "O sin prompts: axion-wizard install --unattended --config axion.toml",
+            "Run it directly in a terminal, with no pipes or redirections.",
+            "Or without prompts: axion-wizard install --unattended --config axion.toml",
         ],
     )

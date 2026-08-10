@@ -23,9 +23,9 @@ if TYPE_CHECKING:
 
 
 def run_doctor(state: GlobalState) -> None:
-    """Re-valida un stack ya desplegado sin modificarlo (§4.9). Reconstruye
-    host/modelo/variante leyendo los artefactos en `--project-dir`, no
-    depende de una corrida previa de `install` en esta misma sesión."""
+    """Re-validate an already-deployed stack without modifying it (§4.9). It
+    rebuilds host/model/variant by reading the artifacts in `--project-dir`,
+    so it does not depend on an `install` having run in this same session."""
     from axion_wizard.domain.deployment import discover_deployment
     from axion_wizard.steps.s09_verify import (
         all_checks_passed,
@@ -42,51 +42,51 @@ def run_doctor(state: GlobalState) -> None:
 
 
 def run_network_check(state: GlobalState) -> None:
-    """Solo las verificaciones de red de §4.2."""
+    """Just the network checks from §4.2."""
     from axion_wizard.detect import network as net
 
-    table = ui.make_table("Verificaciones de red")
-    table.add_column("Comprobación", style="axion.label")
-    table.add_column("Resultado")
-    table.add_column("Detalle", overflow="fold")
+    table = ui.make_table("Network checks")
+    table.add_column("Check", style="axion.label")
+    table.add_column("Result")
+    table.add_column("Detail", overflow="fold")
 
     iface = net.get_primary_interface()
     if iface is not None:
-        table.add_row("Interfaz principal", ui.ok(), f"{iface.name} — {iface.ip}")
+        table.add_row("Primary interface", ui.ok(), f"{iface.name} — {iface.ip}")
     else:
-        table.add_row("Interfaz principal", ui.fail(), "sin interfaz con IP de LAN")
+        table.add_row("Primary interface", ui.fail(), "no interface with a LAN IP")
 
     for port_status in net.check_ports_psutil():
-        label = f"Puerto {port_status.port}/{port_status.protocol}"
+        label = f"Port {port_status.port}/{port_status.protocol}"
         if port_status.free:
-            table.add_row(label, ui.ok("LIBRE"), "")
+            table.add_row(label, ui.ok("FREE"), "")
         else:
-            table.add_row(label, ui.warn("OCUPADO"), port_status.used_by or "")
+            table.add_row(label, ui.warn("IN USE"), port_status.used_by or "")
 
     public_ip = asyncio.run(net.get_public_ipv4())
     table.add_row(
-        "IP pública (IPv4)",
-        ui.status(bool(public_ip), fail_label="DESCONOCIDA"),
-        public_ip or "no se pudo determinar",
+        "Public IP (IPv4)",
+        ui.status(bool(public_ip), fail_label="UNKNOWN"),
+        public_ip or "could not be determined",
     )
 
     for target, reachable in asyncio.run(net.check_connectivity()).items():
         table.add_row(
-            f"Conectividad {target}",
+            f"Connectivity to {target}",
             ui.status(reachable),
-            "" if reachable else "inalcanzable — el pull de imágenes/modelos fallará",
+            "" if reachable else "unreachable — pulling images/models will fail",
         )
 
     console.print(table)
     console.print(
-        "[axion.dim]CGNAT: comparar la IP pública de arriba con la WAN del router "
-        "(§4.2). Si no coinciden, el port forwarding no funcionará.[/]"
+        "[axion.dim]CGNAT: compare the public IP above with the router's WAN address "
+        "(§4.2). If they differ, port forwarding will never work.[/]"
     )
 
 
 
 def run_gen_cert(state: GlobalState, host: str) -> None:
-    """Genera el certificado TLS y verifica su SAN leyéndolo de vuelta (§4.4)."""
+    """Generate the TLS certificate and verify its SAN by reading it back (§4.4)."""
     from axion_wizard.services import certs
 
     cert_dir = state.project_dir / CERT_RELATIVE_DIR
@@ -94,35 +94,36 @@ def run_gen_cert(state: GlobalState, host: str) -> None:
     key_path = cert_dir / "cert.key"
 
     if state.dry_run:
-        announce_dry_run(f"generaría {cert_path} y {key_path} con SAN para {host!r}")
+        announce_dry_run(f"would generate {cert_path} and {key_path} with a SAN for {host!r}")
         return
 
     result = certs.generate_certificate(host, cert_path, key_path)
-    # Releer del propio archivo, no confiar en lo que acabamos de construir.
+    # Read it back from the file itself; do not trust what we just built.
     san_entries = certs.verify_certificate_has_san(result.cert_path)
 
-    console.print(f"[axion.ok]Certificado generado:[/] {result.cert_path}")
-    console.print(f"[axion.ok]Clave privada:[/] {result.key_path} (permisos restringidos)")
-    console.print(f"[axion.info]SAN verificado:[/] {', '.join(san_entries)}")
+    console.print(f"[axion.ok]Certificate generated:[/] {result.cert_path}")
+    console.print(f"[axion.ok]Private key:[/] {result.key_path} (permissions restricted)")
+    console.print(f"[axion.info]SAN verified:[/] {', '.join(san_entries)}")
 
     _reload_nginx_certs(state)
 
 
 
 def _reload_nginx_certs(state: GlobalState) -> None:
-    """Hace que nginx relea el certificado recién generado.
+    """Make nginx re-read the freshly generated certificate.
 
-    `nginx/certs` entra por bind mount, así que el archivo nuevo ya está
-    dentro del contenedor — pero nginx cargó el anterior en memoria al
-    arrancar y lo seguirá sirviendo indefinidamente. Sin esto, `gen-cert`
-    terminaba en verde y el navegador seguía viendo el certificado viejo, sin
-    nada que explicara por qué.
+    `nginx/certs` comes in through a bind mount, so the new file is already
+    inside the container — but nginx loaded the previous one into memory at
+    startup and will keep serving it indefinitely. Without this, `gen-cert`
+    finished green while the browser went on seeing the old certificate, with
+    nothing to explain why.
     """
     from axion_wizard.services import compose
 
-    # La ruta se arma a mano en vez de con `_compose_path`: generar el
-    # certificado antes de que exista un stack es legítimo —se usará al
-    # desplegar—, así que aquí la ausencia del compose no es un error.
+    # The path is assembled by hand rather than via `compose_path_of`:
+    # generating the certificate before a stack exists is legitimate — it
+    # will be used when deploying — so a missing compose file is not an error
+    # here.
     compose_path = state.project_dir / COMPOSE_FILENAME
     if not compose_path.exists():
         return
@@ -132,9 +133,9 @@ def _reload_nginx_certs(state: GlobalState) -> None:
         return
 
     if compose.restart(compose_path, NGINX_SERVICE).ok:
-        console.print("[axion.ok]nginx reiniciado:[/] ya sirve el certificado nuevo.")
+        console.print("[axion.ok]nginx restarted:[/] it now serves the new certificate.")
     else:
         console.print(
-            "[axion.warn]No se pudo reiniciar nginx[/], que seguirá sirviendo el "
-            "certificado anterior. Aplícalo con: axion-wizard up nginx"
+            "[axion.warn]Could not restart nginx[/], so it will keep serving the "
+            "previous certificate. Apply it with: axion-wizard up nginx"
         )

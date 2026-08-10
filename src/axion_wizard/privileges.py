@@ -1,19 +1,19 @@
-"""Detección y solicitud de privilegios elevados.
+"""Detecting and requesting elevated privileges.
 
-El wizard toca cosas que requieren elevación según la plataforma:
-`sysctl`/`ufw` y la red de WireGuard en Linux, y en Windows el firewall,
-`netsh portproxy` y ciertas operaciones de Docker Desktop.
+The wizard touches things that require elevation depending on the platform:
+`sysctl`/`ufw` and WireGuard's networking on Linux, and on Windows the
+firewall, `netsh portproxy` and certain Docker Desktop operations.
 
-Matiz respecto a §9 de la spec, que pide elevar *solo* en los puntos que lo
-requieren: aquí se soporta además elevar el proceso entero de entrada,
-porque pedir UAC a mitad de una instalación no es viable en Windows (no se
-puede elevar un proceso ya arrancado; habría que relanzarlo igualmente y
-perder el progreso interactivo). Lo que sí se conserva del principio es que
-nunca se eleva en silencio: `explain_elevation_reason()` dice por qué antes
-de pedirlo, y `--no-elevate` permite rechazarlo.
+A nuance against §9 of the spec, which asks for elevation *only* at the
+points that require it: elevating the whole process up front is supported
+here too, because asking for UAC halfway through an install is not viable on
+Windows (an already-running process cannot be elevated; it would have to be
+relaunched anyway, losing the interactive progress). What is kept from the
+principle is that elevation is never silent: `explain_elevation_reason()`
+says why before asking, and `--no-elevate` allows refusing.
 
-Contrapartida a tener presente: corriendo elevado, los archivos que el
-wizard escribe quedan a nombre de root/Administrador.
+A trade-off worth remembering: running elevated, the files the wizard writes
+end up owned by root/Administrator.
 """
 
 from __future__ import annotations
@@ -26,28 +26,29 @@ import sys
 from collections.abc import Sequence
 
 ELEVATION_REASONS: tuple[str, ...] = (
-    "aplicar `sysctl` de reenvío IP para WireGuard (Linux)",
-    "abrir puertos en el firewall (`ufw` en Linux, Defender en Windows)",
-    "publicar el servicio en la LAN (`netsh portproxy` bajo WSL2)",
+    "apply the IP forwarding `sysctl` for WireGuard (Linux)",
+    "open firewall ports (`ufw` on Linux, Defender on Windows)",
+    "publish the service on the LAN (`netsh portproxy` under WSL2)",
 )
 
-# --- Constantes de la API de Windows ------------------------------------------
+# --- Windows API constants ----------------------------------------------------
 
-#: `ShellExecuteExW` devuelve el handle del proceso en vez de cerrarlo, para
-#: poder esperarlo.
+#: `ShellExecuteExW` returns the process handle rather than closing it, so it
+#: can be waited on.
 SEE_MASK_NOCLOSEPROCESS = 0x00000040
-#: Sin esto, `ShellExecuteExW` procesa mensajes de ventana mientras arranca el
-#: hijo; en un proceso de consola sin bomba de mensajes eso puede colgar.
+#: Without this, `ShellExecuteExW` pumps window messages while starting the
+#: child; in a console process with no message pump that can hang.
 SEE_MASK_NOASYNC = 0x00000100
 SW_SHOWNORMAL = 1
 WAIT_OBJECT_0 = 0x00000000
 INFINITE = 0xFFFFFFFF
-#: `GetLastError()` tras un `ShellExecuteExW` que el usuario canceló en UAC.
+#: `GetLastError()` after a `ShellExecuteExW` the user cancelled at the UAC
+#: prompt.
 ERROR_CANCELLED = 1223
 
 
 class ElevationError(RuntimeError):
-    """No se pudo obtener o comprobar la elevación de privilegios."""
+    """Privilege elevation could not be obtained or checked."""
 
 
 def is_windows() -> bool:
@@ -55,19 +56,19 @@ def is_windows() -> bool:
 
 
 def is_elevated() -> bool:
-    """`True` si el proceso corre como Administrador (Windows) o root (POSIX).
+    """`True` if the process runs as Administrator (Windows) or root (POSIX).
 
-    Nunca lanza: si no se puede determinar, se asume "sin elevar", que es la
-    respuesta conservadora — como mucho se ofrecerá elevar de más, nunca se
-    dará por elevado un proceso que no lo está.
+    Never raises: if it cannot be determined, "not elevated" is assumed, which
+    is the conservative answer — at worst elevation is offered unnecessarily,
+    never is a process that is not elevated taken to be.
     """
     if is_windows():
         try:
             return bool(ctypes.windll.shell32.IsUserAnAdmin())  # type: ignore[attr-defined]
         except (AttributeError, OSError):
             return False
-    # `os.geteuid` no existe en Windows, de ahí el getattr: en esa rama ya se
-    # ha devuelto arriba, pero el type checker analiza el módulo entero.
+    # `os.geteuid` does not exist on Windows, hence the getattr: that branch
+    # already returned above, but the type checker analyses the whole module.
     geteuid = getattr(os, "geteuid", None)
     if geteuid is None:
         return False
@@ -75,31 +76,31 @@ def is_elevated() -> bool:
 
 
 def running_as_frozen_binary() -> bool:
-    """`True` dentro de un bundle de PyInstaller (§7)."""
+    """`True` inside a PyInstaller bundle (§7)."""
     return bool(getattr(sys, "frozen", False))
 
 
-#: Opciones que `ensure_elevated` reinyecta ya resueltas y que, por tanto,
-#: hay que quitar de los argumentos originales para no pasarlas dos veces.
+#: Options `ensure_elevated` re-injects already resolved, and which therefore
+#: have to be stripped from the original arguments so they are not passed
+#: twice.
 OVERRIDDEN_OPTIONS: tuple[str, ...] = ("--project-dir",)
 
 
 def strip_overridden_options(
     args: Sequence[str], options: Sequence[str] = OVERRIDDEN_OPTIONS
 ) -> list[str]:
-    """Quita `options` (y sus valores) de `args`.
+    """Strip `options` (and their values) from `args`.
 
-    Sin esto, relanzar elevado pasaba `--project-dir` **dos veces**: la ruta
-    absoluta que calcula `ensure_elevated` y, detrás, la que el usuario
-    escribió en la línea de comandos original. Click se queda con la
-    *última* aparición de una opción no repetible, así que ganaba la del
-    usuario — y si era relativa (`--project-dir ./axion`) el hijo la resolvía
-    contra su propio directorio de trabajo, desplegando el stack en
-    `<proyecto>/axion` en vez de en `<proyecto>`. Justo el fallo que pasar la
-    ruta absoluta pretendía evitar.
+    Without this, relaunching elevated passed `--project-dir` **twice**: the
+    absolute path `ensure_elevated` computes and, after it, whatever the user
+    typed on the original command line. Click keeps the *last* occurrence of a
+    non-repeatable option, so the user's won — and if it was relative
+    (`--project-dir ./axion`) the child resolved it against its own working
+    directory, deploying the stack into `<project>/axion` instead of
+    `<project>`. Exactly the failure passing an absolute path was meant to
+    prevent.
 
-    Soporta las dos formas que acepta Click: `--opcion valor` y
-    `--opcion=valor`.
+    Supports both forms Click accepts: `--option value` and `--option=value`.
     """
     stripped: list[str] = []
     skip_next = False
@@ -117,21 +118,22 @@ def strip_overridden_options(
 
 
 def current_invocation(leading_args: Sequence[str] = ()) -> tuple[str, list[str]]:
-    """El ejecutable y los argumentos con los que relanzar este mismo proceso.
+    """The executable and arguments to relaunch this very process with.
 
-    Difiere entre el binario empaquetado (`axion-wizard.exe args...`) y el
-    modo desarrollo (`python -m axion_wizard args...`), porque en el bundle
-    `sys.argv[0]` ya es el propio ejecutable y no un script para el intérprete.
+    These differ between the packaged binary (`axion-wizard.exe args…`) and
+    development mode (`python -m axion_wizard args…`), because inside the
+    bundle `sys.argv[0]` is already the executable itself rather than a script
+    for the interpreter.
 
-    `leading_args` se inserta *delante de los argumentos del wizard*, que no
-    es lo mismo que delante de todo: en modo desarrollo, `-m axion_wizard`
-    son argumentos del intérprete, y colar `--project-dir` antes haría que
-    lo interpretara Python en vez del wizard.
+    `leading_args` is inserted *ahead of the wizard's arguments*, which is not
+    the same as ahead of everything: in development mode, `-m axion_wizard`
+    are the interpreter's arguments, and slipping `--project-dir` in front
+    would have Python interpret it instead of the wizard.
 
-    Las opciones que `leading_args` trae ya resueltas se eliminan de los
-    argumentos originales (ver `strip_overridden_options`): duplicarlas hace
-    que gane la del usuario, sin resolver, que es lo contrario de lo que se
-    busca al relanzar.
+    Options `leading_args` brings already resolved are stripped from the
+    original arguments (see `strip_overridden_options`): duplicating them lets
+    the user's unresolved one win, which is the opposite of the point of
+    relaunching.
     """
     overridden = tuple(option for option in OVERRIDDEN_OPTIONS if option in leading_args)
     original_args = strip_overridden_options(sys.argv[1:], overridden)
@@ -142,20 +144,20 @@ def current_invocation(leading_args: Sequence[str] = ()) -> tuple[str, list[str]
 
 def explain_elevation_reason() -> str:
     reasons = "\n".join(f"  - {reason}" for reason in ELEVATION_REASONS)
-    return f"AXION necesita privilegios de administrador para:\n{reasons}"
+    return f"AXION needs administrator privileges in order to:\n{reasons}"
 
 
 def _quote_windows_arg(arg: str) -> str:
-    """Comilla un argumento para `ShellExecuteExW`, que recibe los parámetros
-    como una sola cadena y no como lista.
+    """Quote an argument for `ShellExecuteExW`, which receives its parameters
+    as a single string rather than a list.
 
-    Sigue las reglas de `CommandLineToArgvW`, que es quien deshace esto al
-    otro lado. La sutileza son las barras invertidas: solo son de escape
-    *delante de una comilla*, así que hay que duplicarlas ahí y dejarlas tal
-    cual en cualquier otra posición. Sin eso, una ruta acabada en barra
-    (`--project-dir C:\\proyectos\\axion\\`) se comilla como
-    `"C:\\proyectos\\axion\\"`, cuya barra final escapa la comilla de cierre
-    y se lleva por delante el resto de la línea de comandos.
+    This follows the rules of `CommandLineToArgvW`, which undoes it on the
+    other side. The subtlety is backslashes: they only escape *in front of a
+    quote*, so they have to be doubled there and left alone everywhere else.
+    Without that, a path ending in a backslash
+    (`--project-dir C:\\projects\\axion\\`) is quoted as
+    `"C:\\projects\\axion\\"`, whose trailing backslash escapes the closing
+    quote and swallows the rest of the command line.
     """
     if not arg:
         return '""'
@@ -169,24 +171,24 @@ def _quote_windows_arg(arg: str) -> str:
             backslashes += 1
             continue
         if char == '"':
-            # Las barras acumuladas pasan a ser de escape, y la comilla también.
+            # The accumulated backslashes become escapes, and so does the quote.
             quoted.append("\\" * (backslashes * 2 + 1))
         else:
             quoted.append("\\" * backslashes)
         quoted.append(char)
         backslashes = 0
-    # Las barras finales quedan justo antes de la comilla de cierre.
+    # Trailing backslashes land immediately before the closing quote.
     quoted.append("\\" * (backslashes * 2))
     quoted.append('"')
     return "".join(quoted)
 
 
 def _shellexecuteinfow_type() -> type[ctypes.Structure]:
-    """Construye el tipo `SHELLEXECUTEINFOW`.
+    """Build the `SHELLEXECUTEINFOW` type.
 
-    Se hace dentro de una función a propósito: `ctypes.wintypes` ni siquiera
-    se puede importar fuera de Windows (falla al definir `VARIANT_BOOL`), y
-    este módulo se importa en todas las plataformas.
+    Done inside a function on purpose: `ctypes.wintypes` cannot even be
+    imported off Windows (it fails defining `VARIANT_BOOL`), and this module
+    is imported on every platform.
     """
     from ctypes import wintypes
 
@@ -205,7 +207,7 @@ def _shellexecuteinfow_type() -> type[ctypes.Structure]:
             ("lpClass", wintypes.LPCWSTR),
             ("hkeyClass", wintypes.HKEY),
             ("dwHotKey", wintypes.DWORD),
-            ("hIcon", wintypes.HANDLE),  # unión hIcon/hMonitor
+            ("hIcon", wintypes.HANDLE),  # hIcon/hMonitor union
             ("hProcess", wintypes.HANDLE),
         )
 
@@ -213,10 +215,10 @@ def _shellexecuteinfow_type() -> type[ctypes.Structure]:
 
 
 def _start_elevated_process(executable: str, params: str, working_dir: str) -> int:
-    """Dispara UAC y devuelve el handle del proceso elevado (0 si no lo dio).
+    """Trigger UAC and return the elevated process's handle (0 if none given).
 
-    Aísla toda la parte de ctypes para que la política de arriba
-    (`relaunch_elevated_windows`) sea testeable sin tocar la API real.
+    Isolates all the ctypes work so the policy above
+    (`relaunch_elevated_windows`) is testable without touching the real API.
     """
     from ctypes import wintypes
 
@@ -237,14 +239,14 @@ def _start_elevated_process(executable: str, params: str, working_dir: str) -> i
     if not shell32.ShellExecuteExW(ctypes.byref(info)):
         code = int(ctypes.windll.kernel32.GetLastError())  # type: ignore[attr-defined]
         if code == ERROR_CANCELLED:
-            raise ElevationError("el usuario canceló el diálogo de UAC")
-        raise ElevationError(f"ShellExecuteExW falló con código {code}")
+            raise ElevationError("the user cancelled the UAC prompt")
+        raise ElevationError(f"ShellExecuteExW failed with code {code}")
 
     return int(info.hProcess or 0)
 
 
 def _wait_for_process(handle: int) -> int:
-    """Espera a que termine el proceso de `handle` y devuelve su código de salida."""
+    """Wait for `handle`'s process to finish and return its exit code."""
     from ctypes import wintypes
 
     kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
@@ -255,11 +257,11 @@ def _wait_for_process(handle: int) -> int:
 
     try:
         if int(kernel32.WaitForSingleObject(handle, INFINITE)) != WAIT_OBJECT_0:
-            raise ElevationError("falló la espera al proceso elevado")
+            raise ElevationError("waiting on the elevated process failed")
         exit_code = wintypes.DWORD()
         if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
-            # El proceso corrió; solo no sabemos con qué código. No es motivo
-            # para dar por fallida la instalación.
+            # The process ran; we just do not know with what code. That is no
+            # reason to declare the install failed.
             return 0
         return int(exit_code.value)
     finally:
@@ -269,28 +271,29 @@ def _wait_for_process(handle: int) -> int:
 def relaunch_elevated_windows(
     leading_args: Sequence[str] = (), working_dir: str | None = None
 ) -> int:
-    """Relanza este proceso pidiendo UAC, **espera a que termine** y devuelve
-    su código de salida.
+    """Relaunch this process asking for UAC, **wait for it to finish**, and
+    return its exit code.
 
-    Un proceso Windows no puede auto-elevarse: hay que arrancar uno nuevo con
-    el verbo `runas`, que es lo que dispara el diálogo de UAC. El hijo nace
-    además con su propia consola — no puede compartir la del padre, porque
-    tienen distinto nivel de integridad.
+    A Windows process cannot elevate itself: a new one has to be started with
+    the `runas` verb, which is what triggers the UAC prompt. The child is also
+    born with its own console — it cannot share the parent's, because they run
+    at different integrity levels.
 
-    Eso obliga a dos cosas que un `ShellExecuteW` a secas no puede hacer:
+    That forces two things a bare `ShellExecuteW` cannot do:
 
-    - **Esperar al hijo** (`SEE_MASK_NOCLOSEPROCESS` + `WaitForSingleObject`)
-      y propagar su código de salida. Sin esto el padre terminaba con 0 en el
-      acto: su ventana se cerraba mientras el trabajo real seguía en otra, y
-      ni el usuario ni un script llegaban a saber si había ido bien.
-    - **Fijar el directorio de trabajo** (`lpDirectory`). Un proceso lanzado
-      por el servicio AppInfo de UAC no hereda el CWD del padre: arranca en
-      `C:\\Windows\\System32`. Como `--project-dir` cae por defecto en
-      `Path.cwd()`, el hijo elevado habría desplegado el stack ahí dentro.
+    - **Wait for the child** (`SEE_MASK_NOCLOSEPROCESS` +
+      `WaitForSingleObject`) and propagate its exit code. Without this the
+      parent finished with 0 immediately: its window closed while the real
+      work carried on in another, and neither the user nor a script ever
+      learned whether it went well.
+    - **Set the working directory** (`lpDirectory`). A process launched by
+      UAC's AppInfo service does not inherit the parent's CWD: it starts in
+      `C:\\Windows\\System32`. Since `--project-dir` defaults to
+      `Path.cwd()`, the elevated child would have deployed the stack in there.
 
-    `leading_args` se antepone a los argumentos originales, no se añade al
-    final: son opciones del grupo raíz (`--project-dir`) y Click las rechaza
-    si aparecen después del subcomando.
+    `leading_args` goes before the original arguments rather than after: they
+    are root-group options (`--project-dir`) and Click rejects them if they
+    appear after the subcommand.
     """
     executable, args = current_invocation(leading_args)
     params = " ".join(_quote_windows_arg(a) for a in args)
@@ -301,10 +304,11 @@ def relaunch_elevated_windows(
     except ElevationError:
         raise
     except (AttributeError, OSError, ValueError) as exc:
-        raise ElevationError(f"no se pudo invocar ShellExecuteExW: {exc}") from exc
+        raise ElevationError(f"could not invoke ShellExecuteExW: {exc}") from exc
 
     if not handle:
-        # Arrancó, pero Windows no devolvió handle: no hay a qué esperar.
+        # It started, but Windows returned no handle: there is nothing to
+        # wait on.
         return 0
 
     try:
@@ -312,26 +316,25 @@ def relaunch_elevated_windows(
     except ElevationError:
         raise
     except (AttributeError, OSError, ValueError) as exc:
-        raise ElevationError(f"no se pudo esperar al proceso elevado: {exc}") from exc
+        raise ElevationError(f"could not wait on the elevated process: {exc}") from exc
 
 
 def relaunch_elevated_posix(
     leading_args: Sequence[str] = (), working_dir: str | None = None
 ) -> int:
-    """Re-ejecuta este proceso bajo `sudo`, devolviendo su código de salida.
+    """Re-exec this process under `sudo`, returning its exit code.
 
-    A diferencia de Windows, aquí sí se encadena en el mismo flujo: `sudo`
-    hereda la terminal y el directorio de trabajo, así que el usuario ve el
-    prompt de contraseña y la salida del wizard sin cambiar de ventana.
-    `working_dir` se pasa igualmente de forma explícita para que el
-    comportamiento no dependa de esa herencia.
+    Unlike Windows, this does chain within the same flow: `sudo` inherits the
+    terminal and the working directory, so the user sees the password prompt
+    and the wizard's output without changing window. `working_dir` is passed
+    explicitly anyway so the behaviour does not depend on that inheritance.
     """
     executable, args = current_invocation(leading_args)
     command = ["sudo", "-E", executable, *args]
     try:
         completed = subprocess.run(command, shell=False, check=False, cwd=working_dir)
     except FileNotFoundError as exc:
-        raise ElevationError("`sudo` no está disponible en este sistema") from exc
+        raise ElevationError("`sudo` is not available on this system") from exc
     return completed.returncode
 
 

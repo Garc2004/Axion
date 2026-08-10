@@ -1,17 +1,17 @@
-"""Interfaz a pantalla completa (Textual) para el flujo de instalación.
+"""Full-screen (Textual) interface for the install flow.
 
-**Alternativa, no reemplazo.** La §1.3 de la spec descarta Textual para el
-flujo lineal de instalación, y esa decisión sigue en pie: `axion-wizard
-install` usa questionary y Rich como siempre. Esto es lo que se ejecuta solo
-con `install --tui`.
+**An alternative, not a replacement.** §1.3 of the spec rules Textual out for
+the linear install flow, and that decision stands: `axion-wizard install`
+uses questionary and Rich as it always has. This is what runs only under
+`install --tui`.
 
-El diseño evita el conflicto de fondo entre ambas cosas —questionary y
-Textual se pelean por la terminal— recogiendo *toda* la configuración en un
-formulario antes de arrancar, y ejecutando después los diez pasos en modo
-desatendido: así ningún paso intenta abrir un prompt mientras Textual tiene
-el control de la pantalla. El paso del bot/webhook no tiene formulario propio
-aquí — en modo desatendido se omite sin más, y se aplica después con
-`set-bot-token`/`set-webhook-token` o `doctor`.
+The design sidesteps the underlying conflict between the two — questionary
+and Textual fight over the terminal — by collecting *all* configuration in a
+form before starting, and then running the ten steps in unattended mode: that
+way no step tries to open a prompt while Textual owns the screen. The
+bot/webhook step has no form of its own here — under unattended mode it is
+simply skipped, and applied afterwards with
+`set-bot-token`/`set-webhook-token` or `doctor`.
 """
 
 from __future__ import annotations
@@ -23,10 +23,10 @@ if TYPE_CHECKING:
 
 
 def run_tui_install(state: GlobalState) -> bool:
-    """Arranca la TUI y devuelve si la instalación terminó bien.
+    """Start the TUI and return whether the install finished cleanly.
 
-    El import va dentro para que Textual —que arrastra su propio árbol de
-    dependencias— no se cargue en un `axion-wizard --version`.
+    The import lives inside so that Textual — which drags in its own
+    dependency tree — is not loaded for an `axion-wizard --version`.
     """
     from axion_wizard.tui.app import AxionInstallerApp
 

@@ -17,39 +17,39 @@ if TYPE_CHECKING:
 
 
 def run_reset(state: GlobalState, yes: bool = False) -> None:
-    """Olvida el progreso guardado para que `install` empiece por el paso 1.
+    """Forget the saved progress so `install` starts again at step 1.
 
-    Solo borra `.axion-wizard-state.json`: ni contenedores, ni volúmenes, ni
-    `.env`, ni el certificado. Es deliberado — "quiero rehacer los pasos" y
-    "quiero borrar mis datos" son cosas distintas, y para la segunda está
-    `uninstall --purge`. Como el paso 3 reutiliza la contraseña de PostgreSQL
-    que ya está en `.env`, rehacer la instalación sobre un despliegue
-    existente sigue siendo seguro.
+    It deletes only `.axion-wizard-state.json`: no containers, no volumes, no
+    `.env`, no certificate. That is deliberate — "I want to redo the steps"
+    and "I want to delete my data" are different things, and the second is
+    what `uninstall --purge` is for. Because step 3 reuses the PostgreSQL
+    password already in `.env`, redoing the install over an existing
+    deployment remains safe.
     """
     from axion_wizard.utils import state as state_store
 
     path = state_store.state_path(state.project_dir)
     if not path.exists():
         console.print(
-            "[axion.info]No hay progreso guardado:[/] la próxima instalación ya "
-            "empezaría por el paso 1."
+            "[axion.info]There is no saved progress:[/] the next install would "
+            "already start at step 1."
         )
         return
 
     previous = state_store.load_state(state.project_dir)
     done = [s for s in previous.completed_steps if s.ok]
     console.print(
-        f"[axion.warn]Se descartará el progreso de {len(done)} de "
-        f"{len(previous.completed_steps)} pasos registrados[/] en {path}."
+        f"[axion.warn]Progress for {len(done)} of "
+        f"{len(previous.completed_steps)} recorded steps will be discarded[/] in {path}."
     )
     console.print(
-        "[axion.dim]No se borra nada más: contenedores, volúmenes, `.env` y el "
-        "certificado se quedan como están. Para borrar los datos: "
+        "[axion.dim]Nothing else is deleted: containers, volumes, `.env` and the "
+        "certificate stay as they are. To delete the data: "
         "axion-wizard uninstall --purge[/]"
     )
 
     if state.dry_run:
-        announce_dry_run(f"borraría {path}")
+        announce_dry_run(f"would delete {path}")
         return
 
     if not (yes or state.yes):
@@ -58,15 +58,15 @@ def run_reset(state: GlobalState, yes: bool = False) -> None:
         from axion_wizard.steps.prompts import interactive_input_available
 
         if interactive_input_available() and not questionary.confirm(
-            "¿Empezar la instalación de cero?", default=True
+            "Start the install from scratch?", default=True
         ).ask():
-            console.print("[axion.warn]Cancelado; no se tocó el progreso.[/]")
+            console.print("[axion.warn]Cancelled; the progress was left alone.[/]")
             raise typer.Exit(code=1)
 
     path.unlink()
     console.print(
-        "[axion.ok]Progreso borrado.[/] La próxima ejecución de `axion-wizard install` "
-        "empezará por el paso 1."
+        "[axion.ok]Progress cleared.[/] The next run of `axion-wizard install` "
+        "will start at step 1."
     )
 
 
@@ -78,11 +78,11 @@ def run_install(
     tui: bool = False,
     restart: bool = False,
 ) -> None:
-    """Flujo completo de instalación (§4).
+    """The complete install flow (§4).
 
-    Las opciones propias de `install` se pasan por `GlobalState` en vez de
-    encadenarlas por firma hasta cada paso: son diez pasos y solo tres las
-    consultan.
+    `install`'s own options travel through `GlobalState` rather than being
+    threaded by signature down to every step: there are ten steps and only
+    three of them consult these.
     """
     from axion_wizard.steps import orchestrator
 
@@ -90,9 +90,9 @@ def run_install(
     state.config_path = config_path
 
     if restart:
-        # `--restart` es `reset` + `install` en un solo comando, sin pedir
-        # confirmación: pedirla dos veces para una intención ya explícita
-        # sobra.
+        # `--restart` is `reset` + `install` in one command, without asking
+        # for confirmation: asking twice for an intent that was already
+        # explicit is one time too many.
         run_reset(state, yes=True)
 
     if tui:
@@ -109,29 +109,29 @@ def run_install(
 
 
 def _assert_tui_is_usable(state: GlobalState, unattended: bool) -> None:
-    """La TUI necesita una terminal interactiva y un formulario que rellenar.
+    """The TUI needs an interactive terminal and a form to fill in.
 
-    Combinarla con `--unattended` o con la salida redirigida no da un error
-    obvio por sí solo: Textual arrancaría y se quedaría esperando teclas que
-    nunca llegan, que desde fuera parece un cuelgue.
+    Combining it with `--unattended` or with redirected output produces no
+    obvious error on its own: Textual would start and sit waiting for
+    keystrokes that never arrive, which from the outside looks like a hang.
     """
     import sys
 
     if unattended:
         raise ConfigError(
-            what="`--tui` y `--unattended` se excluyen",
-            why="La interfaz a pantalla completa existe para rellenar un formulario a mano.",
+            what="`--tui` and `--unattended` are mutually exclusive",
+            why="The full-screen interface exists to fill in a form by hand.",
             steps=[
-                "Para CI: axion-wizard install --unattended --config axion.toml",
-                "Para uso interactivo: axion-wizard install --tui",
+                "For CI: axion-wizard install --unattended --config axion.toml",
+                "For interactive use: axion-wizard install --tui",
             ],
         )
     if not (sys.stdin and sys.stdin.isatty()):
         raise ConfigError(
-            what="`--tui` necesita una terminal interactiva",
-            why="La entrada estándar no es una TTY, así que el formulario no recibiría teclas.",
+            what="`--tui` needs an interactive terminal",
+            why="Standard input is not a TTY, so the form would receive no keystrokes.",
             steps=[
-                "Ejecutarlo directamente en una terminal, sin tuberías ni redirecciones.",
-                "O usar el flujo normal: axion-wizard install",
+                "Run it directly in a terminal, with no pipes or redirections.",
+                "Or use the normal flow: axion-wizard install",
             ],
         )

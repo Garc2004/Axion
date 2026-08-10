@@ -64,7 +64,7 @@ def test_tui_rejects_a_non_interactive_stdin(tmp_path: Path, mocker) -> None:
     fake_stdin.isatty.return_value = False
     mocker.patch("sys.stdin", fake_stdin)
 
-    with pytest.raises(ConfigError, match="terminal interactiva"):
+    with pytest.raises(ConfigError, match="interactive terminal"):
         _assert_tui_is_usable(GlobalState(project_dir=tmp_path), unattended=False)
 
 

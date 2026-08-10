@@ -1,10 +1,10 @@
-"""Paso 4 — Certificado TLS (§4.4).
+"""Step 4 — TLS certificate (§4.4).
 
-El SAN es obligatorio y se verifica **leyendo el certificado de vuelta**, no
-dando por hecho lo que se acaba de construir: sin `subjectAltName` el login
-desde el app móvil de Mattermost falla con `x509: certificate relies on
-legacy Common Name field` aunque el resto esté perfecto, y es un fallo que
-solo aparece en el cliente, nunca en los logs del servidor.
+The SAN is mandatory and is verified by **reading the certificate back**,
+not by assuming what was just built: without `subjectAltName`, logging in
+from the Mattermost mobile app fails with `x509: certificate relies on legacy
+Common Name field` even when everything else is perfect — and it is a failure
+that only ever appears on the client, never in the server's logs.
 """
 
 from __future__ import annotations
@@ -20,15 +20,15 @@ CERT_RELATIVE_DIR = Path("nginx") / "certs"
 CERT_FILENAME = "cert.crt"
 KEY_FILENAME = "cert.key"
 
-#: IP del servidor dentro del túnel. En Linux con `network_mode: host` es un
-#: IP real del host y los clientes de la VPN entran por ahí (§6.1), así que
-#: el certificado debe cubrirlo o el navegador lo rechaza desde el túnel.
+#: The server's address inside the tunnel. On Linux with `network_mode: host`
+#: it is a real host IP and VPN clients arrive through it (§6.1), so the
+#: certificate must cover it or the browser rejects it from inside the tunnel.
 WIREGUARD_SERVER_IP = "10.8.0.1"
 
 
 class CertificateStep(Step):
     name = "certificate"
-    title = "Certificado TLS"
+    title = "TLS certificate"
 
     @property
     def cert_path(self) -> Path:
@@ -44,23 +44,23 @@ class CertificateStep(Step):
 
         if self.state.dry_run:
             console.print(
-                f"[axion.info][dry-run][/] generaría {self.cert_path} y {self.key_path} "
-                f"con SAN para {config.host!r}"
-                + (f" y {', '.join(extra_hosts)}" if extra_hosts else "")
+                f"[axion.info][dry-run][/] would generate {self.cert_path} and "
+                f"{self.key_path} with a SAN for {config.host!r}"
+                + (f" and {', '.join(extra_hosts)}" if extra_hosts else "")
             )
             self.context.cert_path = self.cert_path
-            return StepResult(name=self.name, ok=True, message="omitido por --dry-run")
+            return StepResult(name=self.name, ok=True, message="skipped by --dry-run")
 
         result = certs.generate_certificate(
             config.host, self.cert_path, self.key_path, extra_hosts=extra_hosts
         )
-        # Releer del propio archivo: es la verificación que exige §4.4.
+        # Read it back from the file itself: the verification §4.4 requires.
         san_entries = certs.verify_certificate_has_san(result.cert_path)
         self.context.cert_path = result.cert_path
 
-        console.print(f"[axion.ok]Certificado generado:[/] {result.cert_path}")
-        console.print(f"[axion.ok]Clave privada:[/] {result.key_path} (permisos restringidos)")
-        console.print(f"[axion.info]SAN verificado:[/] {', '.join(san_entries)}")
+        console.print(f"[axion.ok]Certificate generated:[/] {result.cert_path}")
+        console.print(f"[axion.ok]Private key:[/] {result.key_path} (permissions restricted)")
+        console.print(f"[axion.info]SAN verified:[/] {', '.join(san_entries)}")
 
         return StepResult(
             name=self.name, ok=True, data={"san": san_entries}, message=", ".join(san_entries)
@@ -68,9 +68,9 @@ class CertificateStep(Step):
 
     def verify(self) -> StepResult:
         if self.state.dry_run:
-            return StepResult(name=self.name, ok=True, message="omitido por --dry-run")
+            return StepResult(name=self.name, ok=True, message="skipped by --dry-run")
         if not self.cert_path.exists():
-            return StepResult(name=self.name, ok=False, message=f"{self.cert_path} no existe")
+            return StepResult(name=self.name, ok=False, message=f"{self.cert_path} does not exist")
         san_entries = certs.verify_certificate_has_san(self.cert_path)
         return StepResult(name=self.name, ok=True, message=", ".join(san_entries))
 
@@ -79,11 +79,11 @@ class CertificateStep(Step):
             self.context.cert_path = self.cert_path
 
     def _extra_san_hosts(self) -> list[str]:
-        """`10.8.0.1` solo entra en el SAN en la variante `host`.
+        """`10.8.0.1` only enters the SAN in the `host` variant.
 
-        En la variante `ports` (Windows/Docker Desktop) esa IP existe
-        únicamente dentro de la VPN y el acceso a Mattermost va por el IP de
-        la LAN, así que añadirla no aportaría nada.
+        In the `ports` variant (Windows/Docker Desktop) that address exists
+        only inside the VPN and Mattermost is reached through the LAN IP, so
+        adding it would contribute nothing.
         """
         config = self.context.require_config()
         if config.wireguard_variant is WireguardVariant.HOST:

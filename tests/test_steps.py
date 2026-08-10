@@ -1001,7 +1001,7 @@ def test_config_step_fails_readably_without_a_terminal(tmp_path: Path, mocker) -
     context.config = None
     step = ConfigStep(GlobalState(project_dir=tmp_path), context)
 
-    with pytest.raises(ConfigError, match="terminal interactiva") as excinfo:
+    with pytest.raises(ConfigError, match="interactive terminal") as excinfo:
         step.run()
     assert any("--unattended" in action for action in excinfo.value.steps)
 

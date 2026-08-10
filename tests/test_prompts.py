@@ -75,5 +75,5 @@ def test_require_raises_an_actionable_error(mocker) -> None:
         require_interactive_input("La configuración interactiva")
 
     error = excinfo.value
-    assert "terminal interactiva" in error.what
+    assert "interactive terminal" in error.what
     assert any("--unattended" in step for step in error.steps)

@@ -88,7 +88,7 @@ class ConfigStep(Step):
         # Antes de abrir el primer prompt: sin terminal, `questionary` revienta
         # con `NoConsoleScreenBufferError`, que acababa saliendo como
         # "Error inesperado: No Windows console found" — crudo e inútil.
-        require_interactive_input("La configuración interactiva")
+        require_interactive_input("Interactive configuration")
 
         access_mode = self._ask_access_mode(questionary)
         host = self._ask_host(questionary, access_mode)

@@ -206,12 +206,12 @@ def test_elevation_failure_reports_actionable_error(mocker) -> None:
     mocker.patch("axion_wizard.cli.privileges.is_elevated", return_value=False)
     mocker.patch(
         "axion_wizard.cli.privileges.relaunch_elevated",
-        side_effect=ElevationError("el usuario canceló el diálogo de UAC"),
+        side_effect=ElevationError("the user cancelled the UAC prompt"),
     )
 
     result = runner.invoke(app, ["install"])
     assert result.exit_code == 1
-    assert "administrador" in result.stderr
+    assert "dministrator" in result.stderr
 
 
 def test_elevation_propagates_child_exit_code(mocker) -> None:

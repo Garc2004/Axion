@@ -1,4 +1,4 @@
-"""Clase base para los pasos del flujo de instalación."""
+"""Base class for the steps of the install flow."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class StepResult:
-    """Resultado de ejecutar un paso, persistido en el estado del wizard."""
+    """The result of running a step, persisted into the wizard's state."""
 
     name: str
     ok: bool
@@ -22,28 +22,28 @@ class StepResult:
 
 
 class Step(ABC):
-    """Un paso del flujo, ejecutable e idempotente.
+    """One step of the flow, runnable and idempotent.
 
-    `run()` aplica el paso, `verify()` comprueba que quedó en el estado
-    esperado (usado también por `doctor`), y `rollback()` deshace lo hecho
-    si un paso posterior falla y el usuario decide abortar.
+    `run()` applies the step, `verify()` checks it ended in the expected state
+    (also used by `doctor`), and `rollback()` undoes what was done if a later
+    step fails and the user chooses to abort.
     """
 
-    #: identificador estable, usado como clave en `.axion-wizard-state.json`
+    #: Stable identifier, used as the key in `.axion-wizard-state.json`.
     name: str
-    #: título legible, para la barra de progreso y el resumen
+    #: Human-readable title, for the progress bar and the summary.
     title: str = ""
-    #: Si al reanudar hay que comprobar con `verify()` que este paso *sigue*
-    #: aplicado antes de darlo por bueno.
+    #: Whether resuming should confirm with `verify()` that this step is
+    #: *still* applied before taking it as done.
     #:
-    #: El estado persistido dice lo que pasó la última vez, no lo que hay
-    #: ahora: entre dos ejecuciones el usuario puede haber desinstalado
-    #: Docker, borrado los contenedores o movido el proyecto. Sin
-    #: revalidar, el wizard se salta pasos cuyo resultado ya no existe y
-    #: falla mucho más adelante, culpando al paso equivocado.
+    #: The persisted state says what happened last time, not what is true now:
+    #: between two runs the user may have uninstalled Docker, deleted the
+    #: containers, or moved the project. Without revalidating, the wizard
+    #: skips steps whose result no longer exists and fails much later,
+    #: blaming the wrong step.
     #:
-    #: Se desactiva en los pasos que no producen nada de lo que dependan los
-    #: siguientes: revalidarlos cuesta tiempo y no protege a nadie.
+    #: Turned off for steps that produce nothing the later ones depend on:
+    #: revalidating those costs time and protects nobody.
     revalidate_on_resume: bool = True
 
     def __init__(self, state: GlobalState, context: InstallContext) -> None:
@@ -52,34 +52,34 @@ class Step(ABC):
 
     @abstractmethod
     def run(self) -> StepResult:
-        """Ejecuta el paso. Debe ser idempotente."""
+        """Run the step. Must be idempotent."""
 
     @abstractmethod
     def verify(self) -> StepResult:
-        """Comprueba que el paso quedó aplicado correctamente, sin modificar nada."""
+        """Check the step was applied correctly, without modifying anything."""
 
-    def restore(self) -> None:  # noqa: B027 - hook opcional, no todos los pasos restauran
-        """Repuebla el contexto desde los artefactos ya escritos en disco.
+    def restore(self) -> None:  # noqa: B027 - optional hook; not every step restores
+        """Repopulate the context from the artifacts already written to disk.
 
-        Es lo que hace posible reanudar sin volver a preguntar nada. El
-        estado persistido guarda solo *qué* pasos terminaron, nunca sus
-        valores (§9: ahí viajan contraseñas), así que al saltarse un paso ya
-        completado hay que reconstruir lo que aportaba al contexto leyendo
-        `.env`, `wg.env` o el propio `docker-compose.yml`.
+        This is what makes resuming possible without asking anything again.
+        The persisted state records only *which* steps finished, never their
+        values (§9: passwords travel there), so skipping an already-completed
+        step means rebuilding what it contributed to the context by reading
+        `.env`, `wg.env` or `docker-compose.yml` itself.
 
-        Por defecto no hace nada: los pasos que solo comprueban cosas —red,
-        despliegue, verificación— no aportan nada que reconstruir.
+        Does nothing by default: the steps that only check things — network,
+        deployment, verification — contribute nothing to rebuild.
         """
 
     def rollback(self) -> StepResult:
-        """Deshace lo hecho por `run()`. No todos los pasos lo necesitan."""
-        return StepResult(name=self.name, ok=True, message="sin rollback definido")
+        """Undo what `run()` did. Not every step needs one."""
+        return StepResult(name=self.name, ok=True, message="no rollback defined")
 
     def skip_reason(self) -> str | None:
-        """Motivo por el que este paso no aplica en esta ejecución, o `None`.
+        """Why this step does not apply on this run, or `None`.
 
-        Permite que un paso se descarte por condiciones del entorno —no hay
-        modelo que descargar, no toca crear cliente de WireGuard— sin que el
-        orquestador tenga que conocer los detalles de cada uno.
+        Lets a step opt out on environmental grounds — no model to download,
+        no WireGuard client to create — without the orchestrator having to
+        know the details of any of them.
         """
         return None

@@ -143,7 +143,7 @@ def test_logs_says_so_when_no_service_returned_anything(tmp_path: Path, mocker) 
     result = runner.invoke(app, ["--project-dir", str(tmp_path), "logs"])
 
     assert result.exit_code == 0
-    assert "Ningún servicio devolvió logs" in result.stdout
+    assert "No service returned any logs" in result.stdout
 
 
 def test_down_dry_run_does_not_invoke_docker(tmp_path: Path, mocker) -> None:
@@ -275,7 +275,7 @@ def test_models_lists_catalog_with_hardware_context(mocker) -> None:
 
     result = runner.invoke(app, ["models"])
     assert result.exit_code == 0
-    assert "Hardware detectado" in result.stdout
+    assert "Hardware detected" in result.stdout
     # al menos un modelo del fallback embebido aparece listado
     assert any(m.name.split(":")[0] in result.stdout for m in ollama.get_embedded_catalog())
 
@@ -305,7 +305,7 @@ def test_set_webhook_token_rejects_empty_token(tmp_path: Path) -> None:
     _project_with_compose(tmp_path)
     result = runner.invoke(app, ["--project-dir", str(tmp_path), "set-webhook-token", "   "])
     assert result.exit_code == 1
-    assert "vac" in result.stderr.lower()
+    assert "empty" in result.stderr.lower()
 
 
 def test_set_webhook_token_rejects_forbidden_char(tmp_path: Path) -> None:
@@ -557,7 +557,7 @@ def test_model_set_rejects_an_empty_name(tmp_path: Path) -> None:
     project = _project_with_compose(tmp_path)
     result = runner.invoke(app, ["--project-dir", str(project), "model", "set", "   "])
     assert result.exit_code == 1
-    assert "modelo" in result.stderr.lower()
+    assert "model" in result.stderr.lower()
 
 
 # --- set-bot-token: el interruptor del modo asíncrono -------------------------------
@@ -591,7 +591,7 @@ def test_set_bot_token_explains_the_bot_must_be_in_the_channel(tmp_path: Path, m
 
     result = runner.invoke(app, ["--project-dir", str(project), "set-bot-token", "bot-abc-123"])
 
-    assert "canales" in result.stdout
+    assert "channel" in result.stdout
 
 
 def test_set_bot_token_rejects_an_empty_token(tmp_path: Path) -> None:

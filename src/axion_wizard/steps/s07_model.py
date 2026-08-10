@@ -1,13 +1,13 @@
-"""Paso 7 — Modelo de IA (§4.7, §5).
+"""Step 7 — AI model (§4.7, §5).
 
-Descarga el modelo elegido en el paso 3 con barra de progreso real,
-parseando el stream JSON-por-línea de `/api/pull`, y recrea el contenedor de
-FastAPI para que tome el `OLLAMA_MODEL` ya escrito en `.env`.
+Downloads the model chosen in step 3 with a real progress bar, parsing the
+line-delimited JSON stream of `/api/pull`, and recreates the FastAPI
+container so it picks up the `OLLAMA_MODEL` already written into `.env`.
 
-Ollama arranca en frío: el contenedor puede estar `running` y su API todavía
-no aceptar peticiones. Por eso se espera a que responda antes de tirar del
-modelo, en vez de fallar con un error de conexión que parecería un problema
-de red.
+Ollama starts cold: the container can be `running` while its API is not yet
+accepting requests. Hence waiting for it to answer before pulling the model,
+rather than failing with a connection error that would look like a network
+problem.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ DEFAULT_READY_TIMEOUT = 120.0
 
 class ModelStep(Step):
     name = "model"
-    title = "Modelo de IA"
+    title = "AI model"
 
     def run(self) -> StepResult:
         config = self.context.require_config()
@@ -36,32 +36,32 @@ class ModelStep(Step):
 
         if self.state.dry_run:
             console.print(
-                f"[axion.info][dry-run][/] descargaría el modelo {model_name!r} "
-                "y recrearía el contenedor fastapi"
+                f"[axion.info][dry-run][/] would download model {model_name!r} "
+                "and recreate the fastapi container"
             )
-            return StepResult(name=self.name, ok=True, message="omitido por --dry-run")
+            return StepResult(name=self.name, ok=True, message="skipped by --dry-run")
 
         if asyncio.run(self._model_already_installed(model_name)):
-            console.print(f"[axion.ok]El modelo {model_name} ya está descargado.[/]")
+            console.print(f"[axion.ok]Model {model_name} is already downloaded.[/]")
         else:
             asyncio.run(self._wait_for_ollama())
             self._pull_with_progress(model_name)
 
         self._recreate_fastapi()
-        return StepResult(name=self.name, ok=True, message=f"modelo {model_name} disponible")
+        return StepResult(name=self.name, ok=True, message=f"model {model_name} available")
 
     def verify(self) -> StepResult:
         if self.state.dry_run:
-            return StepResult(name=self.name, ok=True, message="omitido por --dry-run")
+            return StepResult(name=self.name, ok=True, message="skipped by --dry-run")
 
         model_name = self.context.require_config().ollama_model
         if asyncio.run(self._model_already_installed(model_name)):
             return StepResult(name=self.name, ok=True, message=model_name)
         return StepResult(
-            name=self.name, ok=False, message=f"{model_name} no aparece entre los instalados"
+            name=self.name, ok=False, message=f"{model_name} is not among the installed models"
         )
 
-    # --- interno ---------------------------------------------------------------------
+    # --- internals -------------------------------------------------------------------
 
     @staticmethod
     async def _model_already_installed(model_name: str) -> bool:
@@ -70,11 +70,12 @@ class ModelStep(Step):
 
     @staticmethod
     async def _wait_for_ollama(timeout: float = DEFAULT_READY_TIMEOUT) -> None:
-        """Espera al arranque en frío de Ollama con backoff exponencial.
+        """Wait out Ollama's cold start with exponential backoff.
 
-        `list_installed_models` no lanza si el servidor no responde: devuelve
-        lista vacía. Aquí se distingue "no responde" de "responde y no tiene
-        modelos" mirando si la petición llega a completarse.
+        `list_installed_models` does not raise when the server is unreachable:
+        it returns an empty list. This tells "not answering" apart from
+        "answering with no models" by watching whether the request completes
+        at all.
         """
         import httpx
 
@@ -96,15 +97,15 @@ class ModelStep(Step):
             await retryer(_responds)
         except RetryError as exc:
             raise OllamaError(
-                what="El servidor de Ollama no respondió a tiempo",
+                what="The Ollama server did not answer in time",
                 why=(
-                    f"Se agotaron {timeout:g}s esperando a "
-                    f"{ollama.OLLAMA_LOCAL_BASE_URL}/api/tags tras levantar el stack."
+                    f"{timeout:g}s elapsed waiting on "
+                    f"{ollama.OLLAMA_LOCAL_BASE_URL}/api/tags after bringing the stack up."
                 ),
                 steps=[
-                    "Comprobar el contenedor: docker compose ps ollama",
-                    "Revisar sus logs: axion-wizard logs ollama",
-                    "Reintentar: axion-wizard install (se reanuda en este paso)",
+                    "Check the container: docker compose ps ollama",
+                    "Read its logs: axion-wizard logs ollama",
+                    "Retry: axion-wizard install (it resumes at this step)",
                 ],
             ) from exc
 
@@ -116,7 +117,7 @@ class ModelStep(Step):
             DownloadColumn(),
             console=console,
         ) as progress:
-            task_id = progress.add_task(f"Descargando {model_name}", total=None)
+            task_id = progress.add_task(f"Downloading {model_name}", total=None)
 
             def on_progress(update: ollama.PullProgress) -> None:
                 if update.total > 0:
@@ -131,23 +132,24 @@ class ModelStep(Step):
 
             asyncio.run(ollama.pull_model(model_name, on_progress))
 
-        console.print(f"[axion.ok]Modelo descargado:[/] {model_name}")
+        console.print(f"[axion.ok]Model downloaded:[/] {model_name}")
 
     def _recreate_fastapi(self) -> None:
-        """§5: recrear el contenedor de FastAPI para que tome `OLLAMA_MODEL`.
+        """§5: recreate the FastAPI container so it picks up `OLLAMA_MODEL`.
 
-        Un `restart` no bastaría: las variables de entorno se fijan al crear
-        el contenedor, así que el valor viejo sobreviviría al reinicio.
+        A `restart` would not do: environment variables are fixed when the
+        container is created, so the old value would survive the restart.
 
-        Va por `s06_deploy` en vez de armar el `docker compose` a mano —que
-        es lo que hacía— por dos motivos: no duplicar el conocimiento de cómo
-        se invoca Compose (`run_set_webhook_token` ya usa este camino), y
-        porque así además se espera a que fastapi vuelva a estar *sano*. Sin
-        esa espera, el paso 9 podía verificar el stack mientras el contenedor
-        recién recreado seguía arrancando y reportar un fallo que no existía.
+        This goes through `s06_deploy` rather than assembling the
+        `docker compose` invocation by hand — which is what it used to do —
+        for two reasons: not duplicating the knowledge of how Compose is
+        invoked (`run_set_webhook_token` already uses this path), and because
+        doing so also waits for fastapi to be *healthy* again. Without that
+        wait, step 9 could verify the stack while the freshly recreated
+        container was still starting and report a failure that did not exist.
 
-        Un problema aquí no es fatal: el modelo ya está descargado y el resto
-        del stack en pie, así que se avisa y se sigue.
+        A problem here is not fatal: the model is already downloaded and the
+        rest of the stack is up, so it warns and carries on.
         """
         from axion_wizard.errors import AxionError
         from axion_wizard.steps import s06_deploy
@@ -158,8 +160,8 @@ class ModelStep(Step):
             s06_deploy.wait_for_healthy(compose_path, services=[FASTAPI_SERVICE])
         except AxionError as exc:
             self.context.warn(
-                "No se pudo recrear el contenedor fastapi; puede seguir usando el "
-                f"modelo anterior: {exc}"
+                "Could not recreate the fastapi container; it may still be using the "
+                f"previous model: {exc}"
             )
             return
-        console.print("[axion.ok]Contenedor fastapi recreado con el modelo configurado.[/]")
+        console.print("[axion.ok]fastapi container recreated with the configured model.[/]")
