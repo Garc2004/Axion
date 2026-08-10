@@ -215,8 +215,12 @@ respuesta en el canal cuando el modelo termine. Para eso necesita un bot:
 
 1. Mattermost → **Integraciones → Cuentas de bot → Crear** (si la opción no
    aparece: Consola del sistema → Integraciones → habilitar cuentas de bot).
-2. Copiar su token y añadir el bot al equipo y a los canales donde deba
-   responder.
+2. Copiar su token. Un bot recién creado **no pertenece a ningún equipo** —
+   sumarlo directo a un canal falla con *"1 user was not selected because
+   they are not a part of this team"*. Primero: Consola del sistema →
+   Administración de usuarios → Equipos → el equipo del canal → Añadir
+   personas → buscar el nombre de usuario del bot (`@axion`, no el nombre
+   para mostrar). Recién entonces se lo puede añadir al canal.
 3. Pegarlo en el paso 9 del propio `install` (pide justo esto), o después con
    `axion-wizard set-bot-token <token>`.
 
