@@ -1,21 +1,21 @@
-"""Puente entre el webhook saliente de Mattermost y la API de Ollama.
+"""Bridge between Mattermost's outgoing webhook and Ollama's API.
 
-Dos modos, y el que se use depende de si hay un token de bot configurado:
+Two modes, and which one is used depends on whether a bot token is set:
 
-- **Asíncrono** (con `MM_BOT_TOKEN`): se responde `200` de inmediato, se
-  genera la respuesta en segundo plano y se publica en el canal por la API
-  de Mattermost. Es el modo recomendado.
-- **Síncrono** (sin token): se genera y se devuelve en la misma petición,
-  como antes. Se conserva para no romper una instalación existente.
+- **Asynchronous** (with `MM_BOT_TOKEN`): answers `200` immediately, generates
+  the reply in the background and posts it to the channel through Mattermost's
+  API. This is the recommended mode.
+- **Synchronous** (no token): generates and returns it within the same
+  request, as before. Kept so as not to break an existing install.
 
-Por qué existe el modo asíncrono: Mattermost espera la respuesta HTTP del
-webhook saliente y la abandona a los ~30 segundos
-(`ServiceSettings.OutgoingIntegrationRequestsTimeout`). Un modelo de 7B en
-CPU tarda más que eso con facilidad, así que en modo síncrono la respuesta
-se pierde entera — el usuario ve que la IA "no contesta" y no hay nada en
-los logs que lo explique, porque por dentro el modelo respondió bien.
-Respondiendo primero y publicando después, el tiempo de generación deja de
-tener techo y se puede usar el modelo que el hardware aguante.
+Why the asynchronous mode exists: Mattermost waits for the outgoing webhook's
+HTTP response and abandons it after ~30 seconds
+(`ServiceSettings.OutgoingIntegrationRequestsTimeout`). A 7B model on CPU
+easily takes longer than that, so in synchronous mode the answer is lost
+whole — the user sees the AI "not answering" and there is nothing in the logs
+to explain it, because internally the model answered fine. By replying first
+and posting afterwards, generation time stops having a ceiling and whatever
+model the hardware can carry becomes usable.
 """
 
 import hmac
@@ -30,33 +30,33 @@ log = logging.getLogger("uvicorn.error")
 
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://ollama:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:1.5b")
-# Instrucciones permanentes de la IA (tono, idioma, qué es y qué no debe
-# hacer). Vacío = el modelo se comporta según su propio entrenamiento.
-# Se edita con `axion-wizard model prompt "<texto>"`, que además recrea este
-# contenedor — las variables de entorno se fijan al crearlo, así que un
-# `restart` conservaría el valor viejo.
+# The AI's standing instructions (tone, language, what it is and what it must
+# not do). Empty = the model behaves according to its own training.
+# Edited with `axion-wizard model prompt "<text>"`, which also recreates this
+# container — environment variables are fixed at creation time, so a `restart`
+# would keep the old value.
 OLLAMA_SYSTEM_PROMPT = os.environ.get("OLLAMA_SYSTEM_PROMPT", "")
 
-#: En modo asíncrono ya no hay que caber en el timeout de Mattermost, así
-#: que el límite solo existe para no dejar una petición colgada para siempre
-#: si Ollama se queda bloqueado.
+#: In asynchronous mode there is no longer any need to fit inside Mattermost's
+#: timeout, so this limit exists only to avoid leaving a request hanging
+#: forever if Ollama gets stuck.
 OLLAMA_TIMEOUT_SECONDS = float(os.environ.get("OLLAMA_TIMEOUT_SECONDS", "600"))
 
-# Vacío por defecto: Mattermost genera este token al crear el webhook
-# saliente, después del despliegue (ver .env). Con él vacío el puente no
-# valida nada — mismo comportamiento que antes de este campo.
+# Empty by default: Mattermost generates this token when the outgoing webhook
+# is created, after deployment (see .env). With it empty the bridge validates
+# nothing — the same behaviour as before this field existed.
 MM_WEBHOOK_TOKEN = os.environ.get("MM_WEBHOOK_TOKEN", "")
 
-# Token de un bot de Mattermost, para poder publicar la respuesta cuando ya
-# se ha contestado a la petición del webhook. Sin él, el puente cae al modo
-# síncrono. Se configura con `axion-wizard set-bot-token <token>`.
+# A Mattermost bot token, so the reply can be posted once the webhook request
+# has already been answered. Without it, the bridge falls back to synchronous
+# mode. Configured with `axion-wizard set-bot-token <token>`.
 MM_BOT_TOKEN = os.environ.get("MM_BOT_TOKEN", "")
 MM_URL = os.environ.get("MM_URL", "http://mattermost:8065")
 MM_API_TIMEOUT_SECONDS = 30.0
 
-# Solo importa en modo asíncrono: en modo síncrono la respuesta la publica
-# el propio mecanismo de webhooks salientes de Mattermost, no este código, y
-# no hay forma de pedirle que cuelgue la respuesta de un hilo.
+# Only matters in asynchronous mode: in synchronous mode the reply is posted by
+# Mattermost's own outgoing-webhook mechanism, not by this code, and there is
+# no way to ask it to hang the reply off a thread.
 AI_REPLY_IN_THREAD = os.environ.get("AI_REPLY_IN_THREAD", "true").strip().lower() not in (
     "false",
     "0",
@@ -64,10 +64,10 @@ AI_REPLY_IN_THREAD = os.environ.get("AI_REPLY_IN_THREAD", "true").strip().lower(
 )
 
 TIMEOUT_MESSAGE = (
-    "El modelo `{model}` tardó demasiado en responder. Suele significar que es "
-    "grande para este hardware: probar uno más pequeño con `axion-wizard model`."
+    "Model `{model}` took too long to answer. That usually means it is large for "
+    "this hardware: try a smaller one with `axion-wizard model`."
 )
-UNREACHABLE_MESSAGE = "No se pudo contactar con Ollama ({error})."
+UNREACHABLE_MESSAGE = "Could not reach Ollama ({error})."
 
 
 def async_mode_enabled() -> bool:
@@ -80,8 +80,8 @@ async def health() -> dict:
 
 
 async def generate(prompt: str) -> str:
-    """Pide la respuesta a Ollama. Devuelve un texto para el usuario incluso
-    cuando falla: en modo asíncrono nadie más va a ver el error."""
+    """Ask Ollama for the answer. Returns text for the user even on failure:
+    in asynchronous mode nobody else is going to see the error."""
     payload: dict = {"model": OLLAMA_MODEL, "prompt": prompt, "stream": False}
     if OLLAMA_SYSTEM_PROMPT:
         payload["system"] = OLLAMA_SYSTEM_PROMPT
@@ -92,23 +92,24 @@ async def generate(prompt: str) -> str:
             response.raise_for_status()
             return str(response.json().get("response", ""))
     except (TimeoutError, httpx.TimeoutException):
-        log.warning("Ollama excedió %ss generando con %s", OLLAMA_TIMEOUT_SECONDS, OLLAMA_MODEL)
+        log.warning("Ollama exceeded %ss generating with %s", OLLAMA_TIMEOUT_SECONDS, OLLAMA_MODEL)
         return TIMEOUT_MESSAGE.format(model=OLLAMA_MODEL)
     except httpx.HTTPError as exc:
-        # Un 500 con traceback aquí sale en Mattermost como un webhook roto y
-        # sin explicación; el usuario no tiene forma de saber qué mirar.
-        log.error("Error hablando con Ollama: %s", exc)
+        # A 500 with a traceback here surfaces in Mattermost as a broken
+        # webhook with no explanation; the user has no way to know what to look
+        # at.
+        log.error("Error talking to Ollama: %s", exc)
         return UNREACHABLE_MESSAGE.format(error=type(exc).__name__)
 
 
 async def post_to_channel(channel_id: str, message: str, root_id: str = "") -> None:
-    """Publica en el canal con el token del bot.
+    """Post to the channel using the bot token.
 
-    `root_id` cuelga la respuesta del mensaje que la disparó, para no llenar
-    el canal de mensajes sueltos. Si Mattermost lo rechaza —pasa cuando el
-    mensaje original ya era parte de un hilo, porque `root_id` tiene que ser
-    la raíz y no una respuesta— se reintenta sin él: mejor un mensaje fuera
-    de hilo que ninguno.
+    `root_id` hangs the reply off the message that triggered it, so the channel
+    does not fill up with loose messages. If Mattermost rejects it — which
+    happens when the original message was already part of a thread, because
+    `root_id` has to be the root and not a reply — it is retried without it: a
+    message outside a thread beats no message at all.
     """
     body: dict = {"channel_id": channel_id, "message": message}
     if root_id:
@@ -133,15 +134,15 @@ async def post_to_channel(channel_id: str, message: str, root_id: str = "") -> N
                 return
             response = retry
         log.error(
-            "Mattermost rechazó la publicación (HTTP %s): %s",
+            "Mattermost rejected the post (HTTP %s): %s",
             response.status_code,
             response.text[:300],
         )
 
 
 async def answer_in_background(prompt: str, channel_id: str, root_id: str) -> None:
-    """Genera y publica. No propaga nada: corre después de haber respondido
-    a Mattermost, así que una excepción aquí solo ensuciaría el log."""
+    """Generate and post. Propagates nothing: it runs after Mattermost has
+    already been answered, so an exception here would only dirty the log."""
     message = await generate(prompt)
     if not message.strip():
         return
@@ -150,7 +151,7 @@ async def answer_in_background(prompt: str, channel_id: str, root_id: str) -> No
             channel_id, message, root_id=root_id if AI_REPLY_IN_THREAD else ""
         )
     except httpx.HTTPError as exc:
-        log.error("No se pudo publicar la respuesta en Mattermost: %s", exc)
+        log.error("Could not post the reply to Mattermost: %s", exc)
 
 
 @app.post("/webhook/mattermost")
@@ -158,22 +159,22 @@ async def mattermost_webhook(request: Request, background: BackgroundTasks) -> d
     form = await request.form()
 
     if MM_WEBHOOK_TOKEN:
-        # compare_digest en vez de `==`: una comparación normal de strings
-        # corta en el primer carácter distinto, así que su tiempo de
-        # respuesta filtra cuánto del token se acertó — un side-channel
-        # real para forzarlo carácter a carácter.
+        # compare_digest rather than `==`: an ordinary string comparison stops
+        # at the first differing character, so its response time leaks how much
+        # of the token was guessed correctly — a real side channel for forcing
+        # it one character at a time.
         received_token = str(form.get("token", ""))
         if not hmac.compare_digest(received_token, MM_WEBHOOK_TOKEN):
-            raise HTTPException(status_code=403, detail="token inválido")
+            raise HTTPException(status_code=403, detail="invalid token")
 
     text = str(form.get("text", ""))
     channel_id = str(form.get("channel_id", ""))
     post_id = str(form.get("post_id", ""))
 
     if async_mode_enabled() and channel_id:
-        # Se contesta ya, con el cuerpo vacío (Mattermost lo interpreta como
-        # "sin respuesta que publicar"), y la de verdad llega por la API en
-        # cuanto el modelo termine. Así deja de importar cuánto tarde.
+        # Answer straight away, with an empty body (Mattermost reads that as
+        # "no reply to post"), and the real one arrives through the API as soon
+        # as the model finishes. That way how long it takes stops mattering.
         background.add_task(answer_in_background, text, channel_id, post_id)
         return {}
 
