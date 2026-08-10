@@ -15,14 +15,22 @@ cualquier cosa que no lo sea.
 from __future__ import annotations
 
 WIREGUARD_IMAGE = "ghcr.io/wg-easy/wg-easy:15.3.0"
+#: Se queda en la serie 10.x a propósito. La 11 existe, pero subir de major
+#: dispara migraciones de esquema sobre la base de datos que no se deshacen:
+#: no es una actualización que un instalador deba aplicar por su cuenta a un
+#: despliegue con historial de mensajes dentro.
 MATTERMOST_IMAGE = "mattermost/mattermost-team-edition:10.5.1"
-POSTGRES_IMAGE = "postgres:15.13-alpine"
-NGINX_IMAGE = "nginx:1.27-alpine"
-OLLAMA_IMAGE = "ollama/ollama:0.6.5"
+#: Serie 15 fijada por el mismo motivo, y con más razón: cambiar de major en
+#: PostgreSQL exige `pg_upgrade` o un volcado y restauración, y el contenedor
+#: se niega a arrancar sobre un directorio de datos de otra versión. Dentro
+#: de la 15 sí conviene estar al día — son parches de seguridad.
+POSTGRES_IMAGE = "postgres:15.18-alpine"
+NGINX_IMAGE = "nginx:1.31-alpine"
+OLLAMA_IMAGE = "ollama/ollama:0.32.6"
 #: Misma versión de Ollama compilada contra ROCm, para GPUs AMD. La imagen por
 #: defecto no trae las bibliotecas de AMD: con ella, pasarle `/dev/kfd` no
 #: sirve de nada y el modelo sigue corriendo en CPU sin decir por qué.
-OLLAMA_ROCM_IMAGE = "ollama/ollama:0.6.5-rocm"
+OLLAMA_ROCM_IMAGE = "ollama/ollama:0.32.6-rocm"
 BACKUP_IMAGE = "offen/docker-volume-backup:v2.48.2"
 N8N_IMAGE = "docker.n8n.io/n8nio/n8n:2.34.4"
 
