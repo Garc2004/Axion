@@ -4,13 +4,15 @@
 
 # axion-wizard
 
-Instalador/orquestador del stack AXION (Mattermost + WireGuard + Ollama +
-FastAPI sobre Docker).
+Installer and orchestrator for the AXION stack: Mattermost + WireGuard +
+Ollama + a FastAPI bridge, on Docker Compose. It ships as a self-contained
+binary, runs ten steps with persisted progress, and every error it can produce
+tells you what happened, why it matters, and what to do about it.
 
-## Empezar
+## Getting started
 
-Un solo comando monta el entorno, instala las dependencias y arranca el
-wizard. Es idempotente: se puede repetir sin romper nada.
+One command sets up the environment, installs the dependencies and starts the
+wizard. It is idempotent: running it again breaks nothing.
 
 **Windows (PowerShell)**
 
@@ -24,16 +26,17 @@ wizard. Es idempotente: se puede repetir sin romper nada.
 ./scripts/bootstrap.sh
 ```
 
-El script busca un Python >= 3.11, crea `.venv` e instala todo. Usa
-[uv](https://docs.astral.sh/uv/) si lo encuentra (respeta `uv.lock`, entorno
-reproducible) y cae a `venv` + `pip` si no. No instala uv por su cuenta.
+The script looks for a Python >= 3.11, creates `.venv` and installs
+everything. It uses [uv](https://docs.astral.sh/uv/) if it finds one
+(respecting `uv.lock`, so the environment is reproducible) and falls back to
+`venv` + `pip` if not. It does not install uv on your behalf.
 
-Si algo falla, el error dice qué pasó y qué hacer — no hay que interpretar un
-stack trace.
+If something fails, the error says what happened and what to do — there is no
+stack trace to interpret.
 
-### Pasarle argumentos al wizard
+### Passing arguments to the wizard
 
-Lo que va detrás llega tal cual al wizard:
+Whatever comes after reaches the wizard verbatim:
 
 ```powershell
 .\scripts\bootstrap.ps1 doctor            # Windows
@@ -43,89 +46,86 @@ Lo que va detrás llega tal cual al wizard:
 ./scripts/bootstrap.sh -- doctor          # Linux/macOS
 ```
 
-### Otras variantes
+### Other variants
 
-| Objetivo | Windows | Linux/macOS |
+| Goal | Windows | Linux/macOS |
 |---|---|---|
-| Solo preparar el entorno | `.\scripts\bootstrap.ps1 -NoRun` | `./scripts/bootstrap.sh --no-run` |
-| Preparar + lint/tipos/tests | `.\scripts\bootstrap.ps1 -Check -NoRun` | `./scripts/bootstrap.sh --check --no-run` |
+| Prepare the environment only | `.\scripts\bootstrap.ps1 -NoRun` | `./scripts/bootstrap.sh --no-run` |
+| Prepare + lint/types/tests | `.\scripts\bootstrap.ps1 -Check -NoRun` | `./scripts/bootstrap.sh --check --no-run` |
 
-Con `make` disponible: `make setup`, `make check`, `make test`, `make lint`,
-`make run ARGS="doctor"`, `make build`, `make clean`. `make help` los lista.
+With `make` available: `make setup`, `make check`, `make test`, `make lint`,
+`make run ARGS="doctor"`, `make build`, `make clean`. `make help` lists them.
 
-## El flujo de instalación
+## The install flow
 
-`axion-wizard install` ejecuta diez pasos en orden, y **persiste el progreso
-tras cada uno**: si se interrumpe, la siguiente ejecución se reanuda desde el
-último paso completado en vez de empezar de cero.
+`axion-wizard install` runs ten steps in order and **persists progress after
+each one**: if it is interrupted, the next run resumes from the last completed
+step rather than starting over.
 
-| # | Paso | Qué hace |
+| # | Step | What it does |
 |---|---|---|
-| 1 | Entorno | SO, WSL, Docker, hardware → decide la variante de WireGuard (`host` o `ports`) |
-| 2 | Red | IP LAN, CGNAT, puertos libres, conectividad saliente |
-| 3 | Configuración | Prompts con validación en vivo + resumen y **una sola** confirmación |
-| 4 | Certificado | TLS con `subjectAltName`, verificado releyendo el archivo |
-| 5 | Compose | `docker-compose.yml`, `.env`, `wg.env`, nginx y el puente FastAPI |
-| 6 | Despliegue | `up -d --build` y espera de healthchecks con backoff |
-| 7 | Modelo | Descarga del modelo con barra de progreso real |
-| 8 | WireGuard | Primer cliente y su QR dibujado en la terminal |
-| 9 | Bot y webhook | Pide los tokens de Mattermost (opcional, ver más abajo) |
-| 10 | Verificación | Las mismas comprobaciones que `doctor` |
+| 1 | Environment | OS, WSL, Docker, hardware → decides the WireGuard variant (`host` or `ports`) |
+| 2 | Network | LAN IP, CGNAT, free ports, outbound connectivity |
+| 3 | Configuration | Prompts with live validation + a summary and **one single** confirmation |
+| 4 | Certificate | TLS with `subjectAltName`, verified by reading the file back |
+| 5 | Compose | `docker-compose.yml`, `.env`, `wg.env`, nginx and the FastAPI bridge |
+| 6 | Deployment | `up -d --build` and healthcheck waiting with backoff |
+| 7 | Model | Model download with a real progress bar |
+| 8 | WireGuard | First client and its QR drawn in the terminal |
+| 9 | Bot and webhook | Asks for the Mattermost tokens (optional, see below) |
+| 10 | Verification | The same checks `doctor` runs |
 
-Hasta la confirmación del paso 3 no se escribe **nada** al disco: cancelar
-antes no deja nada a medias.
+**Nothing** is written to disk until step 3's confirmation: cancelling before
+that leaves nothing half-done.
 
-El estado vive en `.axion-wizard-state.json` y guarda solo *qué* pasos
-terminaron, nunca sus valores — los secretos no se persisten ahí. Al
-reanudar, cada paso reconstruye lo suyo leyendo `.env` y `wg.env`.
+State lives in `.axion-wizard-state.json` and records only *which* steps
+finished, never their values — no secret is persisted there. On resume, each
+step rebuilds its own part by reading `.env` and `wg.env`.
 
-### Reanudar no es fiarse del archivo
+### Resuming does not mean trusting the file
 
-Ese archivo dice lo que pasó **la última vez**, no lo que hay ahora: entre
-dos ejecuciones se puede haber desinstalado Docker, borrado los contenedores
-o movido el proyecto. Por eso, antes de dar un paso por hecho, el wizard lo
-**comprueba**; si ya no se sostiene, lo rehace — y con él todos los
-siguientes, porque se construyeron encima.
+That file says what happened **last time**, not what is true now: between two
+runs, Docker may have been uninstalled, the containers deleted, or the project
+moved. So before taking a step as done, the wizard **checks** it; if it no
+longer holds, it redoes it — and every step after it, because they were built
+on top.
 
-Sin eso pasaba lo siguiente, que es un caso real: el estado decía
-`deploy: 6 servicios operativos` después de desinstalar Docker, `install` se
-saltaba el despliegue —"ya se hizo"— y aterrizaba en el paso 9 a fallar las
-siete comprobaciones, sin ninguna pista de que el problema estaba siete
-pasos antes.
+Without that, this happened, and it is a real case: the state said
+`deploy: 6 services operational` after Docker was uninstalled, `install`
+skipped the deployment — "it was already done" — and landed on step 9 to fail
+all seven checks, with no hint that the problem was seven steps earlier.
 
-Al arrancar, si hay progreso guardado, se muestra el mapa completo: qué está
-hecho, qué falló y dónde va a retomar.
+On startup, if there is saved progress, the whole map is shown: what is done,
+what failed, and where it will pick up.
 
-**Lo que esa comprobación no detecta.** Verifica que lo de la última vez
-sigue en pie, no que coincida con lo que este wizard generaría *hoy*: el paso
-4 acepta cualquier certificado que tenga algún SAN, y el paso 5 solo mira que
-los archivos existan, no su contenido. Así que tras actualizar el wizard, un
-`install` a secas puede no aplicar nada y terminar en verde. Para que los
-cambios de las plantillas lleguen al despliegue hace falta
-`axion-wizard install --restart`, que rehace desde el paso 1 — y regenera el
-certificado, así que el navegador volverá a avisar una vez.
+**What that check does not catch.** It verifies that last time's result still
+stands, not that it matches what this wizard would generate *today*: step 4
+accepts any certificate that has some SAN, and step 5 only checks the files
+exist, not their contents. So after upgrading the wizard, a bare `install` may
+apply nothing and finish green. To get template changes into the deployment
+you need `axion-wizard install --restart`, which redoes everything from step 1
+— and regenerates the certificate, so the browser will warn once more.
 
-### Empezar de cero
+### Starting from scratch
 
 ```bash
-axion-wizard reset               # olvida el progreso; el próximo install va al paso 1
-axion-wizard install --restart   # las dos cosas de una vez
+axion-wizard reset               # forget the progress; the next install goes to step 1
+axion-wizard install --restart   # both at once
 ```
 
-`reset` borra **solo** el registro de pasos: ni contenedores, ni volúmenes,
-ni `.env`, ni el certificado. Rehacer la instalación encima de un despliegue
-existente es seguro porque el paso 3 reutiliza la contraseña de PostgreSQL
-que ya está en `.env`. Para borrar los datos de verdad es
-`axion-wizard uninstall --purge`.
+`reset` deletes **only** the step record: no containers, no volumes, no
+`.env`, no certificate. Redoing the install over an existing deployment is
+safe because step 3 reuses the PostgreSQL password already in `.env`. To
+really delete the data, use `axion-wizard uninstall --purge`.
 
-Volver a ejecutar `install` sobre un proyecto ya desplegado es seguro: la
-contraseña de PostgreSQL, el token del webhook y las instrucciones de la IA
-se conservan del `.env` anterior (Postgres solo aplica su contraseña al
-inicializar el volumen; regenerarla dejaría a Mattermost sin poder entrar).
-`docker-compose.yml`, `.env` y `wg.env` se respaldan con sufijo `.bak` antes
-de reescribirse.
+Re-running `install` on an already-deployed project is safe: the PostgreSQL
+password, the webhook token and the AI's instructions are carried over from
+the previous `.env` (Postgres only applies its password when initialising the
+volume; regenerating it would leave Mattermost unable to log in).
+`docker-compose.yml`, `.env` and `wg.env` are backed up with a `.bak` suffix
+before being rewritten.
 
-### Modo desatendido (CI)
+### Unattended mode (CI)
 
 ```bash
 axion-wizard install --unattended --config axion.toml
@@ -135,298 +135,389 @@ axion-wizard install --unattended --config axion.toml
 access_mode = "lan"                          # "lan" | "domain"
 host = "192.168.1.50"
 ollama_model = "qwen2.5:1.5b"
-wireguard_admin_password = "panel-seguro"    # se hashea con bcrypt aquí
-# wireguard_admin_password_hash = "$2b$..."  # alternativa: hash ya calculado
-# postgres_password = "..."                  # opcional; si falta se genera (hex)
-# mm_bot_token = "..."                       # opcional; si se conocen de antemano
-# mm_webhook_token = "..."                   # (p.ej. reinstalando sobre el mismo Mattermost)
-# ai_reply_in_thread = false                 # opcional; solo con mm_bot_token puesto
+wireguard_admin_password = "a-long-panel-password"   # min. 12 characters
+# wireguard_admin_username = "admin"         # optional; defaults to "admin"
+# postgres_password = "..."                  # optional; generated (hex) if absent
+# mm_bot_token = "..."                       # optional; if known in advance
+# mm_webhook_token = "..."                   # (e.g. reinstalling onto the same Mattermost)
+# ai_reply_in_thread = false                 # optional; only with mm_bot_token set
 ```
 
-Sin esos, el paso 9 (bot y webhook) se omite sin más — no hay prompt que
-hacer sin terminal, y se aplican después con `set-bot-token`/
-`set-webhook-token` igual que en el camino interactivo.
+Without those, step 9 (bot and webhook) is simply skipped — there is no prompt
+to make without a terminal, and they are applied afterwards with
+`set-bot-token`/`set-webhook-token` exactly as on the interactive path.
 
-### Interfaz a pantalla completa
+### Full-screen interface
 
 ```bash
 axion-wizard install --tui
 ```
 
-Un formulario para la configuración y una pantalla con los diez pasos y su
-log. Es **una alternativa, no el camino por defecto**: la §1.3 de la spec
-descarta Textual para el flujo lineal y esa decisión se mantiene. No se puede
-combinar con `--unattended` ni con la entrada redirigida.
+A form for the configuration and a screen with the ten steps and their log. It
+is **an alternative, not the default path**: §1.3 of the spec rules Textual
+out for the linear flow and that decision stands. It cannot be combined with
+`--unattended` or with redirected input.
 
-## Comandos del wizard
+## Wizard commands
 
 ```
-axion-wizard                      Flujo completo de instalación
-axion-wizard reset                Olvida el progreso: el próximo install va al paso 1
-axion-wizard doctor               Re-valida un stack ya desplegado, sin tocarlo
-axion-wizard network-check        Solo las verificaciones de red (§4.2)
-axion-wizard gen-cert <host>      Genera el certificado TLS
-axion-wizard model                Qué modelo e instrucciones usa la IA ahora
-axion-wizard model choose         Elige el modelo de una lista y lo aplica
-axion-wizard model set <n>        Cambia el modelo: descarga + .env + recrear
-axion-wizard model prompt "<t>"   Edita las instrucciones permanentes de la IA
-axion-wizard set-bot-token <t>    Quita el límite de 30s: responde al terminar
-axion-wizard models               Modelos de Ollama compatibles con este hardware
-axion-wizard models pull <n>      Descarga un modelo (sin activarlo)
-axion-wizard wireguard add-client <n>   Crea un cliente y muestra su QR
-axion-wizard up [servicio]        docker compose up -d (reinicia nginx si toca)
+axion-wizard                      Full install flow
+axion-wizard reset                Forget progress: the next install goes to step 1
+axion-wizard doctor               Re-validate a deployed stack, without touching it
+axion-wizard network-check        Only the network checks (§4.2)
+axion-wizard gen-cert <host>      Generate the TLS certificate
+axion-wizard model                Which model and instructions the AI uses now
+axion-wizard model choose         Pick the model from a list and apply it
+axion-wizard model set <n>        Change the model: pull + .env + recreate
+axion-wizard model prompt "<t>"   Edit the AI's standing instructions
+axion-wizard set-bot-token <t>    Remove the 30s limit: answers when it finishes
+axion-wizard models               Ollama models compatible with this hardware
+axion-wizard models pull <n>      Download a model (without activating it)
+axion-wizard wireguard add-client <n>   Create a client and show its QR
+axion-wizard up [service]         docker compose up -d (restarts nginx if needed)
 axion-wizard down                 docker compose down
-axion-wizard logs [servicio]      Últimas líneas del log de cada servicio
-axion-wizard uninstall [--purge]  Baja el stack (--purge borra los volúmenes)
+axion-wizard logs [service]       Last lines of each service's log
+axion-wizard uninstall [--purge]  Bring the stack down (--purge deletes the volumes)
 ```
 
-## Editar la IA
+Options for `install`: `--unattended`, `--config <axion.toml>`, `--tui`,
+`--restart`.
 
-Cambiar el modelo son tres cosas, no una: descargarlo, apuntar `OLLAMA_MODEL`
-a él y **recrear** el contenedor de FastAPI (un `restart` no vale — las
-variables de entorno se fijan al crear el contenedor, así que el valor viejo
-sobrevive al reinicio). Olvidar el tercer paso deja una IA que sigue
-respondiendo con el modelo anterior, sin ningún error.
-
-`axion-wizard model` hace los tres:
+Global options (they go **before** the subcommand): `--verbose`, `--quiet`,
+`--no-color`, `--dry-run`, `--yes`, `--no-elevate`, `--project-dir <path>`.
 
 ```bash
-axion-wizard model                       # qué usa ahora mismo
-axion-wizard model choose                # elegir de una lista según tu hardware
-axion-wizard model set llama3.2:3b       # o directamente por nombre
+axion-wizard --project-dir /srv/axion doctor    # correct
+axion-wizard doctor --project-dir /srv/axion    # error: No such option
 ```
 
-Las instrucciones permanentes —tono, idioma, qué es y qué no debe hacer— se
-editan igual, y aplican a toda conversación sin repetirlas cada vez:
+## Architecture
+
+```
+src/axion_wizard/
+  cli.py            Typer app: options, subcommands, the error panel
+  errors.py         AxionError(what/why/steps) — the actionable-error contract
+  privileges.py     UAC/sudo elevation and the relaunch
+
+  commands/         What each subcommand does
+    install.py        install, reset
+    diagnose.py       doctor, network-check, gen-cert
+    ai.py             models, model, the two Mattermost tokens
+    vpn.py            wireguard add-client
+    lifecycle.py      up, down, logs, uninstall
+
+  domain/           What the stack *is*, with no I/O beyond its own artifacts
+    config.py         AxionConfig — the validated shape of an install
+    stack.py          Which services the stack is made of
+    images.py         Which image tag each is pinned to
+    deployment.py     Reading an existing deployment back off disk
+
+  render/           How it looks on a terminal (shared by the CLI and the TUI)
+    console.py        The Rich Console and the axion.* theme
+    ui.py             Status glyphs and the report-table factory
+
+  detect/           Read-only probes: platform, docker, hardware, network
+  services/         I/O adapters: certs, compose, hostnet, ollama, wireguard
+  steps/            The install flow: base, context, orchestrator, s01…s09
+  templates/        Jinja2 templates + the FastAPI bridge's sources
+  tui/              The Textual alternative to the questionary flow
+  utils/            fsperms, jsonio, resources, secrets, shell, state, winconsole
+```
+
+The flow of control is one direction only:
+
+```
+cli.py  →  commands/  →  steps/orchestrator  →  steps/sNN_*
+                     ↘   services/  ↘  detect/  ↘  domain/  ↘  utils/
+```
+
+Three conventions worth knowing before changing anything:
+
+- **`Step` has `run()`, `verify()` and `restore()`.** `verify()` is what lets
+  `doctor` reuse the install's checks, and what catches a step whose result no
+  longer exists. `restore()` rebuilds a completed step's contribution to the
+  context by reading `.env`/`wg.env` — that is what makes resuming possible
+  without persisting any secret.
+- **Errors carry `what` / `why` / `steps`.** A raw traceback only ever reaches
+  the user under `--verbose`. If you add a failure path, it needs all three.
+- **Comments explain *why*, not *what*.** Most of the long comments in this
+  codebase document a real incident and the reason a seemingly odd choice is
+  the right one. They are load-bearing.
+
+## Editing the AI
+
+Changing the model is three things, not one: pulling it, pointing
+`OLLAMA_MODEL` at it, and **recreating** the FastAPI container (a `restart`
+will not do — environment variables are fixed when the container is created,
+so the old value survives a restart). Forgetting the third leaves an AI still
+answering with the previous model, with no error at all.
+
+`axion-wizard model` does all three:
 
 ```bash
-axion-wizard model prompt "Eres el asistente interno de AXION. Responde en español y sé breve."
-axion-wizard model prompt ""             # borrarlas
+axion-wizard model                       # what it uses right now
+axion-wizard model choose                # pick from a list matched to your hardware
+axion-wizard model set llama3.2:3b       # or straight by name
 ```
 
-### Que la IA pueda tardar lo que necesite
+The standing instructions — tone, language, what it is and what it must not do
+— are edited the same way, and apply to every conversation without repeating
+them:
 
-Mattermost espera la respuesta HTTP del webhook saliente y la **abandona a
-los ~30 segundos**. Un modelo de 7B en CPU pasa de ahí sin esfuerzo, así que
-la respuesta se pierde entera: desde fuera parece que la IA no contesta, y no
-hay nada en los logs que lo explique — por dentro el modelo respondió bien.
+```bash
+axion-wizard model prompt "You are AXION's internal assistant. Be brief."
+axion-wizard model prompt ""             # clear them
+```
 
-La solución es que el puente conteste al webhook al instante y publique la
-respuesta en el canal cuando el modelo termine. Para eso necesita un bot:
+### Letting the AI take as long as it needs
 
-1. Mattermost → **Integraciones → Cuentas de bot → Crear** (si la opción no
-   aparece: Consola del sistema → Integraciones → habilitar cuentas de bot).
-2. Copiar su token. Un bot recién creado **no pertenece a ningún equipo** —
-   sumarlo directo a un canal falla con *"1 user was not selected because
-   they are not a part of this team"*. Primero: Consola del sistema →
-   Administración de usuarios → Equipos → el equipo del canal → Añadir
-   personas → buscar el nombre de usuario del bot (`@axion`, no el nombre
-   para mostrar). Recién entonces se lo puede añadir al canal.
-3. Pegarlo en el paso 9 del propio `install` (pide justo esto), o después con
-   `axion-wizard set-bot-token <token>`.
+Mattermost waits for the outgoing webhook's HTTP response and **abandons it
+after ~30 seconds**. A 7B model on CPU passes that without effort, so the
+answer is lost whole: from the outside it looks as though the AI does not
+reply, and there is nothing in the logs to explain it — internally the model
+answered fine.
 
-El `install` no puede crear el bot por ti — Mattermost no expone su API sin
-una sesión ya iniciada por un admin humano, y esa cuenta se crea en la propia
-interfaz web — pero sí se detiene a mitad de la instalación para pedir el
-token en cuanto lo tengas, en vez de dejarlo para después. Dejarlo en blanco
-ahí no rompe nada: se aplica más tarde exactamente igual.
+The fix is for the bridge to answer the webhook immediately and post the reply
+to the channel once the model finishes. That needs a bot:
 
-A partir de ahí no hay techo de tiempo y puedes usar el modelo que el
-hardware aguante. Sin token, el puente sigue funcionando en modo síncrono
-exactamente como antes.
+1. Mattermost → **Integrations → Bot Accounts → Create** (if the option is
+   missing: System Console → Integrations → enable bot accounts).
+2. Copy its token. A newly created bot **belongs to no team** — adding it
+   straight to a channel fails with *"1 user was not selected because they are
+   not a part of this team"*. First: System Console → User Management → Teams →
+   the channel's team → Add People → search for the bot's username (`@axion`,
+   not its display name). Only then can it be added to the channel.
+3. Paste it into step 9 of `install` itself (it asks for exactly this), or
+   afterwards with `axion-wizard set-bot-token <token>`.
 
-Con el bot puesto, el paso 9 pregunta además si la respuesta debe colgar del
-mensaje que la disparó —en hilo, plegada hasta hacer clic— o publicarse como
-mensaje normal del canal (`AI_REPLY_IN_THREAD` en `.env`, por defecto en
-hilo). Sin efecto en modo síncrono: ahí quien decide es el propio mecanismo
-de webhooks salientes de Mattermost, no este código. Cambiarlo después de
-instalado es editar esa línea en `.env` y `axion-wizard up fastapi`.
+`install` cannot create the bot for you — Mattermost exposes no API without a
+session already opened by a human admin, and that account is created in the
+web interface — but it does stop mid-install to ask for the token as soon as
+you have it, rather than leaving it for later. Leaving it blank there breaks
+nothing: it is applied later in exactly the same way.
 
-Mientras ese token no esté puesto, el wizard sube el plazo que Mattermost
-concede al webhook de sus 30 segundos por defecto a **180**
-(`MM_SERVICESETTINGS_OUTGOINGINTEGRATIONREQUESTSTIMEOUT`). No sustituye al
-modo asíncrono —la petición sigue esperando— pero es la diferencia entre que
-un modelo mediano en CPU funcione o pierda cada respuesta. Como referencia
-medida en un i3-10100F sin GPU: `qwen2.5:0.5b` genera 19 tokens/s y
-`qwen2.5:3b` 4,6, o sea ~43 segundos para una respuesta de 200 tokens.
+From then on there is no time ceiling and you can use whatever model the
+hardware carries. Without a token, the bridge keeps working in synchronous
+mode exactly as before.
 
-## Copias de seguridad
+With the bot set, step 9 also asks whether the reply should hang off the
+message that triggered it — in a thread, collapsed until clicked — or be
+posted as a normal channel message (`AI_REPLY_IN_THREAD` in `.env`, threaded
+by default). It has no effect in synchronous mode: there the decision belongs
+to Mattermost's own outgoing-webhook mechanism, not to this code. Changing it
+after installing means editing that line in `.env` and running
+`axion-wizard up fastapi`.
 
-El servicio `backup` archiva los volúmenes en `backups/`, dentro del propio
-directorio del proyecto, sin que haya que configurar nada.
+While that token is not set, the wizard raises the deadline Mattermost grants
+the webhook from its default 30 seconds to **180**
+(`MM_SERVICESETTINGS_OUTGOINGINTEGRATIONREQUESTSTIMEOUT`). It does not replace
+asynchronous mode — the request still waits — but it is the difference between
+a mid-sized model on CPU working and losing every answer. As a reference
+measured on an i3-10100F with no GPU: `qwen2.5:0.5b` generates 19 tokens/s and
+`qwen2.5:3b` 4.6, i.e. ~43 seconds for a 200-token answer.
+
+## Upgrading to wg-easy v15
+
+**This is a breaking change for existing deployments.** From version 0.3.0 the
+wizard installs wg-easy **v15**, which is a ground-up rewrite of the project:
+
+| | v14 | v15 |
+|---|---|---|
+| Configuration | `WG_HOST`, `PASSWORD_HASH` (bcrypt) | `INIT_*` variables, **first boot only** |
+| Panel password | a bcrypt hash | **plaintext**, minimum **12 characters** |
+| Username | none | **required** (defaults to `admin`) |
+| Plain HTTP | default | requires `INSECURE=true` |
+
+**v15 cannot read a v14 data volume.** If it is allowed to start on one it
+does not fail: it finds a store it does not recognise, launches its setup
+wizard, and leaves an empty panel — every already-enrolled client stops
+connecting at once, with nothing in the logs to say there was data to migrate.
+
+`axion-wizard install` detects this and refuses to proceed. To migrate:
+
+1. Open the **v14** panel and use its backup button to download `wg0.json`.
+2. Run `axion-wizard install` again. The v15 panel comes up in its setup
+   wizard.
+3. Choose "I already have a configuration file" and upload `wg0.json`.
+
+If there are no clients worth keeping, `axion-wizard uninstall --purge`
+removes the volume and the next install starts clean.
+
+The panel password now has a **12-character minimum**. It is not our policy:
+it is what wg-easy's own login validation enforces. A shorter one creates the
+account anyway — `INIT_PASSWORD` does not validate length — and then no login
+ever passes, with the panel returning a 400 that looks like "wrong password".
+The wizard checks it at the prompt, where it can still be corrected.
+
+## Backups
+
+The `backup` service archives the volumes into `backups/`, inside the
+project's own directory, with nothing to configure.
 
 ```
-BACKUP_CRON_EXPRESSION=0 3 * * *   # en .env; `install` conserva lo que pongas
+BACKUP_CRON_EXPRESSION=0 3 * * *   # in .env; `install` keeps whatever you set
 BACKUP_RETENTION_DAYS=7
 ```
 
-Se aplica con `axion-wizard up backup`. Para lanzar una copia ahora mismo:
+Apply changes with `axion-wizard up backup`. To take a backup right now:
 
 ```bash
 docker exec axion-backup-1 backup
 ```
 
-Dos cosas que conviene saber antes de que pasen:
+Two things worth knowing before they happen:
 
-- **Durante la copia se paran PostgreSQL y Mattermost**, unos segundos, y se
-  vuelven a arrancar solos. Copiar el directorio de datos de una base en
-  marcha produce un archivo que puede no restaurar; de ahí la hora de
-  madrugada por defecto.
-- **No se copia `ollama_data`** —son gigabytes de modelo que se recuperan con
-  `axion-wizard model set`— ni los logs de Mattermost. Sí se copian la base de
-  datos, los archivos subidos, la configuración, los plugins y las claves de
-  WireGuard.
+- **PostgreSQL and Mattermost are stopped during the backup**, for a few
+  seconds, and started again on their own. Copying a running database's data
+  directory produces an archive that may not restore; hence the small-hours
+  default.
+- **`ollama_data` is not backed up** — gigabytes of model recoverable with
+  `axion-wizard model set` — nor are Mattermost's logs. The database, uploaded
+  files, configuration, plugins and WireGuard keys all are.
 
-El borrado por antigüedad solo alcanza a los archivos que empiezan por
-`axion-`, así que se puede dejar cualquier otra cosa en esa carpeta.
+Age-based pruning only reaches files beginning with `axion-`, so anything else
+can safely be left in that folder.
 
 ## n8n
 
-Va incluido de forma nativa, sin flag: `install` lo despliega junto al resto.
-Queda en `http://<host>:5678`, en su propio puerto y **sin pasar por nginx**,
-igual que el panel de WireGuard: nadie termina TLS por él, así que se anuncia
-como `http` a propósito — decir `https` le haría generar URLs de webhook que
-no responden.
+Included natively, with no flag: `install` deploys it alongside the rest. It
+lands on `http://<host>:5678`, on its own port and **not behind nginx**, just
+like the WireGuard panel: nobody terminates TLS for it, so it announces itself
+as `http` on purpose — saying `https` would make it generate webhook URLs that
+do not answer.
 
-Tres cosas que el wizard resuelve por ti y que a mano se pagan caro:
+Three things the wizard handles for you that cost dearly by hand:
 
-- **`n8n:5678` va en la lista de destinos permitidos de Mattermost.** Sin eso,
-  su protección SSRF descarta el webhook saliente **en silencio**: no dispara
-  y no aparece error en ningún log. Como esa variable vive en un servicio
-  gestionado, ponerla a mano la pisaría el siguiente `install`.
-- **`N8N_ENCRYPTION_KEY` se genera una vez y se conserva.** Si cambia, todas
-  las credenciales guardadas en n8n quedan ilegibles para siempre; n8n arranca
-  igual y los flujos fallan al autenticarse sin decir por qué.
-- **Su volumen entra en las copias de seguridad.** Si no, una restauración
-  devolvería el chat entero y n8n vacío.
+- **`n8n:5678` is in Mattermost's allowed-destinations list.** Without it, the
+  SSRF protection drops the outgoing webhook **silently**: it does not fire and
+  no error appears in any log. Since that variable lives in a managed service,
+  setting it by hand would be overwritten by the next `install`.
+- **`N8N_ENCRYPTION_KEY` is generated once and preserved.** If it changes,
+  every credential stored in n8n becomes unreadable forever; n8n starts anyway
+  and the workflows fail to authenticate without saying why.
+- **Its volume is in the backups.** Otherwise a restore would bring back the
+  entire chat and leave n8n empty.
 
-Ajusta `N8N_TIMEZONE` en `.env` con un nombre IANA
-(`America/Argentina/Buenos_Aires`, `Europe/Madrid`): con un valor que no
-reconozca, n8n se queda en UTC y los flujos programados disparan a otra hora
-sin avisar.
+Set `N8N_TIMEZONE` in `.env` to an IANA name
+(`America/Argentina/Buenos_Aires`, `Europe/Madrid`): with a value it does not
+recognise, n8n stays on UTC and scheduled workflows fire at a different hour
+without warning.
 
-Dentro de la red del stack, n8n ve Ollama en `http://ollama:11434` y Mattermost
-en `http://mattermost:8065`.
+Inside the stack's network, n8n sees Ollama at `http://ollama:11434` and
+Mattermost at `http://mattermost:8065`.
 
 ## GPU
 
-El wizard no se fía de que la GPU exista: **prueba** que Docker puede pasarla
-a un contenedor antes de reservarla, porque reservarla sin comprobarlo deja a
-`ollama` parado en `created` para siempre y arrastra a `fastapi` con él.
+The wizard does not trust that a GPU exists: it **tests** that Docker can hand
+one to a container before reserving it, because reserving it without checking
+leaves `ollama` stuck in `created` forever and drags `fastapi` down with it.
 
-| GPU | Qué hace |
+| GPU | What happens |
 |---|---|
-| NVIDIA | Prueba `--gpus all`. Necesita `nvidia-container-toolkit`. |
-| AMD | Prueba `/dev/kfd` y `/dev/dri`, y usa la imagen de Ollama compilada contra ROCm. Necesita el módulo `amdgpu` y pertenecer a los grupos `video` y `render`. |
-| Intel | Se detecta y se avisa: Ollama no publica ninguna imagen para sus GPUs, así que corre en CPU. |
+| NVIDIA | Tests `--gpus all`. Needs `nvidia-container-toolkit`. |
+| AMD | Tests `/dev/kfd` and `/dev/dri`, and uses the Ollama image built against ROCm. Needs the `amdgpu` module and membership of the `video` and `render` groups. |
+| Intel | Detected and warned about: Ollama publishes no image for its GPUs, so it runs on CPU. |
 
-Si la prueba falla, no se rompe nada: el modelo corre en CPU y el aviso dice
-qué revisar en cada caso.
+If the test fails, nothing breaks: the model runs on CPU and the warning says
+what to check in each case.
 
-## Dónde escribe sus archivos
+## Where it writes its files
 
-Sin `--project-dir`, el wizard nunca escribe en el directorio desde el que se
-ejecuta el binario a secas: si ese directorio ya tiene un despliegue
-(`docker-compose.yml` presente) lo usa tal cual, y si no, crea una subcarpeta
-`axion/` ahí y trabaja dentro de ella. Ejecutar el `.exe` recién descargado
-directamente desde `~/Descargas`, por ejemplo, crea `~/Descargas/axion/` en
-vez de esparcir `docker-compose.yml`, `.env`, `nginx/`… sueltos en Descargas.
+Without `--project-dir`, the wizard never writes into the directory the bare
+binary is run from: if that directory already holds a deployment
+(`docker-compose.yml` present) it is used as-is, and if not, an `axion/`
+subdirectory is created there and used. Running the freshly downloaded `.exe`
+straight from `~/Downloads`, for example, creates `~/Downloads/axion/` rather
+than scattering `docker-compose.yml`, `.env`, `nginx/`… loose in Downloads.
 
-Para elegir la carpeta a mano: `axion-wizard --project-dir <ruta> install`.
+To choose the folder by hand: `axion-wizard --project-dir <path> install`.
 
-## Cada despliegue tiene su propio nombre de proyecto
+## Every deployment has its own project name
 
-`.env` lleva `COMPOSE_PROJECT_NAME`, generado una vez y conservado en cada
-`install` posterior. Es lo que evita que **dos instalaciones distintas en el
-mismo host Docker** terminen compartiendo contenedores y volúmenes: Compose
-identifica un proyecto por su nombre, no por la carpeta desde la que se
-invoca, así que sin un nombre único por despliegue, instalar en una segunda
-carpeta reutilizaría los mismos contenedores y volúmenes que el primero —
-mismo Postgres, mismo Mattermost, misma base de datos — y cada `install`
-sobrescribiría la configuración del otro en silencio.
+`.env` carries `COMPOSE_PROJECT_NAME`, generated once and preserved by every
+later `install`. It is what stops **two separate installs on the same Docker
+host** from ending up sharing containers and volumes: Compose identifies a
+project by its name, not by the directory it was invoked from, so without a
+unique name per deployment, installing into a second folder would reuse the
+first one's containers and volumes — same Postgres, same Mattermost, same
+database — and each `install` would silently overwrite the other's
+configuration.
 
-No es hipotético: pasó en el desarrollo de este proyecto. Una instalación
-nueva generó una contraseña de PostgreSQL distinta a la que el volumen ya
-tenía inicializada, y Mattermost quedó en bucle de reinicio autenticando con
-la contraseña vieja contra un `.env` con la nueva, sin que ningún log
-señalara que el problema real era una colisión entre dos instalaciones. Los
-datos no se pierden en este escenario —Postgres ignora una contraseña nueva
-si el volumen ya estaba inicializado— pero el stack no arranca hasta corregir
-cuál `.env` manda.
+This is not hypothetical: it happened while developing this project. A fresh
+install generated a different PostgreSQL password from the one the volume was
+already initialised with, and Mattermost ended up in a restart loop
+authenticating with the old password against a `.env` holding the new one,
+with no log pointing out that the real problem was a collision between two
+installs. Data is not lost in this scenario — Postgres ignores a new password
+when the volume was already initialised — but the stack will not come up until
+you settle which `.env` wins.
 
-**Nunca copiar `COMPOSE_PROJECT_NAME` de un despliegue a otro.**
+**Never copy `COMPOSE_PROJECT_NAME` from one deployment to another.**
 
-### Mover el despliegue de carpeta
+### Moving the deployment to another folder
 
-Copiar los archivos y volver a levantar basta: el nombre de proyecto viaja en
-`.env`, no depende de la ruta. Si vienes de una instalación con el
-`docker-compose.yml` viejo (versiones anteriores a este cambio fijaban
-`name: axion` ahí, igual para todo el mundo), el wizard migra ese valor a
-`.env` automáticamente en el primer `install` tras actualizar — sin flags ni
-pasos manuales.
+Copying the files and bringing it back up is enough: the project name travels
+in `.env` and does not depend on the path. If you are coming from an install
+with the old `docker-compose.yml` (versions before this change pinned
+`name: axion` there, the same for everybody), the wizard migrates that value
+into `.env` automatically on the first `install` after upgrading — no flags, no
+manual steps.
 
-## Si la IA solo responde al recargar (F5)
+## If the AI only answers on reload (F5)
 
-Ese síntoma no es que la IA no conteste: contesta, y el mensaje no llega al
-navegador. Mattermost empuja los mensajes nuevos por **WebSocket**, y al
-recargar la página los vuelve a pedir por HTTP normal — por eso aparecen de
-golpe. Es decir: HTTP sano, WebSocket roto.
+That symptom is not the AI failing to answer: it answers, and the message
+never reaches the browser. Mattermost pushes new messages over a **WebSocket**,
+and reloading the page re-fetches them over ordinary HTTP — which is why they
+all appear at once. In other words: HTTP healthy, WebSocket broken.
 
 ```bash
-axion-wizard doctor    # mirar la fila `WebSocket Mattermost`
+axion-wizard doctor    # look at the `Mattermost WebSocket` row
 ```
 
-Esa comprobación hace el handshake de verdad y separa las dos causas, que
-piden arreglos opuestos:
+That check performs the handshake for real and separates the two causes, which
+call for opposite fixes:
 
-| Resultado | Causa | Qué hacer |
+| Result | Cause | What to do |
 |---|---|---|
-| Rechazado con HTTP 4xx | `MM_SITEURL` no coincide con el host que usa el navegador, o nginx sin las cabeceras `Upgrade`/`Connection` | Corregir `MM_SITEURL` en `.env` y `axion-wizard up` |
-| No responde / se corta | Bug abierto de WSL2 con `networkingMode=mirrored`: las conexiones TCP largas se cuelgan ([moby/moby#48201](https://github.com/moby/moby/issues/48201)) | Volver a NAT + `netsh portproxy`, o convivir con el F5 |
+| Rejected with HTTP 4xx | `MM_SITEURL` does not match the host the browser uses, or nginx is missing the `Upgrade`/`Connection` headers | Fix `MM_SITEURL` in `.env` and run `axion-wizard up` |
+| No answer / cut off | Open WSL2 bug with `networkingMode=mirrored`: long TCP connections stall ([moby/moby#48201](https://github.com/moby/moby/issues/48201)) | Go back to NAT + `netsh portproxy`, or live with the F5 |
 
-Mirrored es lo que da acceso desde el móvil y otros equipos de la LAN, así que
-volver a NAT tiene su propio coste: conviene confirmar cuál de las dos causas
-es antes de tocarlo.
+Mirrored is what gives access from a phone and other machines on the LAN, so
+going back to NAT has its own cost: it is worth confirming which of the two
+causes it is before changing anything.
 
-Opciones de `install`: `--unattended`, `--config <axion.toml>`, `--tui`.
+More failure modes, and what they look like from the outside, are in
+[docs/troubleshooting.md](docs/troubleshooting.md).
 
-Opciones globales (van **antes** del subcomando): `--verbose`, `--quiet`,
-`--no-color`, `--dry-run`, `--yes`, `--no-elevate`, `--project-dir <ruta>`.
+## Privileges
 
-```bash
-axion-wizard --project-dir /srv/axion doctor    # correcto
-axion-wizard doctor --project-dir /srv/axion    # error: No such option
-```
+`install`, `up`, `down` and `uninstall` need administrator rights (firewall,
+`sysctl`, `netsh portproxy`). The wizard explains why before asking, and
+relaunches the process elevated:
 
-## Privilegios
+- **Windows**: opens a new process through UAC — Windows does not allow
+  elevating one already running — and the original process **waits for it to
+  finish** in order to propagate its exit code. The elevated window asks for
+  Enter before closing, so its output can be read.
+- **Linux/macOS**: `sudo -E` in the same terminal.
 
-`install`, `up`, `down` y `uninstall` necesitan administrador (firewall,
-`sysctl`, `netsh portproxy`). El wizard explica por qué antes de pedirlo y
-relanza el proceso elevado:
+`--no-elevate` carries on without privileges (some steps will fail) and
+`--dry-run` never elevates, because it touches nothing.
 
-- **Windows**: abre un proceso nuevo con UAC —Windows no permite elevar uno ya
-  en marcha— y el proceso original **espera a que termine** para propagar su
-  código de salida. La ventana elevada pide Enter antes de cerrarse, para que
-  su salida se pueda leer.
-- **Linux/macOS**: `sudo -E` en la misma terminal.
+On native Linux (the `host` variant) the privileges are used for one concrete
+thing: writing `/etc/sysctl.d/99-wireguard.conf` and enabling IP forwarding.
+Without it, the WireGuard tunnel establishes, the handshake works and the panel
+shows the client connected — but not one packet gets through, and no error
+appears in any log. `axion-wizard doctor` checks it in the
+`IP forwarding (WireGuard)` row.
 
-`--no-elevate` continúa sin privilegios (algunos pasos fallarán) y `--dry-run`
-nunca eleva, porque no toca el sistema.
+Environment variable `AXION_NO_PAUSE=1` disables the "Press Enter to close"
+pause. Useful in CI or in wrappers. The pause already disables itself when the
+output is not an interactive terminal.
 
-En Linux nativo (variante `host`) los privilegios se usan de verdad para una
-cosa concreta: escribir `/etc/sysctl.d/99-wireguard.conf` y activar el
-reenvío IP. Sin él, el túnel de WireGuard se establece, el handshake funciona
-y el panel muestra el cliente conectado — pero no pasa un solo paquete, y no
-aparece error en ningún log. `axion-wizard doctor` lo comprueba en la fila
-`Reenvío IP (WireGuard)`.
+## Packaging
 
-Variable de entorno `AXION_NO_PAUSE=1`: desactiva la pausa de "Pulsa Enter para
-cerrar". Útil en CI o en wrappers. La pausa ya se desactiva sola cuando la
-salida no es una terminal interactiva.
-
-## Empaquetado
-
-Genera un binario autocontenido, sin Python en la máquina de destino:
+Produces a self-contained binary, with no Python on the target machine:
 
 ```powershell
 .\build\build.ps1        # -> dist\axion-wizard.exe
@@ -436,23 +527,26 @@ Genera un binario autocontenido, sin Python en la máquina de destino:
 ./build/build.sh         # -> dist/axion-wizard-linux-x86_64
 ```
 
-No hay cross-compilation: cada plataforma construye el suyo. El script deja el
-SHA-256 en `dist/checksums.txt`, verificable con `sha256sum -c`.
+There is no cross-compilation: each platform builds its own. The script leaves
+the SHA-256 in `dist/checksums.txt`, verifiable with `sha256sum -c`.
 
-## Desarrollo
+## Development
 
 ```bash
 .venv/bin/python -m pytest -q          # tests
 .venv/bin/python -m ruff check .       # lint
-.venv/bin/python -m mypy src           # tipos
+.venv/bin/python -m mypy src           # types
 ```
 
-En Windows, `.venv\Scripts\python.exe`.
+On Windows, `.venv\Scripts\python.exe`.
 
-## Licencia
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the conventions this codebase
+follows and what a change is expected to come with.
 
-Apache-2.0. Ver [LICENSE](LICENSE).
+## Licence
 
-El `.exe`/binario generado por PyInstaller empaqueta dependencias de terceros
-bajo licencias MIT, BSD-3-Clause y Apache-2.0; sus avisos de copyright están
-en [THIRD-PARTY-LICENSES.txt](THIRD-PARTY-LICENSES.txt).
+Apache-2.0. See [LICENSE](LICENSE).
+
+The `.exe`/binary produced by PyInstaller bundles third-party dependencies
+under the MIT, BSD-3-Clause and Apache-2.0 licences; their copyright notices
+are in [THIRD-PARTY-LICENSES.txt](THIRD-PARTY-LICENSES.txt).
