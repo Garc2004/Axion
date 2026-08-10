@@ -184,9 +184,9 @@ class BotSetupStep(Step):
         return token
 
     def _apply(self, updates: dict[str, str]) -> None:
+        from axion_wizard.stack import FASTAPI_SERVICE
         from axion_wizard.steps import s06_deploy
         from axion_wizard.steps.s05_compose import update_env_value
-        from axion_wizard.steps.s07_model import FASTAPI_SERVICE
         from axion_wizard.utils import secrets as secret_utils
 
         env_path = self.context.project_dir / ".env"

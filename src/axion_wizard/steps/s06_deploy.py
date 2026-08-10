@@ -25,17 +25,17 @@ from axion_wizard import images
 from axion_wizard.console import console
 from axion_wizard.errors import DeploymentError
 from axion_wizard.services import compose
+from axion_wizard.stack import (
+    MANAGED_SERVICES,
+    NGINX_SERVICE,
+    NGINX_UPSTREAM_SERVICES,
+    OLLAMA_SERVICE,
+    WIREGUARD_SERVICE,
+)
 from axion_wizard.steps.base import Step, StepResult
 
 DEFAULT_UP_TIMEOUT = 900.0
 DEFAULT_HEALTHCHECK_TIMEOUT = 300.0
-OLLAMA_SERVICE = "ollama"
-WIREGUARD_SERVICE = "wireguard"
-NGINX_SERVICE = "nginx"
-
-#: Servicios que nginx tiene escritos por nombre en su configuración y que,
-#: por tanto, resuelve por DNS una sola vez: al cargarla. Ver `refresh_nginx`.
-NGINX_UPSTREAM_SERVICES = frozenset({"mattermost"})
 
 _DONE_STATUSES = frozenset({"Started", "Healthy", "Running", "Built"})
 
@@ -300,8 +300,6 @@ class DeployStep(Step):
     title = "Despliegue"
 
     def run(self) -> StepResult:
-        from axion_wizard.steps.s05_compose import MANAGED_SERVICES
-
         compose_path = self.context.project_dir / "docker-compose.yml"
         services = list(MANAGED_SERVICES)
 
@@ -377,7 +375,6 @@ class DeployStep(Step):
 
     def verify(self) -> StepResult:
         from axion_wizard.services import compose as compose_service
-        from axion_wizard.steps.s05_compose import MANAGED_SERVICES
 
         if self.state.dry_run:
             return StepResult(name=self.name, ok=True, message="omitido por --dry-run")

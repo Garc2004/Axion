@@ -20,9 +20,9 @@ from tenacity import AsyncRetrying, RetryError, retry_if_result, stop_after_dela
 from axion_wizard.console import console
 from axion_wizard.errors import OllamaError
 from axion_wizard.services import ollama
+from axion_wizard.stack import FASTAPI_SERVICE
 from axion_wizard.steps.base import Step, StepResult
 
-FASTAPI_SERVICE = "fastapi"
 DEFAULT_READY_TIMEOUT = 120.0
 
 

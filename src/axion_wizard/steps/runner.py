@@ -19,6 +19,12 @@ import typer
 from axion_wizard import ui
 from axion_wizard.console import console
 from axion_wizard.errors import ConfigError
+from axion_wizard.stack import (
+    FASTAPI_SERVICE,
+    MANAGED_SERVICES,
+    NGINX_SERVICE,
+    WIREGUARD_SERVICE,
+)
 
 if TYPE_CHECKING:
     from axion_wizard.cli import GlobalState
@@ -260,7 +266,6 @@ def _reload_nginx_certs(state: GlobalState) -> None:
     nada que explicara por qué.
     """
     from axion_wizard.services import compose
-    from axion_wizard.steps import s06_deploy
 
     # La ruta se arma a mano en vez de con `_compose_path`: generar el
     # certificado antes de que exista un stack es legítimo —se usará al
@@ -269,11 +274,11 @@ def _reload_nginx_certs(state: GlobalState) -> None:
     if not compose_path.exists():
         return
 
-    status = compose.get_service_status(compose_path, s06_deploy.NGINX_SERVICE)
+    status = compose.get_service_status(compose_path, NGINX_SERVICE)
     if status is None or not status.is_running:
         return
 
-    if compose.restart(compose_path, s06_deploy.NGINX_SERVICE).ok:
+    if compose.restart(compose_path, NGINX_SERVICE).ok:
         console.print("[axion.ok]nginx reiniciado:[/] ya sirve el certificado nuevo.")
     else:
         console.print(
@@ -478,7 +483,6 @@ def _apply_env_and_recreate_fastapi(state: GlobalState, updates: dict[str, str])
     """
     from axion_wizard.steps import s06_deploy
     from axion_wizard.steps.s05_compose import update_env_value
-    from axion_wizard.steps.s07_model import FASTAPI_SERVICE
 
     compose_path = _compose_path(state)
     env_path = state.project_dir / ".env"
@@ -686,7 +690,6 @@ def run_wireguard_add_client(state: GlobalState, name: str) -> None:
 def run_compose_up(state: GlobalState, service: str | None = None) -> None:
     from axion_wizard.services import compose
     from axion_wizard.steps import s06_deploy
-    from axion_wizard.steps.s05_compose import MANAGED_SERVICES
 
     compose_path = _compose_path(state)
 
@@ -702,7 +705,7 @@ def run_compose_up(state: GlobalState, service: str | None = None) -> None:
     # quedó escrita en el compose: quien edite el archivo a mano puede acabar
     # corriendo wg-easy v15, que ignora WG_HOST/PASSWORD_HASH en silencio y
     # deja el panel inutilizable sin un solo error en los logs.
-    if s06_deploy.WIREGUARD_SERVICE in services:
+    if WIREGUARD_SERVICE in services:
         s06_deploy.verify_wg_easy_tag(compose_path)
 
     # `axion-wizard up mattermost` recrea el contenedor con otra IP y deja a
@@ -737,7 +740,6 @@ def run_compose_down(state: GlobalState) -> None:
 
 def run_compose_logs(state: GlobalState, service: str | None = None) -> None:
     from axion_wizard.services import compose
-    from axion_wizard.steps.s05_compose import MANAGED_SERVICES
 
     compose_path = _compose_path(state)
     targets = [service] if service else list(MANAGED_SERVICES)

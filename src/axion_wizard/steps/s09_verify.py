@@ -37,12 +37,13 @@ from axion_wizard.errors import ConfigError
 from axion_wizard.services import certs, compose
 from axion_wizard.services import ollama as ollama_service
 from axion_wizard.services.wireguard import build_panel_url
+from axion_wizard.stack import (
+    FASTAPI_SERVICE,
+    MATTERMOST_SERVICE,
+    NGINX_SERVICE,
+    WIREGUARD_SERVICE,
+)
 from axion_wizard.steps.base import Step, StepResult
-
-MATTERMOST_SERVICE = "mattermost"
-FASTAPI_SERVICE = "fastapi"
-WIREGUARD_SERVICE = "wireguard"
-NGINX_SERVICE = "nginx"
 
 DEFAULT_CHECK_TIMEOUT = 10.0
 #: Presupuesto total de reintento para las comprobaciones HTTP sensibles a

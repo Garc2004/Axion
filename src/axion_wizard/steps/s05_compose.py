@@ -28,6 +28,7 @@ from axion_wizard.console import console
 from axion_wizard.detect.docker import GPU_ACCELERATION_NONE
 from axion_wizard.errors import ConfigError
 from axion_wizard.services.compose import config_validate
+from axion_wizard.stack import MANAGED_SERVICES
 from axion_wizard.steps.base import Step, StepResult
 from axion_wizard.utils import secrets as secret_utils
 from axion_wizard.utils.fsperms import restrict_to_owner
@@ -40,20 +41,6 @@ SSRF_ENV_KEY = "MM_SERVICESETTINGS_ALLOWEDUNTRUSTEDINTERNALCONNECTIONS"
 #: **en silencio**, sin error en ningún log, y desde fuera parece que n8n
 #: simplemente no se entera de nada.
 SSRF_ENV_VALUE = "fastapi:8000 fastapi n8n:5678 n8n"
-
-#: servicios que el wizard regenera en cada render; cualquier otro servicio
-#: que el usuario haya añadido a mano a un compose.yml existente se conserva.
-#: n8n va incluido de forma nativa, sin flag: no es opcional.
-MANAGED_SERVICES = (
-    "postgres",
-    "mattermost",
-    "ollama",
-    "fastapi",
-    "nginx",
-    "wireguard",
-    "backup",
-    "n8n",
-)
 
 #: Carpeta donde el servicio `backup` deja los tar.gz, relativa al proyecto.
 BACKUPS_RELATIVE_DIR = Path("backups")

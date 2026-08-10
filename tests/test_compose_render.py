@@ -11,6 +11,7 @@ from axion_wizard import images
 from axion_wizard.config import AccessMode, AxionConfig, WireguardVariant
 from axion_wizard.errors import ConfigError
 from axion_wizard.services import compose as compose_service
+from axion_wizard.stack import MANAGED_SERVICES
 from axion_wizard.steps import s05_compose as s05
 from axion_wizard.utils.secrets import generate_hex_secret, hash_password
 
@@ -48,7 +49,7 @@ def render_env(config: AxionConfig, **kwargs) -> str:
 
 def test_render_compose_is_valid_yaml_with_managed_services() -> None:
     data = _load_yaml(s05.render_compose(make_config()))
-    for name in s05.MANAGED_SERVICES:
+    for name in MANAGED_SERVICES:
         assert name in data["services"]
 
 
@@ -86,7 +87,7 @@ def test_render_compose_injects_ssrf_env_var() -> None:
 
 def test_n8n_is_included_natively() -> None:
     """No hay flag: n8n va con el resto del stack en cualquier instalación."""
-    assert "n8n" in s05.MANAGED_SERVICES
+    assert "n8n" in MANAGED_SERVICES
 
 
 def test_n8n_is_rendered_with_a_pinned_image_and_its_volume() -> None:
@@ -615,7 +616,7 @@ def test_merge_compose_handles_services_key_present_but_null() -> None:
     rendered = s05.render_compose(make_config())
     merged = s05.merge_compose_preserving_user_edits("services:\n", rendered)
     data = _load_yaml(merged)
-    for name in s05.MANAGED_SERVICES:
+    for name in MANAGED_SERVICES:
         assert name in data["services"]
 
 
