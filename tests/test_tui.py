@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from axion_wizard.cli import GlobalState
-from axion_wizard.config import WireguardVariant
+from axion_wizard.domain.config import WireguardVariant
 from axion_wizard.errors import ConfigError
 
 pytestmark = pytest.mark.anyio
@@ -172,8 +172,8 @@ def test_app_uses_the_nord_theme(tmp_path: Path, mocker) -> None:
 
 def test_step_status_glyphs_come_from_the_shared_ui_module(tmp_path: Path, mocker) -> None:
     """Que un ✓ en `doctor` (CLI) y un ✓ en `install --tui` sean el mismo
-    carácter no es casualidad: ambos leen `axion_wizard.ui.GLYPH_*`."""
-    from axion_wizard import ui
+    carácter no es casualidad: ambos leen `axion_wizard.render.ui.GLYPH_*`."""
+    from axion_wizard.render import ui
     from axion_wizard.tui.app import _STATUS_MARKS, DONE, FAILED, PENDING, RUNNING, SKIPPED
 
     assert _STATUS_MARKS[DONE][0] == ui.GLYPH_OK
@@ -229,7 +229,7 @@ async def test_config_screen_shows_the_detected_environment(tmp_path: Path, mock
     """Eco de lo que decidió el paso 1: la CLI lo muestra en una tabla
     completa, la TUI en una línea — pero no debe dejar al usuario a ciegas
     sobre qué detectó el wizard antes de rellenar el formulario."""
-    from axion_wizard.config import WireguardVariant
+    from axion_wizard.domain.config import WireguardVariant
 
     app = _app(tmp_path, mocker)
     app.detected_variant = WireguardVariant.HOST.value

@@ -21,17 +21,17 @@ from pathlib import Path
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskID, TextColumn
 from tenacity import RetryError, Retrying, retry_if_result, stop_after_delay, wait_exponential
 
-from axion_wizard import images
-from axion_wizard.console import console
-from axion_wizard.errors import DeploymentError
-from axion_wizard.services import compose
-from axion_wizard.stack import (
+from axion_wizard.domain import images
+from axion_wizard.domain.stack import (
     MANAGED_SERVICES,
     NGINX_SERVICE,
     NGINX_UPSTREAM_SERVICES,
     OLLAMA_SERVICE,
     WIREGUARD_SERVICE,
 )
+from axion_wizard.errors import DeploymentError
+from axion_wizard.render.console import console
+from axion_wizard.services import compose
 from axion_wizard.steps.base import Step, StepResult
 
 DEFAULT_UP_TIMEOUT = 900.0

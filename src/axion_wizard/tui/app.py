@@ -33,9 +33,9 @@ from textual.widgets import (
     Static,
 )
 
-from axion_wizard import ui
-from axion_wizard.config import AccessMode, AxionConfig, WireguardVariant
+from axion_wizard.domain.config import AccessMode, AxionConfig, WireguardVariant
 from axion_wizard.errors import AxionError
+from axion_wizard.render import ui
 from axion_wizard.steps.context import InstallContext
 from axion_wizard.steps.s03_config import existing_postgres_password
 from axion_wizard.utils import secrets as secret_utils
@@ -52,7 +52,7 @@ APP_THEME = "nord"
 
 #: Estados de un paso, con su marca. Se mantienen aparte del widget para que
 #: la pantalla de progreso no tenga que conocer detalles de presentación.
-#: Los glifos vienen de `axion_wizard.ui` — los mismos que usan las tablas
+#: Los glifos vienen de `axion_wizard.render.ui` — los mismos que usan las tablas
 #: de la CLI (`doctor`, `network-check`…) — para que un ✓ signifique lo
 #: mismo aquí que allá. El color sí es propio: el markup de Textual no
 #: resuelve variables de tema (`$success`) dentro de texto enriquecido,

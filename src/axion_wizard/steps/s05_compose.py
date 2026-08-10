@@ -22,13 +22,13 @@ import jinja2
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
-from axion_wizard import images
-from axion_wizard.config import AxionConfig
-from axion_wizard.console import console
 from axion_wizard.detect.docker import GPU_ACCELERATION_NONE
+from axion_wizard.domain import images
+from axion_wizard.domain.config import AxionConfig
+from axion_wizard.domain.stack import MANAGED_SERVICES
 from axion_wizard.errors import ConfigError
+from axion_wizard.render.console import console
 from axion_wizard.services.compose import config_validate
-from axion_wizard.stack import MANAGED_SERVICES
 from axion_wizard.steps.base import Step, StepResult
 from axion_wizard.utils import secrets as secret_utils
 from axion_wizard.utils.fsperms import restrict_to_owner
@@ -195,7 +195,7 @@ def existing_env_value(project_dir: Path, key: str) -> str | None:
     tests, y porque aquí «existing» dice lo que importa en este módulo: el
     valor que ya estaba antes de regenerar el archivo.
     """
-    from axion_wizard.deployment import env_value
+    from axion_wizard.domain.deployment import env_value
 
     return env_value(project_dir, key)
 

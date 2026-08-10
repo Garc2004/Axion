@@ -3,8 +3,8 @@ from pathlib import Path
 
 import httpx
 
-from axion_wizard.config import WireguardVariant
 from axion_wizard.detect.network import PortStatus
+from axion_wizard.domain.config import WireguardVariant
 from axion_wizard.errors import ConfigError
 from axion_wizard.services.compose import ContainerStatus
 from axion_wizard.steps import s09_verify as verify

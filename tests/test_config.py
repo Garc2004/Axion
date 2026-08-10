@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from axion_wizard.config import (
+from axion_wizard.domain.config import (
     AccessMode,
     AxionConfig,
     WireguardVariant,

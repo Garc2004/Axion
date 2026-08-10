@@ -5,10 +5,10 @@ from pathlib import Path
 import pytest
 
 from axion_wizard.cli import GlobalState
-from axion_wizard.config import AccessMode, AxionConfig, WireguardVariant
 from axion_wizard.detect.docker import DockerContextInfo, DockerInfo
 from axion_wizard.detect.hardware import HardwareInfo
 from axion_wizard.detect.platform import OsInfo, WslInfo
+from axion_wizard.domain.config import AccessMode, AxionConfig, WireguardVariant
 from axion_wizard.errors import PlatformError
 from axion_wizard.steps.context import EnvironmentFacts, InstallContext
 
@@ -462,7 +462,7 @@ def test_compose_step_reserves_the_gpu_when_passthrough_is_confirmed(
 def test_compose_step_uses_the_rocm_image_and_devices_for_amd(tmp_path: Path, mocker) -> None:
     """La imagen por defecto no trae las bibliotecas de AMD: pasarle
     `/dev/kfd` sin cambiarla deja el modelo en CPU igualmente."""
-    from axion_wizard import images
+    from axion_wizard.domain import images
     from axion_wizard.steps.s05_compose import ComposeStep
 
     mocker.patch("axion_wizard.steps.s05_compose.config_validate")

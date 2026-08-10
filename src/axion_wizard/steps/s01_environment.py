@@ -13,13 +13,13 @@ from __future__ import annotations
 
 from rich.table import Table
 
-from axion_wizard import ui
-from axion_wizard.config import WireguardVariant
-from axion_wizard.console import console
 from axion_wizard.detect import docker as detect_docker
 from axion_wizard.detect import platform as detect_platform
 from axion_wizard.detect.hardware import HardwareInfo, detect_hardware
+from axion_wizard.domain.config import WireguardVariant
 from axion_wizard.errors import PlatformError
+from axion_wizard.render import ui
+from axion_wizard.render.console import console
 from axion_wizard.steps.base import Step, StepResult
 from axion_wizard.steps.context import EnvironmentFacts
 

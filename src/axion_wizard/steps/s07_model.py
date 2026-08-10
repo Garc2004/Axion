@@ -17,10 +17,10 @@ import asyncio
 from rich.progress import BarColumn, DownloadColumn, Progress, SpinnerColumn, TextColumn
 from tenacity import AsyncRetrying, RetryError, retry_if_result, stop_after_delay, wait_exponential
 
-from axion_wizard.console import console
+from axion_wizard.domain.stack import FASTAPI_SERVICE
 from axion_wizard.errors import OllamaError
+from axion_wizard.render.console import console
 from axion_wizard.services import ollama
-from axion_wizard.stack import FASTAPI_SERVICE
 from axion_wizard.steps.base import Step, StepResult
 
 DEFAULT_READY_TIMEOUT = 120.0

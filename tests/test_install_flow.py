@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from axion_wizard.cli import GlobalState
-from axion_wizard.config import AccessMode, AxionConfig, WireguardVariant
+from axion_wizard.domain.config import AccessMode, AxionConfig, WireguardVariant
 from axion_wizard.errors import ConfigError, PlatformError
 from axion_wizard.steps import orchestrator
 from axion_wizard.steps.base import Step, StepResult
@@ -467,7 +467,7 @@ def test_unattended_without_config_explains_what_is_missing(tmp_path: Path) -> N
 
 def test_summary_masks_every_secret(tmp_path: Path) -> None:
     """§9 no admite excepciones ni en la pantalla que el usuario acaba de rellenar."""
-    from axion_wizard.console import console
+    from axion_wizard.render.console import console
     from axion_wizard.steps.s03_config import render_summary
 
     config = _config(tmp_path)
@@ -551,7 +551,7 @@ def _render(renderable) -> str:
     """Renderiza con la consola compartida: los estilos del panel son tokens
     del tema de AXION (`axion.border`…) y una `Console` pelada no sabría
     resolverlos."""
-    from axion_wizard.console import console
+    from axion_wizard.render.console import console
 
     with console.capture() as capture:
         console.print(renderable)

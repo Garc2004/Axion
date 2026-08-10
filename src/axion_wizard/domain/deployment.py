@@ -30,9 +30,9 @@ from dotenv import dotenv_values
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
-from axion_wizard.config import WireguardVariant
+from axion_wizard.domain.config import WireguardVariant
+from axion_wizard.domain.stack import WIREGUARD_SERVICE
 from axion_wizard.errors import ConfigError
-from axion_wizard.stack import WIREGUARD_SERVICE
 
 COMPOSE_FILENAME = "docker-compose.yml"
 CERT_RELATIVE_PATH = Path("nginx") / "certs" / "cert.crt"

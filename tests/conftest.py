@@ -2,7 +2,7 @@
 
 import pytest
 
-from axion_wizard.console import console, error_console
+from axion_wizard.render.console import console, error_console
 
 
 @pytest.fixture(autouse=True)

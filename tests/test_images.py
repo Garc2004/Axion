@@ -1,6 +1,6 @@
 import pytest
 
-from axion_wizard import images
+from axion_wizard.domain import images
 
 
 def test_all_pinned_images_pass_assert_image_is_pinned() -> None:

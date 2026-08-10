@@ -7,11 +7,11 @@ from pathlib import Path
 import pytest
 from ruamel.yaml import YAML
 
-from axion_wizard import images
-from axion_wizard.config import AccessMode, AxionConfig, WireguardVariant
+from axion_wizard.domain import images
+from axion_wizard.domain.config import AccessMode, AxionConfig, WireguardVariant
+from axion_wizard.domain.stack import MANAGED_SERVICES
 from axion_wizard.errors import ConfigError
 from axion_wizard.services import compose as compose_service
-from axion_wizard.stack import MANAGED_SERVICES
 from axion_wizard.steps import s05_compose as s05
 from axion_wizard.utils.secrets import generate_hex_secret, hash_password
 

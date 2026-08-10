@@ -25,21 +25,21 @@ from tenacity import (
     wait_exponential,
 )
 
-from axion_wizard import ui
-from axion_wizard.config import WireguardVariant
-from axion_wizard.console import console
-from axion_wizard.deployment import DeploymentFacts, discover_deployment
 from axion_wizard.detect import network as detect_network
-from axion_wizard.errors import ConfigError
-from axion_wizard.services import certs, compose
-from axion_wizard.services import ollama as ollama_service
-from axion_wizard.services.wireguard import build_panel_url
-from axion_wizard.stack import (
+from axion_wizard.domain.config import WireguardVariant
+from axion_wizard.domain.deployment import DeploymentFacts, discover_deployment
+from axion_wizard.domain.stack import (
     FASTAPI_SERVICE,
     MATTERMOST_SERVICE,
     NGINX_SERVICE,
     WIREGUARD_SERVICE,
 )
+from axion_wizard.errors import ConfigError
+from axion_wizard.render import ui
+from axion_wizard.render.console import console
+from axion_wizard.services import certs, compose
+from axion_wizard.services import ollama as ollama_service
+from axion_wizard.services.wireguard import build_panel_url
 from axion_wizard.steps.base import Step, StepResult
 
 DEFAULT_CHECK_TIMEOUT = 10.0
@@ -57,7 +57,7 @@ class CheckResult:
     detail: str = ""
 
 
-# El descubrimiento del despliegue vive en `axion_wizard.deployment`: lo
+# El descubrimiento del despliegue vive en `axion_wizard.domain.deployment`: lo
 # necesitan `doctor`, `wireguard add-client` y el `restore()` del paso 3, y
 # ninguno de los tres es este paso. Se reexporta aquí para no romper a quien
 # ya lo importaba desde el módulo del paso 9.

@@ -4,7 +4,7 @@ Los secretos (`postgres_password`, `wireguard_admin_password_hash`) se
 guardan como `SecretStr` para que Pydantic los enmascare en `repr()`/`str()`
 por defecto — nunca deben aparecer en consola ni en logs (§9). Las tags de
 imagen (§6.4) están deliberadamente fuera de este modelo: no son
-configurables por el usuario, viven en `axion_wizard.images`.
+configurables por el usuario, viven en `axion_wizard.domain.images`.
 """
 
 from __future__ import annotations

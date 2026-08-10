@@ -23,10 +23,10 @@ from pydantic import SecretStr
 from rich.panel import Panel
 from rich.table import Table
 
-from axion_wizard import ui
-from axion_wizard.config import AccessMode, AxionConfig, WireguardVariant
-from axion_wizard.console import console
+from axion_wizard.domain.config import AccessMode, AxionConfig, WireguardVariant
 from axion_wizard.errors import ConfigError
+from axion_wizard.render import ui
+from axion_wizard.render.console import console
 from axion_wizard.services import ollama
 from axion_wizard.steps.base import Step, StepResult
 from axion_wizard.steps.prompts import require_interactive_input
@@ -311,7 +311,7 @@ def existing_postgres_password(project_dir: Path) -> str | None:
     fiabilidad si el volumen ya se inicializó antes). Leer lo que ya hay en
     disco, si lo hay, es lo único que garantiza coherencia entre corridas.
     """
-    from axion_wizard.deployment import env_value
+    from axion_wizard.domain.deployment import env_value
 
     return env_value(project_dir, "POSTGRES_PASSWORD")
 
@@ -323,7 +323,7 @@ def load_config_from_artifacts(project_dir: Path) -> AxionConfig:
     propio `docker-compose.yml`, igual que hace `doctor`, para no depender de
     que el paso 1 se haya vuelto a ejecutar en esta sesión.
     """
-    from axion_wizard.deployment import (
+    from axion_wizard.domain.deployment import (
         detect_wireguard_variant_from_compose,
         env_value,
         host_from_site_url,

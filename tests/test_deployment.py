@@ -1,4 +1,4 @@
-"""Tests for `axion_wizard.deployment` — reading a deployment back off disk.
+"""Tests for `axion_wizard.domain.deployment` — reading a deployment back off disk.
 
 These moved here from `test_verify.py` when the discovery code moved out of
 step 9: `doctor`, `wireguard add-client` and step 3's `restore()` all depend
@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from axion_wizard.config import WireguardVariant
-from axion_wizard.deployment import (
+from axion_wizard.domain.config import WireguardVariant
+from axion_wizard.domain.deployment import (
     detect_wireguard_variant_from_compose,
     discover_deployment,
     env_value,

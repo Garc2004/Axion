@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from axion_wizard.config import WireguardVariant
+from axion_wizard.domain.config import WireguardVariant
 from axion_wizard.services import hostnet
 
 

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 
-from axion_wizard.console import console
+from axion_wizard.render.console import console
 from axion_wizard.services import wireguard as wg
 from axion_wizard.steps.base import Step, StepResult
 from axion_wizard.steps.prompts import interactive_input_available

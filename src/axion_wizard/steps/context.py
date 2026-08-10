@@ -21,10 +21,10 @@ from typing import TYPE_CHECKING
 from axion_wizard.detect import docker as detect_docker
 
 if TYPE_CHECKING:
-    from axion_wizard.config import AxionConfig
     from axion_wizard.detect.docker import DockerInfo
     from axion_wizard.detect.hardware import HardwareInfo
     from axion_wizard.detect.platform import OsInfo, WslInfo
+    from axion_wizard.domain.config import AxionConfig
 
 
 @dataclass

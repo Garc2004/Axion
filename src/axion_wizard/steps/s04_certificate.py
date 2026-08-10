@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from axion_wizard.config import WireguardVariant
-from axion_wizard.console import console
+from axion_wizard.domain.config import WireguardVariant
+from axion_wizard.render.console import console
 from axion_wizard.services import certs
 from axion_wizard.steps.base import Step, StepResult
 

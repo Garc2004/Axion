@@ -10,9 +10,10 @@ import typer
 from rich.panel import Panel
 from rich.text import Text
 
-from axion_wizard import __version__, privileges, ui
-from axion_wizard.console import console, error_console, set_no_color, set_quiet
+from axion_wizard import __version__, privileges
 from axion_wizard.errors import AxionError, PlatformError
+from axion_wizard.render import ui
+from axion_wizard.render.console import console, error_console, set_no_color, set_quiet
 from axion_wizard.utils import winconsole
 
 app = typer.Typer(

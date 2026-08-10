@@ -1,7 +1,7 @@
 import io
 import sys
 
-from axion_wizard import console as console_module
+from axion_wizard.render import console as console_module
 
 
 def test_configure_stdio_encoding_is_idempotent_and_safe() -> None:

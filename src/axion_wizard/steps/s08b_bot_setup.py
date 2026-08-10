@@ -22,7 +22,7 @@ síncrono.
 
 from __future__ import annotations
 
-from axion_wizard.console import console
+from axion_wizard.render.console import console
 from axion_wizard.steps.base import Step, StepResult
 from axion_wizard.steps.prompts import interactive_input_available
 
@@ -184,7 +184,7 @@ class BotSetupStep(Step):
         return token
 
     def _apply(self, updates: dict[str, str]) -> None:
-        from axion_wizard.stack import FASTAPI_SERVICE
+        from axion_wizard.domain.stack import FASTAPI_SERVICE
         from axion_wizard.steps import s06_deploy
         from axion_wizard.steps.s05_compose import update_env_value
         from axion_wizard.utils import secrets as secret_utils

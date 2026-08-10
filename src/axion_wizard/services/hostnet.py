@@ -76,7 +76,7 @@ def is_applicable(os_name: str, wireguard_variant: str) -> bool:
     NAT, y en Windows/macOS el kernel que importa es el de la VM de Docker
     Desktop, no el del host — tocar sysctls ahí no tendría ningún efecto.
     """
-    from axion_wizard.config import WireguardVariant
+    from axion_wizard.domain.config import WireguardVariant
 
     return os_name == "Linux" and wireguard_variant == WireguardVariant.HOST.value
 

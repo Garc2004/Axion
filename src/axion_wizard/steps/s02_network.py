@@ -16,10 +16,10 @@ import asyncio
 
 from rich.table import Table
 
-from axion_wizard import ui
-from axion_wizard.console import console
 from axion_wizard.detect import network as detect_network
 from axion_wizard.errors import NetworkError
+from axion_wizard.render import ui
+from axion_wizard.render.console import console
 from axion_wizard.steps.base import Step, StepResult
 from axion_wizard.steps.context import NetworkFacts
 from axion_wizard.steps.prompts import interactive_input_available

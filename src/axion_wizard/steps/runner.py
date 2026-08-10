@@ -16,15 +16,15 @@ from typing import TYPE_CHECKING
 
 import typer
 
-from axion_wizard import ui
-from axion_wizard.console import console
-from axion_wizard.errors import ConfigError
-from axion_wizard.stack import (
+from axion_wizard.domain.stack import (
     FASTAPI_SERVICE,
     MANAGED_SERVICES,
     NGINX_SERVICE,
     WIREGUARD_SERVICE,
 )
+from axion_wizard.errors import ConfigError
+from axion_wizard.render import ui
+from axion_wizard.render.console import console
 
 if TYPE_CHECKING:
     from axion_wizard.cli import GlobalState
@@ -176,7 +176,7 @@ def run_doctor(state: GlobalState) -> None:
     """Re-valida un stack ya desplegado sin modificarlo (§4.9). Reconstruye
     host/modelo/variante leyendo los artefactos en `--project-dir`, no
     depende de una corrida previa de `install` en esta misma sesión."""
-    from axion_wizard.deployment import discover_deployment
+    from axion_wizard.domain.deployment import discover_deployment
     from axion_wizard.steps.s09_verify import (
         all_checks_passed,
         render_checks_table,
@@ -650,7 +650,7 @@ def run_wireguard_add_client(state: GlobalState, name: str) -> None:
     """Crea un cliente en el panel wg-easy y muestra su QR en la terminal (§4.8)."""
     import questionary
 
-    from axion_wizard.deployment import discover_deployment
+    from axion_wizard.domain.deployment import discover_deployment
     from axion_wizard.services import wireguard as wg
 
     facts = discover_deployment(state.project_dir)

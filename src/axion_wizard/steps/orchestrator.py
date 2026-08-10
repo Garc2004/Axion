@@ -19,9 +19,9 @@ from typing import TYPE_CHECKING, Protocol
 from rich.panel import Panel
 from rich.table import Table
 
-from axion_wizard import ui
-from axion_wizard.console import console
 from axion_wizard.errors import AxionError
+from axion_wizard.render import ui
+from axion_wizard.render.console import console
 from axion_wizard.steps.base import Step, StepResult
 from axion_wizard.steps.context import InstallContext
 from axion_wizard.utils import state as state_store
