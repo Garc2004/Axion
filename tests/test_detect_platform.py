@@ -93,10 +93,10 @@ def test_locate_wslconfig_not_found(tmp_path: Path) -> None:
 
 # --- locate_wslconfig_native -----------------------------------------------------------
 #
-# Distinto de `locate_wslconfig`: ese asume que corremos *dentro* de WSL
-# (busca vía /mnt/c). `axion-wizard.exe` normalmente corre nativo en
-# Windows, donde /mnt/c no existe — ahí el archivo se busca directamente en
-# %UserProfile%.
+# Different from `locate_wslconfig`: that one assumes we are running *inside*
+# WSL (it looks via /mnt/c). `axion-wizard.exe` normally runs natively on
+# Windows, where /mnt/c does not exist — there the file is looked for directly
+# in %UserProfile%.
 
 
 def test_locate_wslconfig_native_found(tmp_path: Path) -> None:

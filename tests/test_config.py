@@ -65,12 +65,13 @@ def test_postgres_password_accepts_hex() -> None:
     assert config.postgres_password.get_secret_value()
 
 
-# --- credenciales del panel: las reglas son de wg-easy, no nuestras --------------
+# --- panel credentials: the rules are wg-easy's, not ours ------------------------
 #
-# El modelo las revalida aunque el prompt ya lo haga, porque el prompt no es
-# el único camino hasta aquí: `--unattended` construye desde un `axion.toml`
-# y la TUI desde su formulario. Una contraseña corta no falla al crear la
-# cuenta —`INIT_PASSWORD` no valida longitud— sino después, al entrar.
+# The model revalidates them even though the prompt already does, because the
+# prompt is not the only route here: `--unattended` builds from an
+# `axion.toml` and the TUI from its form. A short password does not fail when
+# the account is created — `INIT_PASSWORD` does not validate length — but
+# later, on login.
 
 
 @pytest.mark.parametrize("bad_char", ["$", "`", "!"])

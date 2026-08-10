@@ -5,7 +5,7 @@ from axion_wizard.render import console as console_module
 
 
 def test_configure_stdio_encoding_is_idempotent_and_safe() -> None:
-    """Debe poder llamarse de nuevo sin romper nada."""
+    """It must be callable again without breaking anything."""
     console_module.configure_stdio_encoding()
     console_module.configure_stdio_encoding()
 
@@ -27,8 +27,8 @@ def test_configure_stdio_encoding_tolerates_reconfigure_failure(mocker) -> None:
 
 
 def test_unicode_marks_used_by_the_ui_survive_encoding() -> None:
-    """Regresión: el `✓` del modelo recomendado (§5) y los bloques del QR
-    (§4.8) reventaban con UnicodeEncodeError en una consola cp1252."""
+    """Regression: the `✓` on the recommended model (§5) and the QR's blocks
+    (§4.8) blew up with UnicodeEncodeError on a cp1252 console."""
     for char in ("✓", "█", "▀", "▄", "í", "ó", "ñ"):
         assert char.encode("utf-8").decode("utf-8") == char
 
@@ -63,16 +63,16 @@ def test_set_no_color_is_a_one_way_switch() -> None:
         console_module.console.no_color = original
 
 
-# --- render_to_ansi: el tema se resuelve donde está definido -------------------------
+# --- render_to_ansi: the theme is resolved where it is defined ----------------------
 
 
 def test_render_to_ansi_resolves_the_axion_theme() -> None:
-    """Un renderable con estilos `axion.*` se pinta sin reventar.
+    """A renderable with `axion.*` styles is painted without blowing up.
 
-    Textual dibuja su `RichLog` con una `Console` propia que no conoce el
-    tema: pasarle un `Panel` con `axion.label` directamente lanzaba
-    `MissingStyle`. No se veía mal — se caía la TUI entera al terminar la
-    instalación, justo en el panel de cierre.
+    Textual draws its `RichLog` with a `Console` of its own that does not know
+    the theme: handing it a `Panel` using `axion.label` directly raised
+    `MissingStyle`. It did not look wrong — the whole TUI crashed at the end of
+    the install, right on the closing panel.
     """
     from rich.panel import Panel
     from rich.text import Text
@@ -83,8 +83,8 @@ def test_render_to_ansi_resolves_the_axion_theme() -> None:
     output = render_to_ansi(Panel(body, border_style="axion.border"), width=40)
 
     assert "dentro" in output
-    # `styles=True` conserva los códigos ANSI: si el tema no se hubiera
-    # resuelto, saldría texto pelado.
+    # `styles=True` keeps the ANSI codes: had the theme not been resolved,
+    # this would come out as bare text.
     assert "\x1b[" in output
 
 

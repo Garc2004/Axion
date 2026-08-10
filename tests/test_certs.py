@@ -19,9 +19,9 @@ def test_build_san_for_ip_address() -> None:
 
 
 def test_san_covers_the_loopback_of_the_hosting_machine() -> None:
-    """El equipo que hospeda el stack es el sitio más probable desde donde se
-    abre Mattermost, y sin estos nombres `https://localhost` da aviso de
-    certificado inválido aunque todo lo demás esté bien."""
+    """The machine hosting the stack is the likeliest place Mattermost gets
+    opened from, and without these names `https://localhost` throws an
+    invalid-certificate warning even when everything else is right."""
     import ipaddress
 
     names = certs.build_san_general_names("192.168.1.50")
@@ -62,7 +62,7 @@ def test_generate_certificate_writes_files_with_expected_properties(tmp_path: Pa
     assert public_key.key_size == 4096
 
     validity_days = (certificate.not_valid_after_utc - certificate.not_valid_before_utc).days
-    assert validity_days == certs.CERT_VALIDITY_DAYS + 1  # +1 por el margen de un día hacia atrás
+    assert validity_days == certs.CERT_VALIDITY_DAYS + 1  # +1 for the one-day backdating
 
     basic_constraints = certificate.extensions.get_extension_for_class(x509.BasicConstraints)
     assert basic_constraints.critical is True
@@ -134,8 +134,8 @@ def test_describe_san_empty_when_extension_absent(tmp_path: Path) -> None:
 
 
 def test_generate_certificate_rejects_empty_host(tmp_path: Path) -> None:
-    """Sin este guard, `cryptography` fallaba con un mensaje sobre longitudes
-    de atributos X.509 que no le dice nada al usuario."""
+    """Without this guard, `cryptography` failed with a message about X.509
+    attribute lengths that means nothing to the user."""
     with pytest.raises(ConfigError, match="No host was given"):
         certs.generate_certificate("", tmp_path / "c.crt", tmp_path / "c.key")
 

@@ -27,7 +27,7 @@ def test_mark_failed_is_not_complete() -> None:
 
 def test_mark_complete_overwrites_previous_record_for_same_step() -> None:
     state = st.WizardState()
-    state.mark_failed("s02_network", "primer intento falló")
+    state.mark_failed("s02_network", "first attempt failed")
     state.mark_complete("s02_network", "reintento OK")
     assert len(state.completed_steps) == 1
     assert state.completed_steps[0].ok is True
@@ -131,9 +131,9 @@ def test_save_state_writes_readable_json(tmp_path: Path) -> None:
 
 
 def test_save_state_is_atomic_and_leaves_no_temp_files(tmp_path: Path) -> None:
-    """Regresión: escribir directamente sobre el archivo definitivo dejaba una
-    ventana en la que una interrupción —el escenario mismo para el que existe
-    este archivo— lo truncaba y se perdía todo el progreso."""
+    """Regression: writing straight over the final file left a window in which
+    an interruption — the very scenario this file exists for — truncated it
+    and lost all the progress."""
     state = st.WizardState()
     state.mark_complete("s01_environment")
     st.save_state(tmp_path, state)
@@ -165,8 +165,8 @@ def test_save_state_creates_missing_project_dir(tmp_path: Path) -> None:
 
 
 def test_load_state_recovers_from_a_truncated_file(tmp_path: Path) -> None:
-    """Aunque ahora la escritura es atómica, un archivo corrupto de una
-    versión anterior no debe impedir arrancar."""
+    """Even though writing is atomic now, a corrupt file from an earlier
+    version must not stop the wizard starting."""
     state = st.WizardState()
     state.mark_complete("s01")
     st.save_state(tmp_path, state)
