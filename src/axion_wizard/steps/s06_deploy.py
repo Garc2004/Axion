@@ -300,12 +300,10 @@ class DeployStep(Step):
     title = "Despliegue"
 
     def run(self) -> StepResult:
-        from axion_wizard.steps.s05_compose import managed_services_for_project
+        from axion_wizard.steps.s05_compose import MANAGED_SERVICES
 
         compose_path = self.context.project_dir / "docker-compose.yml"
-        # Del compose recién escrito, no de una constante: así la lista incluye
-        # n8n exactamente cuando el despliegue lo lleva.
-        services = list(managed_services_for_project(self.context.project_dir))
+        services = list(MANAGED_SERVICES)
 
         if self.state.dry_run:
             console.print(
@@ -379,7 +377,7 @@ class DeployStep(Step):
 
     def verify(self) -> StepResult:
         from axion_wizard.services import compose as compose_service
-        from axion_wizard.steps.s05_compose import managed_services_for_project
+        from axion_wizard.steps.s05_compose import MANAGED_SERVICES
 
         if self.state.dry_run:
             return StepResult(name=self.name, ok=True, message="omitido por --dry-run")
@@ -388,7 +386,7 @@ class DeployStep(Step):
         statuses = {s.service: s for s in compose_service.ps(compose_path)}
         unhealthy = [
             name
-            for name in managed_services_for_project(self.context.project_dir)
+            for name in MANAGED_SERVICES
             if name not in statuses
             or not statuses[name].is_running
             or not statuses[name].is_healthy_or_no_healthcheck

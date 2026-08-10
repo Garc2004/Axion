@@ -154,7 +154,6 @@ combinar con `--unattended` ni con la entrada redirigida.
 
 ```
 axion-wizard                      Flujo completo de instalación
-axion-wizard install --with-n8n   Instalación añadiendo n8n (puerto 5678)
 axion-wizard reset                Olvida el progreso: el próximo install va al paso 1
 axion-wizard doctor               Re-valida un stack ya desplegado, sin tocarlo
 axion-wizard network-check        Solo las verificaciones de red (§4.2)
@@ -255,20 +254,13 @@ Dos cosas que conviene saber antes de que pasen:
 El borrado por antigüedad solo alcanza a los archivos que empiezan por
 `axion-`, así que se puede dejar cualquier otra cosa en esa carpeta.
 
-## n8n (opcional)
+## n8n
 
-```bash
-axion-wizard install --with-n8n
-```
-
+Va incluido de forma nativa, sin flag: `install` lo despliega junto al resto.
 Queda en `http://<host>:5678`, en su propio puerto y **sin pasar por nginx**,
 igual que el panel de WireGuard: nadie termina TLS por él, así que se anuncia
 como `http` a propósito — decir `https` le haría generar URLs de webhook que
 no responden.
-
-El flag es **aditivo**: una vez instalado, no hace falta repetirlo. Los
-`install` siguientes leen del propio `docker-compose.yml` que n8n está ahí,
-así que olvidarlo no lo desinstala ni deja su volumen huérfano.
 
 Tres cosas que el wizard resuelve por ti y que a mano se pagan caro:
 
@@ -305,31 +297,47 @@ a un contenedor antes de reservarla, porque reservarla sin comprobarlo deja a
 Si la prueba falla, no se rompe nada: el modelo corre en CPU y el aviso dice
 qué revisar en cada caso.
 
-## Mover el despliegue de sitio
+## Dónde escribe sus archivos
 
-El `docker-compose.yml` generado fija `name: axion`. Sin esa clave, Compose
-deduce el nombre del proyecto de la **carpeta** y con él prefija los
-volúmenes, así que renombrar o mover el directorio equivalía a estrenar
-volúmenes vacíos: los datos seguían ahí, pero el stack levantaba sin ellos y
-sin un solo error.
+Sin `--project-dir`, el wizard nunca escribe en el directorio desde el que se
+ejecuta el binario a secas: si ese directorio ya tiene un despliegue
+(`docker-compose.yml` presente) lo usa tal cual, y si no, crea una subcarpeta
+`axion/` ahí y trabaja dentro de ella. Ejecutar el `.exe` recién descargado
+directamente desde `~/Descargas`, por ejemplo, crea `~/Descargas/axion/` en
+vez de esparcir `docker-compose.yml`, `.env`, `nginx/`… sueltos en Descargas.
 
-Con el nombre fijado, mover la carpeta es copiar los archivos y volver a
-levantar. Si vienes de un despliegue anterior al que no tenía `name`, los
-volúmenes están bajo el nombre de la carpeta vieja y hay que migrarlos una
-vez:
+Para elegir la carpeta a mano: `axion-wizard --project-dir <ruta> install`.
 
-```bash
-docker compose -f <viejo>/docker-compose.yml down
-for v in postgres_data mattermost_data mattermost_config mattermost_plugins \
-         mattermost_client_plugins mattermost_logs ollama_data wireguard_data; do
-  docker volume create "axion_$v"
-  docker run --rm -v "<carpeta_vieja>_$v:/from:ro" -v "axion_$v:/to" \
-    alpine:3.20 sh -c 'cd /from && cp -a . /to/'
-done
-```
+## Cada despliegue tiene su propio nombre de proyecto
 
-Copia, no mueve: los volúmenes viejos siguen ahí como red de seguridad hasta
-que confirmes que todo va bien.
+`.env` lleva `COMPOSE_PROJECT_NAME`, generado una vez y conservado en cada
+`install` posterior. Es lo que evita que **dos instalaciones distintas en el
+mismo host Docker** terminen compartiendo contenedores y volúmenes: Compose
+identifica un proyecto por su nombre, no por la carpeta desde la que se
+invoca, así que sin un nombre único por despliegue, instalar en una segunda
+carpeta reutilizaría los mismos contenedores y volúmenes que el primero —
+mismo Postgres, mismo Mattermost, misma base de datos — y cada `install`
+sobrescribiría la configuración del otro en silencio.
+
+No es hipotético: pasó en el desarrollo de este proyecto. Una instalación
+nueva generó una contraseña de PostgreSQL distinta a la que el volumen ya
+tenía inicializada, y Mattermost quedó en bucle de reinicio autenticando con
+la contraseña vieja contra un `.env` con la nueva, sin que ningún log
+señalara que el problema real era una colisión entre dos instalaciones. Los
+datos no se pierden en este escenario —Postgres ignora una contraseña nueva
+si el volumen ya estaba inicializado— pero el stack no arranca hasta corregir
+cuál `.env` manda.
+
+**Nunca copiar `COMPOSE_PROJECT_NAME` de un despliegue a otro.**
+
+### Mover el despliegue de carpeta
+
+Copiar los archivos y volver a levantar basta: el nombre de proyecto viaja en
+`.env`, no depende de la ruta. Si vienes de una instalación con el
+`docker-compose.yml` viejo (versiones anteriores a este cambio fijaban
+`name: axion` ahí, igual para todo el mundo), el wizard migra ese valor a
+`.env` automáticamente en el primer `install` tras actualizar — sin flags ni
+pasos manuales.
 
 ## Si la IA solo responde al recargar (F5)
 

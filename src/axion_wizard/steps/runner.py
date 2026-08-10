@@ -107,7 +107,6 @@ def run_install(
     config_path: Path | None = None,
     tui: bool = False,
     restart: bool = False,
-    with_n8n: bool = False,
 ) -> None:
     """Flujo completo de instalación (§4).
 
@@ -119,12 +118,6 @@ def run_install(
 
     state.unattended = unattended
     state.config_path = config_path
-    # `--with-n8n` solo *añade*: no pasarlo en una instalación posterior no
-    # desinstala n8n, porque el paso 5 lo relee del compose existente. Quitarlo
-    # es una acción explícita, no un olvido.
-    from axion_wizard.steps.s05_compose import project_has_n8n
-
-    state.with_n8n = with_n8n or project_has_n8n(state.project_dir)
 
     if restart:
         # `--restart` es `reset` + `install` en un solo comando, sin pedir
@@ -693,7 +686,7 @@ def run_wireguard_add_client(state: GlobalState, name: str) -> None:
 def run_compose_up(state: GlobalState, service: str | None = None) -> None:
     from axion_wizard.services import compose
     from axion_wizard.steps import s06_deploy
-    from axion_wizard.steps.s05_compose import managed_services_for_project
+    from axion_wizard.steps.s05_compose import MANAGED_SERVICES
 
     compose_path = _compose_path(state)
 
@@ -702,7 +695,7 @@ def run_compose_up(state: GlobalState, service: str | None = None) -> None:
         _announce_dry_run(f"ejecutaría `docker compose up -d --build` para {target}")
         return
 
-    services = [service] if service else list(managed_services_for_project(state.project_dir))
+    services = [service] if service else list(MANAGED_SERVICES)
     s06_deploy.deploy(compose_path, services=services)
 
     # §6.4 exige comprobar la tag *efectiva* del contenedor, no solo la que
@@ -744,10 +737,10 @@ def run_compose_down(state: GlobalState) -> None:
 
 def run_compose_logs(state: GlobalState, service: str | None = None) -> None:
     from axion_wizard.services import compose
-    from axion_wizard.steps.s05_compose import managed_services_for_project
+    from axion_wizard.steps.s05_compose import MANAGED_SERVICES
 
     compose_path = _compose_path(state)
-    targets = [service] if service else list(managed_services_for_project(state.project_dir))
+    targets = [service] if service else list(MANAGED_SERVICES)
 
     printed_any = False
     for name in targets:

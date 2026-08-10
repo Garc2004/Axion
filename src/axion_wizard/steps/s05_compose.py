@@ -43,6 +43,7 @@ SSRF_ENV_VALUE = "fastapi:8000 fastapi n8n:5678 n8n"
 
 #: servicios que el wizard regenera en cada render; cualquier otro servicio
 #: que el usuario haya añadido a mano a un compose.yml existente se conserva.
+#: n8n va incluido de forma nativa, sin flag: no es opcional.
 MANAGED_SERVICES = (
     "postgres",
     "mattermost",
@@ -51,53 +52,8 @@ MANAGED_SERVICES = (
     "nginx",
     "wireguard",
     "backup",
+    "n8n",
 )
-
-#: Servicio opcional: solo se renderiza con `install --with-n8n`. No está en
-#: `MANAGED_SERVICES` porque esa tupla es también la lista de "tiene que estar
-#: presente o el compose está corrupto", y aquí ausente es lo normal.
-N8N_SERVICE = "n8n"
-
-
-def managed_services_in(compose_text: str) -> tuple[str, ...]:
-    """Los servicios gestionados que este compose tiene **realmente**.
-
-    Se lee del archivo en vez de devolver una constante porque n8n es
-    opcional: quién lo pidió lo sabe el compose ya generado, no el proceso que
-    esté corriendo ahora. Así `up`, `doctor` y la espera de healthchecks
-    coinciden siempre con lo que hay desplegado, sin arrastrar el flag.
-    """
-    yaml = YAML(typ="safe")
-    try:
-        data = yaml.load(compose_text)
-    except YAMLError:
-        return MANAGED_SERVICES
-    if not isinstance(data, dict):
-        return MANAGED_SERVICES
-    services = data.get("services") or {}
-    if N8N_SERVICE in services:
-        return (*MANAGED_SERVICES, N8N_SERVICE)
-    return MANAGED_SERVICES
-
-
-def managed_services_for_project(project_dir: Path) -> tuple[str, ...]:
-    """`managed_services_in` leyendo el compose del proyecto. Si no existe
-    todavía, la lista base."""
-    compose_path = project_dir / "docker-compose.yml"
-    try:
-        return managed_services_in(compose_path.read_text(encoding="utf-8"))
-    except OSError:
-        return MANAGED_SERVICES
-
-
-def project_has_n8n(project_dir: Path) -> bool:
-    """Si el despliegue de `project_dir` ya lleva n8n.
-
-    Permite que `--with-n8n` sea aditivo: quien lo instaló una vez no tiene
-    que acordarse de repetir el flag en cada `install`, que si no borraría el
-    servicio y dejaría su volumen huérfano.
-    """
-    return N8N_SERVICE in managed_services_for_project(project_dir)
 
 #: Carpeta donde el servicio `backup` deja los tar.gz, relativa al proyecto.
 BACKUPS_RELATIVE_DIR = Path("backups")
@@ -121,14 +77,70 @@ DEFAULT_N8N_TIMEZONE = "UTC"
 
 ZONE_IDENTIFIER_SUFFIX = ":Zone.Identifier"
 
-#: Nombre de proyecto de Compose. Se escribe en el propio `docker-compose.yml`
-#: para que no dependa del nombre de la carpeta (ver la plantilla).
-PROJECT_NAME = "axion"
+#: Prefijo del nombre de proyecto generado para una instalación nueva. Ver
+#: `resolve_compose_project_name`.
+PROJECT_NAME_PREFIX = "axion"
 
-#: Claves de nivel superior que el wizard impone siempre al fusionar, aunque
-#: el archivo existente traiga otra cosa. `name` no puede quedarse a merced de
-#: una edición manual: cambiarlo reapunta el stack entero a otros volúmenes.
-MANAGED_TOP_LEVEL_KEYS = ("name",)
+
+def _legacy_project_name_from_compose(project_dir: Path) -> str | None:
+    """El `name:` de nivel superior de un `docker-compose.yml` ya existente,
+    si lo tiene.
+
+    Solo lo escribían las versiones del wizard anteriores a que el nombre de
+    proyecto se moviera a `.env` (fijaban `name: axion`, igual para *todas*
+    las instalaciones — la causa del bug que `resolve_compose_project_name`
+    existe para evitar). Sirve únicamente de migración hacia atrás: para un
+    despliegue con ese `docker-compose.yml`, hay que conservar el mismo
+    nombre de proyecto o Compose dejaría de encontrar sus contenedores y
+    volúmenes ya existentes.
+    """
+    compose_path = project_dir / "docker-compose.yml"
+    try:
+        text = compose_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    yaml = YAML(typ="safe")
+    try:
+        data = yaml.load(text)
+    except YAMLError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    name = data.get("name")
+    return name if isinstance(name, str) and name else None
+
+
+def resolve_compose_project_name(project_dir: Path) -> str:
+    """Nombre de proyecto de Compose para este despliegue: estable y, sobre
+    todo, único.
+
+    Se lee de un `.env` ya existente si lo hay, para sobrevivir a cualquier
+    `install` posterior. A falta de eso, se migra el `name:` de un
+    `docker-compose.yml` de una versión anterior del wizard si lo encuentra
+    (ver `_legacy_project_name_from_compose`). Solo si no hay ninguna pista
+    —instalación de verdad nueva— se genera uno con un sufijo aleatorio.
+
+    El sufijo es lo que importa: sin él, *todas* las instalaciones de
+    axion-wizard en el mismo host Docker comparten el nombre de proyecto
+    `axion`, y Compose identifica un proyecto por su nombre, no por la
+    carpeta desde la que se invoca — así que comparten también sus
+    contenedores y volúmenes. Es un incidente real, no hipotético: instalar
+    en una segunda carpeta generó una contraseña de PostgreSQL nueva y la
+    escribió en un `.env` que, sin saberlo, apuntaba al mismo proyecto que un
+    despliegue ya en marcha con datos reales. Docker aceptó la nueva
+    contraseña sin quejarse —solo se aplica al inicializar un volumen vacío,
+    y este ya no lo estaba— y Mattermost quedó autenticando contra la
+    contraseña vieja con la nueva escrita en su `.env`: bucle de reinicio,
+    sin que ningún log señalara que el problema era una colisión entre dos
+    instalaciones distintas.
+    """
+    existing = existing_env_value(project_dir, "COMPOSE_PROJECT_NAME")
+    if existing:
+        return existing
+    legacy = _legacy_project_name_from_compose(project_dir)
+    if legacy:
+        return legacy
+    return f"{PROJECT_NAME_PREFIX}-{secret_utils.generate_hex_secret(4)}"
 
 
 def _render(template_name: str, context: dict) -> str:
@@ -142,13 +154,10 @@ def _render(template_name: str, context: dict) -> str:
 def build_compose_context(
     config: AxionConfig,
     gpu_acceleration: str = GPU_ACCELERATION_NONE,
-    with_n8n: bool = False,
 ) -> dict:
     return {
-        "with_n8n": with_n8n,
         "n8n_image": images.N8N_IMAGE,
         "ssrf_allowed_connections": SSRF_ENV_VALUE,
-        "project_name": PROJECT_NAME,
         "host": config.host,
         "wireguard_variant": config.wireguard_variant.value,
         "postgres_image": images.POSTGRES_IMAGE,
@@ -162,15 +171,8 @@ def build_compose_context(
     }
 
 
-def render_compose(
-    config: AxionConfig,
-    gpu_acceleration: str = GPU_ACCELERATION_NONE,
-    with_n8n: bool = False,
-) -> str:
-    return _render(
-        "docker-compose.yml.j2",
-        build_compose_context(config, gpu_acceleration=gpu_acceleration, with_n8n=with_n8n),
-    )
+def render_compose(config: AxionConfig, gpu_acceleration: str = GPU_ACCELERATION_NONE) -> str:
+    return _render("docker-compose.yml.j2", build_compose_context(config, gpu_acceleration))
 
 
 #: Claves de `.env` que el usuario rellena *después* del despliegue y que
@@ -216,8 +218,17 @@ def preserved_env_values(project_dir: Path) -> dict[str, str]:
     return {key: existing_env_value(project_dir, key) or "" for key in PRESERVED_ENV_KEYS}
 
 
-def render_env(config: AxionConfig, preserved: dict[str, str] | None = None) -> str:
+def render_env(
+    config: AxionConfig, compose_project_name: str, preserved: dict[str, str] | None = None
+) -> str:
     """Renderiza `.env`.
+
+    `compose_project_name` es obligatorio y sin valor por defecto **a
+    propósito**: es lo que evita que dos instalaciones distintas en el mismo
+    host Docker terminen compartiendo contenedores y volúmenes (incidente
+    real — ver `resolve_compose_project_name`, que es quien debe calcularlo
+    antes de llamar aquí). Un valor por defecto fijo reintroduciría
+    exactamente ese bug en cualquier llamada que se olvidara de pasarlo.
 
     `preserved` trae los valores que el usuario configura *después* del
     despliegue y que este archivo no puede conocer de antemano: el token del
@@ -232,6 +243,7 @@ def render_env(config: AxionConfig, preserved: dict[str, str] | None = None) -> 
     return _render(
         "env.j2",
         {
+            "compose_project_name": compose_project_name,
             "postgres_password": config.postgres_password.get_secret_value(),
             "ollama_model": config.ollama_model,
             "host": config.host,
@@ -396,21 +408,9 @@ def merge_compose_preserving_user_edits(existing_text: str, rendered_text: str) 
     if not isinstance(existing.get("services"), MutableMapping):
         existing["services"] = {}
 
-    # n8n va aquí y no en `MANAGED_SERVICES` porque solo aparece en `rendered`
-    # cuando se pidió: si está, se regenera como cualquier otro gestionado; si
-    # no, este bucle no lo toca y el bloque existente se conserva intacto.
-    for name in (*MANAGED_SERVICES, N8N_SERVICE):
+    for name in MANAGED_SERVICES:
         if name in rendered.get("services", {}):
             existing["services"][name] = rendered["services"][name]
-
-    # A diferencia del resto de claves de nivel superior, estas no se
-    # preservan: se imponen. Un compose anterior a que el wizard fijara el
-    # nombre de proyecto no lo tiene, y sin esto seguiría sin tenerlo para
-    # siempre — que es justo el estado que hace que mover la carpeta pierda
-    # los volúmenes.
-    for key in MANAGED_TOP_LEVEL_KEYS:
-        if key in rendered:
-            existing[key] = rendered[key]
 
     for top_level_key in ("volumes", "networks"):
         rendered_section = rendered.get(top_level_key)
@@ -428,14 +428,11 @@ def merge_compose_preserving_user_edits(existing_text: str, rendered_text: str) 
 
 
 def render_compose_to_disk(
-    config: AxionConfig,
-    compose_path: Path,
-    gpu_acceleration: str = GPU_ACCELERATION_NONE,
-    with_n8n: bool = False,
+    config: AxionConfig, compose_path: Path, gpu_acceleration: str = GPU_ACCELERATION_NONE
 ) -> Path | None:
     """Renderiza `docker-compose.yml`, haciendo backup + merge si ya existía.
     Devuelve la ruta del backup creado, o `None` si el archivo era nuevo."""
-    rendered = render_compose(config, gpu_acceleration=gpu_acceleration, with_n8n=with_n8n)
+    rendered = render_compose(config, gpu_acceleration=gpu_acceleration)
     validate_compose_yaml_shape(rendered)
     assert_ssrf_env_present(rendered)
     assert_no_unpinned_images(rendered)
@@ -619,11 +616,13 @@ class ComposeStep(Step):
             self._announce_dry_run(compose_path)
             return StepResult(name=self.name, ok=True, message="omitido por --dry-run")
 
+        # Antes de que render_compose_to_disk sobrescriba docker-compose.yml:
+        # la migración desde una versión antigua del wizard lee el `name:`
+        # de ese archivo tal como está *ahora*, no del que se está por escribir.
+        project_name = resolve_compose_project_name(self.context.project_dir)
+
         backup_path = render_compose_to_disk(
-            config,
-            compose_path,
-            gpu_acceleration=environment.gpu_acceleration,
-            with_n8n=self.state.with_n8n,
+            config, compose_path, gpu_acceleration=environment.gpu_acceleration
         )
 
         # Los valores que el usuario rellena después del despliegue (token del
@@ -632,7 +631,7 @@ class ComposeStep(Step):
         preserved = preserved_env_values(self.context.project_dir)
         write_secret_env_file(
             self.context.project_dir / ".env",
-            render_env(config, preserved=preserved),
+            render_env(config, project_name, preserved=preserved),
             backup=True,
         )
         write_secret_env_file(
@@ -672,6 +671,10 @@ class ComposeStep(Step):
         if backup_path is not None:
             console.print(f"[axion.info]Compose anterior respaldado en:[/] {backup_path}")
         console.print(f"[axion.ok]Archivos escritos en:[/] {self.context.project_dir}")
+        console.print(
+            f"[axion.dim]Nombre de proyecto de Compose: {project_name} "
+            "(prefija contenedores y volúmenes; no compartir con otro despliegue).[/]"
+        )
 
         return StepResult(
             name=self.name,

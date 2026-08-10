@@ -3,15 +3,6 @@
 # mano fuera de esta lista se conserva.
 # Variante WireGuard: {{ wireguard_variant }}
 
-# Sin esta clave, Compose deduce el nombre del proyecto del nombre de la
-# CARPETA que contiene este archivo, y con él prefija los volúmenes
-# (`<proyecto>_postgres_data`). Mover o renombrar el directorio del despliegue
-# equivalía entonces a estrenar volúmenes vacíos: la base de datos de
-# Mattermost, las claves de WireGuard y el modelo descargado seguían ahí, pero
-# el stack levantaba sin ellos y sin un solo error — parecía una instalación
-# nueva. Fijarlo aquí desacopla la identidad del proyecto de la ruta.
-name: {{ project_name }}
-
 services:
   postgres:
     image: {{ postgres_image }}
@@ -240,11 +231,9 @@ services:
       - mattermost_plugins:/backup/mattermost_plugins:ro
       - mattermost_client_plugins:/backup/mattermost_client_plugins:ro
       - wireguard_data:/backup/wireguard_data:ro
-{%- if with_n8n %}
       # Los flujos de n8n y sus credenciales cifradas. Sin esto, una
       # restauración devolvería el chat entero pero n8n vacío.
       - n8n_data:/backup/n8n_data:ro
-{%- endif %}
       # `ollama_data` queda fuera a propósito: son gigabytes de modelo que se
       # vuelven a descargar con `axion-wizard model set`. `mattermost_logs`
       # también: no hay nada que restaurar en un log.
@@ -253,7 +242,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - edge_net
-{% if with_n8n %}
+
   n8n:
     image: {{ n8n_image }}
     restart: unless-stopped
@@ -278,7 +267,7 @@ services:
       - "5678:5678"
     networks:
       - edge_net
-{% endif %}
+
 volumes:
   postgres_data:
   mattermost_data:
@@ -288,9 +277,7 @@ volumes:
   mattermost_client_plugins:
   ollama_data:
   wireguard_data:
-{%- if with_n8n %}
   n8n_data:
-{%- endif %}
 
 networks:
   edge_net:

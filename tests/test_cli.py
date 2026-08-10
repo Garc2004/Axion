@@ -15,6 +15,45 @@ def test_version() -> None:
     assert __version__ in result.stdout
 
 
+# --- directorio de proyecto por defecto ---------------------------------------
+#
+# Sin --project-dir, ejecutar el binario tal cual se descargó (doble clic
+# desde ~/Descargas, por ejemplo) escribía docker-compose.yml, .env, nginx/…
+# sueltos ahí mismo. Incidente real, no hipotético.
+
+
+def test_default_project_dir_is_a_subfolder_when_cwd_has_no_deployment(
+    tmp_path, monkeypatch
+) -> None:
+    from axion_wizard.cli import _default_project_dir
+
+    monkeypatch.chdir(tmp_path)
+    assert _default_project_dir() == tmp_path / "axion"
+
+
+def test_default_project_dir_is_cwd_itself_when_a_deployment_already_exists(
+    tmp_path, monkeypatch
+) -> None:
+    """Quien siguió la recomendación del README —crear una carpeta dedicada,
+    poner el binario dentro, ejecutarlo ahí— no debe ver un nivel de anidado
+    de más."""
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n")
+    monkeypatch.chdir(tmp_path)
+
+    from axion_wizard.cli import _default_project_dir
+
+    assert _default_project_dir() == tmp_path
+
+
+def test_running_without_project_dir_never_writes_into_the_bare_cwd(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 1
+    assert str(tmp_path / "axion" / "docker-compose.yml") in result.stderr
+    assert not (tmp_path / "docker-compose.yml").exists()
+
+
 def test_doctor_fails_gracefully_without_a_deployed_stack(tmp_path) -> None:
     result = runner.invoke(app, ["--project-dir", str(tmp_path), "doctor"])
     assert result.exit_code == 1

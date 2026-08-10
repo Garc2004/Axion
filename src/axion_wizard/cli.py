@@ -40,11 +40,6 @@ class GlobalState:
     unattended: bool = False
     #: `install --config`: archivo TOML con la configuración completa.
     config_path: Path | None = None
-    #: `install --with-n8n`: añade n8n al stack. Solo lo consulta el paso 5;
-    #: a partir de ahí, quién manda es el `docker-compose.yml` ya generado
-    #: (ver `s05_compose.managed_services_in`), para que `up` y `doctor` no
-    #: dependan de que se repita el flag en cada invocación.
-    with_n8n: bool = False
 
 
 state = GlobalState()
@@ -169,6 +164,30 @@ def _version_callback(value: bool) -> None:
         raise typer.Exit()
 
 
+#: Subcarpeta donde se despliega por defecto cuando no se pasa
+#: `--project-dir` ni ya hay un despliegue en el directorio actual.
+DEFAULT_PROJECT_SUBDIR = "axion"
+
+
+def _default_project_dir() -> Path:
+    """Directorio de proyecto cuando no se pasó `--project-dir` (§4.2).
+
+    Sin esto, ejecutar el binario tal cual se descargó —doble clic desde
+    `~/Descargas`, por ejemplo— escribía `docker-compose.yml`, `.env`,
+    `nginx/`, `backups/`… sueltos ahí mismo, mezclados con cualquier otra
+    cosa que hubiera. Incidente real, no hipotético.
+
+    Si ya hay un despliegue en el directorio actual (`docker-compose.yml`
+    presente — el caso de quien siguió la recomendación del README de crear
+    una carpeta dedicada y poner el binario dentro) se usa tal cual, sin
+    anidar una carpeta más: ya está "dentro de una carpeta".
+    """
+    cwd = Path.cwd()
+    if (cwd / "docker-compose.yml").exists():
+        return cwd
+    return cwd / DEFAULT_PROJECT_SUBDIR
+
+
 @app.callback(invoke_without_command=True)
 def main_callback(
     ctx: typer.Context,
@@ -204,10 +223,18 @@ def main_callback(
     # Absoluto desde el principio: el relanzamiento elevado arranca en otro
     # directorio de trabajo (§ `ensure_elevated`), así que una ruta relativa
     # como `--project-dir ./axion` apuntaría a otro sitio en el hijo.
-    state.project_dir = (project_dir if project_dir is not None else Path.cwd()).resolve()
+    used_default_subdir = project_dir is None and not (Path.cwd() / "docker-compose.yml").exists()
+    resolved_project_dir = project_dir if project_dir is not None else _default_project_dir()
+    state.project_dir = resolved_project_dir.resolve()
 
     set_quiet(quiet)
     set_no_color(no_color)
+
+    if used_default_subdir and not quiet:
+        console.print(
+            f"[axion.dim]Sin --project-dir: se usará {state.project_dir} "
+            "(pásalo explícitamente para elegir otra carpeta).[/]"
+        )
 
     if ctx.invoked_subcommand is None:
         from axion_wizard.steps.runner import run_install
@@ -231,21 +258,13 @@ def install(
         "--restart",
         help="Ignora el progreso guardado y rehace la instalación desde el paso 1.",
     ),
-    with_n8n: bool = typer.Option(
-        False, "--with-n8n", help="Añade n8n al stack, publicado en el puerto 5678."
-    ),
 ) -> None:
     """Ejecuta el flujo completo de instalación."""
     from axion_wizard.steps.runner import run_install
 
     _dispatch(
         lambda: run_install(
-            state,
-            unattended=unattended,
-            config_path=config,
-            tui=tui,
-            restart=restart,
-            with_n8n=with_n8n,
+            state, unattended=unattended, config_path=config, tui=tui, restart=restart
         ),
         elevate=True,
     )

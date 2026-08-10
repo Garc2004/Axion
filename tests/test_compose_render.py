@@ -33,6 +33,16 @@ def _load_yaml(text: str) -> dict:
     return YAML(typ="safe").load(text)
 
 
+#: Nombre de proyecto fijo para los tests: `render_env` lo exige sin valor
+#: por defecto a propósito (ver su docstring), así que hace falta pasar algo.
+TEST_PROJECT_NAME = "axion-test"
+
+
+def render_env(config: AxionConfig, **kwargs) -> str:
+    """Atajo para `s05.render_env` con el nombre de proyecto ya puesto."""
+    return s05.render_env(config, TEST_PROJECT_NAME, **kwargs)
+
+
 # --- render_compose: forma general -----------------------------------------
 
 
@@ -66,17 +76,16 @@ def test_render_compose_injects_ssrf_env_var() -> None:
     assert f'{s05.SSRF_ENV_KEY}: "{s05.SSRF_ENV_VALUE}"' in text
 
 
-# --- n8n (opcional) ----------------------------------------------------------
+# --- n8n (nativo, sin flag) ---------------------------------------------------
 
 
-def test_n8n_is_absent_unless_asked_for() -> None:
-    data = _load_yaml(s05.render_compose(make_config()))
-    assert "n8n" not in data["services"]
-    assert "n8n_data" not in data["volumes"]
+def test_n8n_is_included_natively() -> None:
+    """No hay flag: n8n va con el resto del stack en cualquier instalación."""
+    assert "n8n" in s05.MANAGED_SERVICES
 
 
 def test_n8n_is_rendered_with_a_pinned_image_and_its_volume() -> None:
-    data = _load_yaml(s05.render_compose(make_config(), with_n8n=True))
+    data = _load_yaml(s05.render_compose(make_config()))
     n8n = data["services"]["n8n"]
 
     assert n8n["image"] == images.N8N_IMAGE
@@ -88,7 +97,7 @@ def test_n8n_is_rendered_with_a_pinned_image_and_its_volume() -> None:
 def test_n8n_is_announced_over_http_because_nothing_terminates_tls_for_it() -> None:
     """n8n se publica en su propio puerto, sin pasar por nginx. Anunciarse
     como https haría que generase URLs de webhook que no responden."""
-    n8n = _load_yaml(s05.render_compose(make_config(), with_n8n=True))["services"]["n8n"]
+    n8n = _load_yaml(s05.render_compose(make_config()))["services"]["n8n"]
 
     assert n8n["environment"]["N8N_PROTOCOL"] == "http"
     assert n8n["environment"]["WEBHOOK_URL"].startswith("http://")
@@ -98,12 +107,12 @@ def test_mattermost_is_allowed_to_reach_n8n() -> None:
     """La protección SSRF de Mattermost descarta el webhook saliente en
     silencio: no dispara y no aparece error en ningún log."""
     assert "n8n:5678" in s05.SSRF_ENV_VALUE
-    assert s05.SSRF_ENV_VALUE in s05.render_compose(make_config(), with_n8n=True)
+    assert s05.SSRF_ENV_VALUE in s05.render_compose(make_config())
 
 
-def test_backup_covers_n8n_when_it_is_installed() -> None:
+def test_backup_covers_n8n() -> None:
     """Sin esto, una restauración devolvería el chat entero y n8n vacío."""
-    services = _load_yaml(s05.render_compose(make_config(), with_n8n=True))["services"]
+    services = _load_yaml(s05.render_compose(make_config()))["services"]
     sources = {entry.split(":")[0] for entry in services["backup"]["volumes"]}
 
     assert "n8n_data" in sources
@@ -112,36 +121,20 @@ def test_backup_covers_n8n_when_it_is_installed() -> None:
 def test_n8n_encryption_key_is_generated_once_and_then_preserved() -> None:
     """Si esa clave cambia, las credenciales guardadas en n8n quedan
     ilegibles para siempre y nada avisa hasta que un flujo falla."""
-    first = s05.render_env(make_config())
+    first = render_env(make_config())
     prefix = "N8N_ENCRYPTION_KEY="
     key = next(line[len(prefix) :] for line in first.splitlines() if line.startswith(prefix))
     assert key
 
-    again = s05.render_env(make_config(), preserved={"N8N_ENCRYPTION_KEY": key})
+    again = render_env(make_config(), preserved={"N8N_ENCRYPTION_KEY": key})
     assert f"N8N_ENCRYPTION_KEY={key}" in again
 
 
-def test_managed_services_follow_the_compose_on_disk() -> None:
-    """`up` y `doctor` no reciben el flag: deducen del compose si el
-    despliegue lleva n8n."""
-    sin_n8n = s05.render_compose(make_config())
-    con_n8n = s05.render_compose(make_config(), with_n8n=True)
-
-    assert "n8n" not in s05.managed_services_in(sin_n8n)
-    assert "n8n" in s05.managed_services_in(con_n8n)
-
-
-def test_managed_services_falls_back_to_the_base_list_on_a_broken_compose() -> None:
-    assert s05.managed_services_in("esto: no es: yaml: valido:") == s05.MANAGED_SERVICES
-
-
-def test_merge_regenerates_n8n_but_never_deletes_it() -> None:
-    """`--with-n8n` es aditivo: olvidarlo en un `install` posterior no puede
-    borrar el servicio y dejar su volumen huérfano."""
-    existing = s05.render_compose(make_config(), with_n8n=True)
-    sin_flag = s05.render_compose(make_config(), with_n8n=False)
-
-    merged = _load_yaml(s05.merge_compose_preserving_user_edits(existing, sin_flag))
+def test_merge_regenerates_n8n() -> None:
+    existing = s05.render_compose(make_config())
+    merged = _load_yaml(
+        s05.merge_compose_preserving_user_edits(existing, s05.render_compose(make_config()))
+    )
     assert "n8n" in merged["services"]
 
 
@@ -195,15 +188,13 @@ def test_backup_prunes_only_its_own_archives() -> None:
 
 
 def test_env_gets_backup_defaults_on_a_fresh_install() -> None:
-    text = s05.render_env(make_config())
+    text = render_env(make_config())
     assert f"BACKUP_CRON_EXPRESSION={s05.DEFAULT_BACKUP_CRON_EXPRESSION}" in text
     assert f"BACKUP_RETENTION_DAYS={s05.DEFAULT_BACKUP_RETENTION_DAYS}" in text
 
 
 def test_env_keeps_a_customised_backup_schedule() -> None:
-    text = s05.render_env(
-        make_config(), preserved={"BACKUP_CRON_EXPRESSION": "30 4 * * 0"}
-    )
+    text = render_env(make_config(), preserved={"BACKUP_CRON_EXPRESSION": "30 4 * * 0"})
     assert "BACKUP_CRON_EXPRESSION=30 4 * * 0" in text
 
 
@@ -211,7 +202,7 @@ def test_env_falls_back_to_defaults_when_the_previous_value_is_empty() -> None:
     """Un valor vacío se interpolaría tal cual y dejaría al servicio sin
     horario ni retención — a diferencia de los tokens, aquí el vacío no es un
     valor válido."""
-    text = s05.render_env(
+    text = render_env(
         make_config(), preserved={"BACKUP_CRON_EXPRESSION": "", "BACKUP_RETENTION_DAYS": ""}
     )
     assert f"BACKUP_CRON_EXPRESSION={s05.DEFAULT_BACKUP_CRON_EXPRESSION}" in text
@@ -268,11 +259,80 @@ def test_render_compose_rocm_swaps_the_image_and_passes_kernel_devices() -> None
     assert "deploy" not in ollama
 
 
-def test_render_compose_fixes_the_project_name() -> None:
-    """Sin `name`, Compose lo deduce de la carpeta y prefija los volúmenes con
-    él: mover el directorio estrenaba volúmenes vacíos en silencio."""
+def test_render_compose_has_no_project_name_of_its_own() -> None:
+    """El nombre de proyecto vive en `.env` (`COMPOSE_PROJECT_NAME`), no en el
+    compose: fijarlo aquí como texto literal era lo que hacía que *toda*
+    instalación de axion-wizard en el mismo host Docker compartiera el mismo
+    proyecto — mismos contenedores, mismos volúmenes — sin importar la
+    carpeta. Ver `resolve_compose_project_name`."""
     data = _load_yaml(s05.render_compose(make_config()))
-    assert data["name"] == s05.PROJECT_NAME
+    assert "name" not in data
+
+
+# --- resolve_compose_project_name --------------------------------------------
+#
+# El bug real que esta función existe para evitar: sin un nombre único por
+# despliegue, dos instalaciones de axion-wizard en el mismo host Docker
+# comparten el mismo proyecto de Compose — mismos contenedores, mismos
+# volúmenes — y cada `install` sobrescribe la configuración de la otra en
+# silencio. Pasó de verdad: una segunda instalación generó una contraseña de
+# PostgreSQL distinta y dejó a Mattermost sin poder autenticarse contra un
+# volumen ya inicializado con la vieja.
+
+
+def test_project_name_is_stable_across_renders_of_the_same_deployment(tmp_path: Path) -> None:
+    first = s05.resolve_compose_project_name(tmp_path)
+    (tmp_path / ".env").write_text(f"COMPOSE_PROJECT_NAME={first}\n", encoding="utf-8")
+    assert s05.resolve_compose_project_name(tmp_path) == first
+
+
+def test_two_fresh_deployments_never_get_the_same_project_name(tmp_path: Path) -> None:
+    """Es la propiedad que de verdad importa: sin ella, cualquier segunda
+    instalación reutiliza los contenedores y volúmenes de la primera."""
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    assert s05.resolve_compose_project_name(a) != s05.resolve_compose_project_name(b)
+
+
+def test_project_name_reads_from_existing_env_first(tmp_path: Path) -> None:
+    (tmp_path / ".env").write_text("COMPOSE_PROJECT_NAME=mi-proyecto\n", encoding="utf-8")
+    assert s05.resolve_compose_project_name(tmp_path) == "mi-proyecto"
+
+
+def test_project_name_migrates_the_legacy_literal_name_from_an_old_compose(
+    tmp_path: Path,
+) -> None:
+    """Versiones del wizard anteriores a este fix escribían `name: axion`
+    literal, igual para todo el mundo, en `docker-compose.yml`. Sin migrar
+    ese valor a `.env`, el primer `install` tras actualizar generaría un
+    nombre nuevo y perdería el acceso a los contenedores/volúmenes que ya
+    existían bajo el nombre viejo."""
+    (tmp_path / "docker-compose.yml").write_text(
+        "name: axion\nservices:\n  postgres:\n    image: postgres:15\n", encoding="utf-8"
+    )
+    assert s05.resolve_compose_project_name(tmp_path) == "axion"
+
+
+def test_project_name_prefers_env_over_the_legacy_compose_literal(tmp_path: Path) -> None:
+    (tmp_path / "docker-compose.yml").write_text(
+        "name: axion\nservices: {}\n", encoding="utf-8"
+    )
+    (tmp_path / ".env").write_text("COMPOSE_PROJECT_NAME=ya-migrado\n", encoding="utf-8")
+    assert s05.resolve_compose_project_name(tmp_path) == "ya-migrado"
+
+
+def test_project_name_ignores_an_unparseable_legacy_compose(tmp_path: Path) -> None:
+    (tmp_path / "docker-compose.yml").write_text("esto: no es: yaml: valido:", encoding="utf-8")
+    name = s05.resolve_compose_project_name(tmp_path)
+    assert name.startswith(f"{s05.PROJECT_NAME_PREFIX}-")
+
+
+def test_fresh_project_name_has_the_expected_prefix(tmp_path: Path) -> None:
+    assert s05.resolve_compose_project_name(tmp_path).startswith(
+        f"{s05.PROJECT_NAME_PREFIX}-"
+    )
 
 
 # --- render_env / render_wg_env / render_nginx_conf -------------------------
@@ -280,7 +340,7 @@ def test_render_compose_fixes_the_project_name() -> None:
 
 def test_render_env_contains_expected_values() -> None:
     config = make_config(ollama_model="llama3.1:8b")
-    text = s05.render_env(config)
+    text = render_env(config)
     assert f"POSTGRES_PASSWORD={config.postgres_password.get_secret_value()}" in text
     assert "OLLAMA_MODEL=llama3.1:8b" in text
     assert "MM_SITEURL=https://192.168.1.50" in text
@@ -292,7 +352,7 @@ def test_render_env_has_an_empty_webhook_token_placeholder() -> None:
     la clave (vacía) para que quien la lea sepa que se puede rellenar, y
     para que `${MM_WEBHOOK_TOKEN:-}` en el compose no dependa de que la
     clave falte por completo en vez de estar vacía."""
-    text = s05.render_env(make_config())
+    text = render_env(make_config())
     assert "MM_WEBHOOK_TOKEN=" in text
 
 
@@ -420,18 +480,15 @@ def _docker_compose_is_usable() -> bool:
     reason="`docker compose` no está disponible o no responde en esta máquina",
 )
 @pytest.mark.parametrize("variant", [WireguardVariant.HOST, WireguardVariant.PORTS])
-@pytest.mark.parametrize("with_n8n", [False, True], ids=["sin-n8n", "con-n8n"])
-def test_render_compose_passes_real_docker_compose_config(
-    tmp_path: Path, variant, with_n8n: bool
-) -> None:
-    """La validación de forma no ve los errores de sangría: un bloque
-    condicional mal cerrado puede sacar un servicio fuera de `services:` y
-    seguir siendo YAML perfectamente válido. Solo Compose lo detecta."""
+def test_render_compose_passes_real_docker_compose_config(tmp_path: Path, variant) -> None:
+    """La validación de forma no ve los errores de sangría: un bloque mal
+    cerrado puede sacar un servicio fuera de `services:` y seguir siendo YAML
+    perfectamente válido. Solo Compose lo detecta."""
     config = make_config(wireguard_variant=variant)
     compose_path = tmp_path / "docker-compose.yml"
-    compose_path.write_text(s05.render_compose(config, with_n8n=with_n8n), encoding="utf-8")
+    compose_path.write_text(s05.render_compose(config), encoding="utf-8")
     (tmp_path / ".env").write_text(
-        s05.render_env(config) + "\nPOSTGRES_PASSWORD=x\n", encoding="utf-8"
+        render_env(config) + "\nPOSTGRES_PASSWORD=x\n", encoding="utf-8"
     )
     (tmp_path / "fastapi").mkdir()
     (tmp_path / "fastapi" / "Dockerfile").write_text("FROM python:3.12-slim\n")
@@ -505,22 +562,15 @@ def test_merge_compose_preserves_user_added_service() -> None:
     assert data["services"]["postgres"]["image"] == images.POSTGRES_IMAGE
 
 
-def test_merge_compose_imposes_the_project_name_on_an_older_file() -> None:
-    """El merge preserva las claves de nivel superior del usuario, pero `name`
-    no puede quedarse fuera: un compose anterior a que el wizard lo fijara
-    seguiría sin él para siempre, que es el estado en el que mover la carpeta
-    pierde los volúmenes."""
-    existing = "services:\n  postgres:\n    image: postgres:13-alpine\n"
+def test_merge_compose_does_not_touch_a_legacy_name_key() -> None:
+    """El merge ya no gestiona `name` — vive en `.env`. Un `docker-compose.yml`
+    de una versión anterior que lo traía como literal lo conserva intacto:
+    inofensivo (`COMPOSE_PROJECT_NAME` en `.env` manda sobre el `name:` del
+    propio compose), y es justo lo que permite migrarlo en el primer render
+    (ver `resolve_compose_project_name`)."""
+    existing = "name: axion\nservices:\n  postgres:\n    image: postgres:13-alpine\n"
     merged = s05.merge_compose_preserving_user_edits(existing, s05.render_compose(make_config()))
-    assert _load_yaml(merged)["name"] == s05.PROJECT_NAME
-
-
-def test_merge_compose_overwrites_a_hand_edited_project_name() -> None:
-    """Cambiar `name` a mano reapunta el stack entero a otro juego de
-    volúmenes: parece una instalación vacía y los datos siguen donde estaban."""
-    existing = f"name: otro-nombre\nservices:\n  postgres:\n    image: {images.POSTGRES_IMAGE}\n"
-    merged = s05.merge_compose_preserving_user_edits(existing, s05.render_compose(make_config()))
-    assert _load_yaml(merged)["name"] == s05.PROJECT_NAME
+    assert _load_yaml(merged)["name"] == "axion"
 
 
 def test_merge_compose_rejects_non_mapping_root_with_actionable_error() -> None:
@@ -768,19 +818,19 @@ def test_clean_zone_identifier_does_not_descend_into_heavy_directories(
 
 
 def test_render_env_preserves_the_webhook_token() -> None:
-    text = s05.render_env(make_config(), preserved={"MM_WEBHOOK_TOKEN": "tok3n-real"})
+    text = render_env(make_config(), preserved={"MM_WEBHOOK_TOKEN": "tok3n-real"})
     assert "MM_WEBHOOK_TOKEN=tok3n-real" in text
 
 
 def test_render_env_preserves_the_system_prompt() -> None:
-    text = s05.render_env(
+    text = render_env(
         make_config(), preserved={"OLLAMA_SYSTEM_PROMPT": "Responde siempre en español."}
     )
     assert "OLLAMA_SYSTEM_PROMPT=Responde siempre en español." in text
 
 
 def test_render_env_defaults_to_empty_when_nothing_to_preserve() -> None:
-    text = s05.render_env(make_config())
+    text = render_env(make_config())
     assert "MM_WEBHOOK_TOKEN=\n" in text
     assert "OLLAMA_SYSTEM_PROMPT=\n" in text
 
@@ -802,11 +852,11 @@ def test_preserved_env_values_empty_without_a_previous_env(tmp_path: Path) -> No
 def test_a_second_render_round_trip_keeps_the_token(tmp_path: Path) -> None:
     """El ciclo completo: `set-webhook-token` escribe, `install` regenera."""
     env_path = tmp_path / ".env"
-    s05.write_secret_env_file(env_path, s05.render_env(make_config()))
+    s05.write_secret_env_file(env_path, render_env(make_config()))
     s05.update_env_value(env_path, "MM_WEBHOOK_TOKEN", "token-de-ejemplo-no-real-000")
 
     preserved = s05.preserved_env_values(tmp_path)
-    s05.write_secret_env_file(env_path, s05.render_env(make_config(), preserved=preserved))
+    s05.write_secret_env_file(env_path, render_env(make_config(), preserved=preserved))
 
     assert "MM_WEBHOOK_TOKEN=token-de-ejemplo-no-real-000" in env_path.read_text(encoding="utf-8")
 

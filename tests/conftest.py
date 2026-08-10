@@ -4,6 +4,23 @@ import pytest
 
 from axion_wizard.console import console, error_console
 
+
+@pytest.fixture(autouse=True)
+def _isolate_cwd(tmp_path, monkeypatch):
+    """Ningún test corre con el directorio de trabajo real del repositorio.
+
+    Sin esto, un test que invoca la CLI sin `--project-dir` y con mocking
+    incompleto —falla antes de llegar a donde se pensaba, pero no antes de
+    que algún paso ya haya escrito algo— deja archivos sueltos en la raíz del
+    repo. Pasó de verdad: `test_no_elevate_flag_skips_elevation` y algún otro
+    escribieron `axion/.axion-wizard-state.json` y `axion/nginx/certs/` en
+    pleno directorio del proyecto, entre ejecuciones normales de la suite.
+
+    Cada test que de verdad necesite una ruta concreta ya usa su propio
+    `tmp_path`; aislar el cwd además no cambia nada para esos.
+    """
+    monkeypatch.chdir(tmp_path)
+
 #: Ancho fijo para los paneles de Rich durante los tests.
 #:
 #: Sin esto, el ancho lo decide el entorno: Rich cae a 80 columnas cuando la
