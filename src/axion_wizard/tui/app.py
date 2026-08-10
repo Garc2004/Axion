@@ -37,7 +37,7 @@ from axion_wizard import ui
 from axion_wizard.config import AccessMode, AxionConfig, WireguardVariant
 from axion_wizard.errors import AxionError
 from axion_wizard.steps.context import InstallContext
-from axion_wizard.steps.s03_config import _existing_postgres_password
+from axion_wizard.steps.s03_config import existing_postgres_password
 from axion_wizard.utils import secrets as secret_utils
 
 if TYPE_CHECKING:
@@ -249,10 +249,10 @@ class ConfigScreen(Screen):
                 # todo arranque posterior: una contraseña nueva sobre un volumen
                 # ya inicializado deja a Mattermost sin poder autenticarse, sin
                 # ningún error que lo explique. El camino de la CLI ya lo evitaba
-                # (ver `s03_config._existing_postgres_password`, que documenta el
+                # (ver `s03_config.existing_postgres_password`, que documenta el
                 # incidente); este no, y reintroducía el mismo fallo.
                 postgres_password=SecretStr(
-                    _existing_postgres_password(self._state.project_dir)
+                    existing_postgres_password(self._state.project_dir)
                     or secret_utils.generate_hex_secret()
                 ),
                 wireguard_admin_password_hash=SecretStr(secret_utils.hash_password(password)),

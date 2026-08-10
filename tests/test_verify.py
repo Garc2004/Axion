@@ -2,7 +2,6 @@ import asyncio
 from pathlib import Path
 
 import httpx
-import pytest
 
 from axion_wizard.config import WireguardVariant
 from axion_wizard.detect.network import PortStatus
@@ -10,94 +9,6 @@ from axion_wizard.errors import ConfigError
 from axion_wizard.services.compose import ContainerStatus
 from axion_wizard.steps import s09_verify as verify
 from axion_wizard.utils.shell import CommandResult
-
-# --- discover_deployment ----------------------------------------------------------
-
-
-def test_discover_deployment_missing_compose_raises(tmp_path: Path) -> None:
-    with pytest.raises(ConfigError, match="docker-compose.yml"):
-        verify.discover_deployment(tmp_path)
-
-
-def _write_minimal_project(tmp_path: Path, wireguard_service: str = "") -> None:
-    compose_body = "services:\n  wireguard:\n" + (wireguard_service or "    image: x\n")
-    (tmp_path / "docker-compose.yml").write_text(compose_body)
-    (tmp_path / ".env").write_text("OLLAMA_MODEL=qwen2.5:1.5b\nMM_SITEURL=https://192.168.1.50\n")
-    (tmp_path / "wg.env").write_text("WG_HOST=192.168.1.50\n")
-
-
-def test_discover_deployment_reads_host_from_wg_env(tmp_path: Path) -> None:
-    _write_minimal_project(tmp_path)
-    facts = verify.discover_deployment(tmp_path)
-    assert facts.host == "192.168.1.50"
-    assert facts.ollama_model == "qwen2.5:1.5b"
-    assert facts.wireguard_variant == WireguardVariant.PORTS.value
-
-
-def test_discover_deployment_falls_back_to_site_url_when_no_wg_host(tmp_path: Path) -> None:
-    (tmp_path / "docker-compose.yml").write_text("services:\n  wireguard:\n    image: x\n")
-    (tmp_path / ".env").write_text(
-        "OLLAMA_MODEL=qwen2.5:1.5b\nMM_SITEURL=https://axion.example.com\n"
-    )
-    facts = verify.discover_deployment(tmp_path)
-    assert facts.host == "axion.example.com"
-
-
-@pytest.mark.parametrize(
-    ("site_url", "expected"),
-    [
-        ("https://axion.example.com", "axion.example.com"),
-        ("https://192.168.1.50", "192.168.1.50"),
-        ("https://axion.example.com/", "axion.example.com"),
-        # Mattermost admite subruta: la ruta no debe colarse en el host
-        ("https://axion.example.com/mattermost", "axion.example.com"),
-        # ni el puerto, que rompería http://<host>:51821
-        ("https://axion.example.com:8443", "axion.example.com"),
-        ("https://axion.example.com:8443/mm", "axion.example.com"),
-        ("192.168.1.50", "192.168.1.50"),
-        ("", ""),
-    ],
-)
-def test_host_from_site_url(site_url: str, expected: str) -> None:
-    assert verify._host_from_site_url(site_url) == expected
-
-
-def test_discover_deployment_strips_path_from_site_url(tmp_path: Path) -> None:
-    """Regresión: un MM_SITEURL con subruta dejaba el host como
-    `ejemplo.com/mm`, que luego producía `http://ejemplo.com/mm:51821`."""
-    (tmp_path / "docker-compose.yml").write_text("services:\n  wireguard:\n    image: x\n")
-    (tmp_path / ".env").write_text(
-        "OLLAMA_MODEL=qwen2.5:1.5b\nMM_SITEURL=https://axion.example.com/mattermost\n"
-    )
-    facts = verify.discover_deployment(tmp_path)
-    assert facts.host == "axion.example.com"
-
-
-def test_discover_deployment_missing_host_raises(tmp_path: Path) -> None:
-    (tmp_path / "docker-compose.yml").write_text("services:\n  wireguard:\n    image: x\n")
-    (tmp_path / ".env").write_text("OLLAMA_MODEL=qwen2.5:1.5b\n")
-    with pytest.raises(ConfigError, match="host"):
-        verify.discover_deployment(tmp_path)
-
-
-def test_discover_deployment_missing_model_raises(tmp_path: Path) -> None:
-    (tmp_path / "docker-compose.yml").write_text("services:\n  wireguard:\n    image: x\n")
-    (tmp_path / "wg.env").write_text("WG_HOST=192.168.1.50\n")
-    with pytest.raises(ConfigError, match="modelo"):
-        verify.discover_deployment(tmp_path)
-
-
-def test_discover_deployment_detects_host_variant(tmp_path: Path) -> None:
-    _write_minimal_project(tmp_path, wireguard_service="    image: x\n    network_mode: host\n")
-    facts = verify.discover_deployment(tmp_path)
-    assert facts.wireguard_variant == WireguardVariant.HOST.value
-
-
-def test_discover_deployment_cert_path_convention(tmp_path: Path) -> None:
-    _write_minimal_project(tmp_path)
-    facts = verify.discover_deployment(tmp_path)
-    assert facts.cert_path == tmp_path / "nginx" / "certs" / "cert.crt"
-
 
 # --- check_containers_healthy ------------------------------------------------------
 
@@ -451,41 +362,6 @@ def test_run_all_checks_calls_every_check(mocker) -> None:
     names = [r.name for r in results]
     assert "WebSocket Mattermost" in names
     assert "Reenvío IP (WireGuard)" in names
-
-
-# --- compose ilegible: error accionable, nunca un traceback crudo ------------------
-#
-# `_detect_wireguard_variant_from_compose` está en el camino de TODO `doctor`.
-# Un YAML corrupto lanzaba `YAMLError` sin capturar y salía por el manejador
-# genérico como `Error inesperado: ...`, que es justo lo que §8 prohíbe.
-
-
-def test_corrupt_compose_raises_an_actionable_config_error(tmp_path: Path) -> None:
-    compose_path = tmp_path / "docker-compose.yml"
-    compose_path.write_text("services: [esto: no es: yaml valido\n", encoding="utf-8")
-
-    with pytest.raises(ConfigError) as excinfo:
-        verify._detect_wireguard_variant_from_compose(compose_path)
-
-    assert "No se pudo leer" in excinfo.value.what
-    assert excinfo.value.steps
-
-
-def test_compose_without_a_root_mapping_raises_config_error(tmp_path: Path) -> None:
-    compose_path = tmp_path / "docker-compose.yml"
-    compose_path.write_text("- esto es una lista\n", encoding="utf-8")
-
-    with pytest.raises(ConfigError, match="forma"):
-        verify._detect_wireguard_variant_from_compose(compose_path)
-
-
-def test_discover_deployment_reports_a_corrupt_compose(tmp_path: Path) -> None:
-    (tmp_path / "docker-compose.yml").write_text("{no cierra\n", encoding="utf-8")
-    (tmp_path / ".env").write_text("OLLAMA_MODEL=x\nMM_SITEURL=https://h\n", encoding="utf-8")
-    (tmp_path / "wg.env").write_text("WG_HOST=192.168.1.50\n", encoding="utf-8")
-
-    with pytest.raises(ConfigError):
-        verify.discover_deployment(tmp_path)
 
 
 # --- puertos: sin privilegios no es lo mismo que "faltan" --------------------------

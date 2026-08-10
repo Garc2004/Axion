@@ -98,7 +98,7 @@ class ConfigStep(Step):
             host=host,
             wireguard_variant=self._variant(),
             postgres_password=SecretStr(
-                _existing_postgres_password(self.context.project_dir)
+                existing_postgres_password(self.context.project_dir)
                 or secret_utils.generate_hex_secret()
             ),
             wireguard_admin_password_hash=SecretStr(secret_utils.hash_password(panel_password)),
@@ -281,7 +281,7 @@ def load_config_from_toml(
             postgres_password=SecretStr(
                 str(
                     raw.get("postgres_password")
-                    or _existing_postgres_password(project_dir)
+                    or existing_postgres_password(project_dir)
                     or secret_utils.generate_hex_secret()
                 )
             ),
@@ -297,7 +297,7 @@ def load_config_from_toml(
         ) from exc
 
 
-def _existing_postgres_password(project_dir: Path) -> str | None:
+def existing_postgres_password(project_dir: Path) -> str | None:
     """Contraseña de PostgreSQL ya escrita en un `.env` de una corrida
     anterior de este mismo `project_dir`, si la hay.
 
@@ -311,9 +311,9 @@ def _existing_postgres_password(project_dir: Path) -> str | None:
     fiabilidad si el volumen ya se inicializó antes). Leer lo que ya hay en
     disco, si lo hay, es lo único que garantiza coherencia entre corridas.
     """
-    from dotenv import dotenv_values
+    from axion_wizard.deployment import env_value
 
-    return dotenv_values(project_dir / ".env").get("POSTGRES_PASSWORD") or None
+    return env_value(project_dir, "POSTGRES_PASSWORD")
 
 
 def load_config_from_artifacts(project_dir: Path) -> AxionConfig:
@@ -323,20 +323,18 @@ def load_config_from_artifacts(project_dir: Path) -> AxionConfig:
     propio `docker-compose.yml`, igual que hace `doctor`, para no depender de
     que el paso 1 se haya vuelto a ejecutar en esta sesión.
     """
-    from dotenv import dotenv_values
-
-    from axion_wizard.steps.s09_verify import (
-        _detect_wireguard_variant_from_compose,
-        _host_from_site_url,
+    from axion_wizard.deployment import (
+        detect_wireguard_variant_from_compose,
+        env_value,
+        host_from_site_url,
     )
 
-    env_values = dotenv_values(project_dir / ".env")
-    wg_values = dotenv_values(project_dir / "wg.env")
-
-    host = wg_values.get("WG_HOST") or _host_from_site_url(env_values.get("MM_SITEURL") or "")
-    password = env_values.get("POSTGRES_PASSWORD")
-    password_hash = wg_values.get("PASSWORD_HASH")
-    model = env_values.get("OLLAMA_MODEL")
+    host = env_value(project_dir, "WG_HOST", filename="wg.env") or host_from_site_url(
+        env_value(project_dir, "MM_SITEURL") or ""
+    )
+    password = env_value(project_dir, "POSTGRES_PASSWORD")
+    password_hash = env_value(project_dir, "PASSWORD_HASH", filename="wg.env")
+    model = env_value(project_dir, "OLLAMA_MODEL")
 
     missing = [
         name
@@ -364,7 +362,7 @@ def load_config_from_artifacts(project_dir: Path) -> AxionConfig:
 
     compose_path = project_dir / "docker-compose.yml"
     variant = (
-        _detect_wireguard_variant_from_compose(compose_path)
+        detect_wireguard_variant_from_compose(compose_path)
         if compose_path.exists()
         else WireguardVariant.PORTS.value
     )

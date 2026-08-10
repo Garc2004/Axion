@@ -363,23 +363,23 @@ def test_toml_config_hashes_a_plaintext_password(tmp_path: Path) -> None:
     assert not set(generated) & set("/+=")
 
 
-def test_existing_postgres_password_reads_from_env(tmp_path: Path) -> None:
+def testexisting_postgres_password_reads_from_env(tmp_path: Path) -> None:
     """Unidad directa de la función que comparten el camino interactivo y
     el `--unattended`: ambos deben quedar coherentes con lo que Postgres ya
     tiene inicializado."""
-    from axion_wizard.steps.s03_config import _existing_postgres_password
+    from axion_wizard.steps.s03_config import existing_postgres_password
 
     (tmp_path / ".env").write_text("POSTGRES_PASSWORD=" + "c" * 64 + "\n", encoding="utf-8")
-    assert _existing_postgres_password(tmp_path) == "c" * 64
+    assert existing_postgres_password(tmp_path) == "c" * 64
 
 
-def test_existing_postgres_password_none_without_env(tmp_path: Path) -> None:
-    from axion_wizard.steps.s03_config import _existing_postgres_password
+def testexisting_postgres_password_none_without_env(tmp_path: Path) -> None:
+    from axion_wizard.steps.s03_config import existing_postgres_password
 
-    assert _existing_postgres_password(tmp_path) is None
+    assert existing_postgres_password(tmp_path) is None
 
 
-def test_toml_config_reuses_the_existing_postgres_password(tmp_path: Path) -> None:
+def test_toml_config_reuses_theexisting_postgres_password(tmp_path: Path) -> None:
     """Regresión real, repetida dos veces la misma noche: Postgres solo
     aplica POSTGRES_PASSWORD al inicializar su volumen la primera vez.
     Generar una nueva al azar en cada `install --unattended` dejaba al

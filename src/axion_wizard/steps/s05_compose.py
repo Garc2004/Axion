@@ -165,7 +165,7 @@ def render_compose(config: AxionConfig, gpu_acceleration: str = GPU_ACCELERATION
 #: Claves de `.env` que el usuario rellena *después* del despliegue y que
 #: por tanto hay que arrastrar de la corrida anterior en vez de regenerar.
 #: `POSTGRES_PASSWORD` no está aquí porque viaja por `AxionConfig` (el paso 3
-#: ya lo lee del `.env` existente, ver `s03_config._existing_postgres_password`).
+#: ya lo lee del `.env` existente, ver `s03_config.existing_postgres_password`).
 PRESERVED_ENV_KEYS = (
     "MM_WEBHOOK_TOKEN",
     "MM_BOT_TOKEN",
@@ -190,21 +190,14 @@ DEFAULT_AI_REPLY_IN_THREAD = "true"
 def existing_env_value(project_dir: Path, key: str) -> str | None:
     """Valor de `key` en el `.env` de una corrida anterior, si lo hay.
 
-    Único punto de lectura de valores ya escritos, para que quien regenere
-    el `.env` no tenga que saber cómo se parsea.
-
-    Un archivo ilegible se trata como "no hay valor previo" en vez de
-    reventar: el wizard siempre escribe UTF-8, pero `OLLAMA_SYSTEM_PROMPT`
-    invita a editarlo a mano, y un Notepad guardando en ANSI produce bytes
-    que `dotenv_values` no sabe decodificar. Perder un valor que ya no se
-    puede leer es malo; abortar la instalación entera por ello, peor.
+    Alias de `deployment.env_value`, que es el único punto donde se parsea un
+    `.env`. Se conserva el nombre porque es como lo llaman los pasos y los
+    tests, y porque aquí «existing» dice lo que importa en este módulo: el
+    valor que ya estaba antes de regenerar el archivo.
     """
-    from dotenv import dotenv_values
+    from axion_wizard.deployment import env_value
 
-    try:
-        return dotenv_values(project_dir / ".env").get(key) or None
-    except (OSError, UnicodeDecodeError):
-        return None
+    return env_value(project_dir, key)
 
 
 def preserved_env_values(project_dir: Path) -> dict[str, str]:

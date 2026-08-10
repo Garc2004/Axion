@@ -14,13 +14,9 @@ import asyncio
 import socket
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlsplit
 
 import httpx
-from dotenv import dotenv_values
 from rich.table import Table
-from ruamel.yaml import YAML
-from ruamel.yaml.error import YAMLError
 from tenacity import (
     AsyncRetrying,
     RetryError,
@@ -32,6 +28,7 @@ from tenacity import (
 from axion_wizard import ui
 from axion_wizard.config import WireguardVariant
 from axion_wizard.console import console
+from axion_wizard.deployment import DeploymentFacts, discover_deployment
 from axion_wizard.detect import network as detect_network
 from axion_wizard.errors import ConfigError
 from axion_wizard.services import certs, compose
@@ -60,124 +57,14 @@ class CheckResult:
     detail: str = ""
 
 
-@dataclass
-class DeploymentFacts:
-    project_dir: Path
-    compose_path: Path
-    cert_path: Path
-    host: str
-    ollama_model: str
-    wireguard_variant: str
-
-
-# --- Descubrimiento de la configuración desplegada ----------------------------
-
-
-def _host_from_site_url(site_url: str) -> str:
-    """Extrae solo el host de un `MM_SITEURL`, sin esquema, puerto ni ruta.
-
-    Mattermost admite despliegues en subruta (`https://ejemplo.com/mm`), así
-    que quedarse con "todo lo que hay tras `://`" arrastraría la ruta y el
-    puerto al identificador de host — que luego se concatena para formar,
-    entre otras, la URL del panel WireGuard (`http://<host>:51821`).
-    """
-    site_url = site_url.strip()
-    if not site_url:
-        return ""
-    # `urlsplit` solo reconoce la autoridad si hay esquema; si el valor viene
-    # pelado (`192.168.1.50`) se lo añadimos para poder parsearlo igual.
-    to_parse = site_url if "://" in site_url else f"//{site_url}"
-    try:
-        hostname = urlsplit(to_parse).hostname
-    except ValueError:
-        return site_url.split("://", 1)[-1].split("/", 1)[0].strip()
-    return hostname or ""
-
-
-def _detect_wireguard_variant_from_compose(compose_path: Path) -> str:
-    """Deduce la variante del `network_mode` del servicio wireguard.
-
-    Los errores de lectura/parseo se convierten en `ConfigError`: esta
-    función está en el camino de *todo* `doctor`, y un `docker-compose.yml`
-    corrupto o ilegible salía por el manejador genérico como
-    `Error inesperado: …`, que es justo lo que §8 prohíbe.
-    """
-    yaml = YAML(typ="safe")
-    try:
-        data = yaml.load(compose_path.read_text(encoding="utf-8")) or {}
-    except (YAMLError, OSError, UnicodeDecodeError) as exc:
-        raise ConfigError(
-            what=f"No se pudo leer {compose_path}",
-            why=(
-                "El archivo existe pero no se pudo parsear como YAML, así que no hay "
-                f"forma de saber cómo está desplegado el stack: {exc}"
-            ),
-            steps=[
-                "Revisar la sintaxis del docker-compose.yml.",
-                "Restaurar una copia de seguridad (docker-compose.yml.*.bak) si la hay.",
-                "O regenerarlo con `axion-wizard install`.",
-            ],
-        ) from exc
-
-    if not isinstance(data, dict):
-        raise ConfigError(
-            what=f"{compose_path} no tiene la forma de un docker-compose.yml",
-            why=(
-                f"Se encontró {type(data).__name__} en la raíz donde Compose espera un "
-                "mapping con claves como `services:`."
-            ),
-            steps=["Regenerar el archivo con `axion-wizard install`."],
-        )
-
-    services = data.get("services")
-    wireguard_service = services.get(WIREGUARD_SERVICE) if isinstance(services, dict) else None
-    if isinstance(wireguard_service, dict) and wireguard_service.get("network_mode") == "host":
-        return WireguardVariant.HOST.value
-    return WireguardVariant.PORTS.value
-
-
-def discover_deployment(project_dir: Path) -> DeploymentFacts:
-    """Reconstruye host/modelo/variante leyendo `docker-compose.yml`, `.env`
-    y `wg.env` del `project_dir` — sin esto, `doctor` no puede correr contra
-    un stack sin haber sido invocado primero por el `install` que lo creó."""
-    compose_path = project_dir / "docker-compose.yml"
-    if not compose_path.exists():
-        raise ConfigError(
-            what=f"No se encontró {compose_path}",
-            why="`doctor` necesita un stack ya desplegado por `axion-wizard install`.",
-            steps=[
-                "Ejecutar `axion-wizard install` primero.",
-                "O pasar el directorio correcto con --project-dir.",
-            ],
-        )
-
-    env_values = dotenv_values(project_dir / ".env")
-    wg_env_values = dotenv_values(project_dir / "wg.env")
-
-    host = wg_env_values.get("WG_HOST") or _host_from_site_url(env_values.get("MM_SITEURL") or "")
-    if not host:
-        raise ConfigError(
-            what="No se pudo determinar el host de acceso",
-            why="Ni wg.env (WG_HOST) ni .env (MM_SITEURL) tienen un valor utilizable.",
-            steps=["Verificar que .env y wg.env no estén corruptos o vacíos."],
-        )
-
-    ollama_model = env_values.get("OLLAMA_MODEL")
-    if not ollama_model:
-        raise ConfigError(
-            what="No se pudo determinar el modelo de Ollama configurado",
-            why="`.env` no tiene la variable OLLAMA_MODEL.",
-            steps=["Verificar que .env no esté corrupto o incompleto."],
-        )
-
-    return DeploymentFacts(
-        project_dir=project_dir,
-        compose_path=compose_path,
-        cert_path=project_dir / "nginx" / "certs" / "cert.crt",
-        host=host,
-        ollama_model=ollama_model,
-        wireguard_variant=_detect_wireguard_variant_from_compose(compose_path),
-    )
+# El descubrimiento del despliegue vive en `axion_wizard.deployment`: lo
+# necesitan `doctor`, `wireguard add-client` y el `restore()` del paso 3, y
+# ninguno de los tres es este paso. Se reexporta aquí para no romper a quien
+# ya lo importaba desde el módulo del paso 9.
+__all__ = [
+    "DeploymentFacts",
+    "discover_deployment",
+]
 
 
 # --- Comprobaciones individuales (tabla de §4.9) -------------------------------

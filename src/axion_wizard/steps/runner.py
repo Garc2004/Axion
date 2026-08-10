@@ -176,9 +176,9 @@ def run_doctor(state: GlobalState) -> None:
     """Re-valida un stack ya desplegado sin modificarlo (§4.9). Reconstruye
     host/modelo/variante leyendo los artefactos en `--project-dir`, no
     depende de una corrida previa de `install` en esta misma sesión."""
+    from axion_wizard.deployment import discover_deployment
     from axion_wizard.steps.s09_verify import (
         all_checks_passed,
-        discover_deployment,
         render_checks_table,
         run_all_checks,
     )
@@ -650,8 +650,8 @@ def run_wireguard_add_client(state: GlobalState, name: str) -> None:
     """Crea un cliente en el panel wg-easy y muestra su QR en la terminal (§4.8)."""
     import questionary
 
+    from axion_wizard.deployment import discover_deployment
     from axion_wizard.services import wireguard as wg
-    from axion_wizard.steps.s09_verify import discover_deployment
 
     facts = discover_deployment(state.project_dir)
     panel_url = wg.build_panel_url(facts.host)

@@ -316,7 +316,7 @@ def test_steps_run_quiet_and_unattended_under_the_tui(tmp_path: Path) -> None:
 # corrida. Postgres solo aplica POSTGRES_PASSWORD al inicializar su volumen y
 # la ignora después, así que sobre un proyecto ya desplegado Mattermost dejaba
 # de autenticarse sin ningún error que lo explicara. El camino de la CLI ya lo
-# evitaba (s03_config._existing_postgres_password documenta el incidente).
+# evitaba (s03_config.existing_postgres_password documenta el incidente).
 
 
 async def test_tui_reuses_the_existing_postgres_password(tmp_path: Path, mocker) -> None:
