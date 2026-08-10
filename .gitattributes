@@ -1,0 +1,16 @@
+# Sin esto, `core.autocrlf=true` (habitual en Git para Windows) convierte
+# los saltos de línea a CRLF al hacer checkout. Un script de shell con CRLF
+# tiene un shebang roto (`#!/usr/bin/env bash\r`) y Linux no lo reconoce:
+# "env: bash\r: No such file or directory". Pasó de verdad con
+# build/build.sh al operar el repo desde Windows.
+*.sh text eol=lf
+*.py text eol=lf
+*.j2 text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+Makefile text eol=lf
+LICENSE text eol=lf
+
+*.png binary
+*.exe binary
