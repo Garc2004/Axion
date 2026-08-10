@@ -30,3 +30,9 @@ backups/
 # `axion.toml` del modo desatendido: lleva el hash del panel de WireGuard y,
 # opcionalmente, la contraseña de PostgreSQL.
 axion.toml
+
+# Notas de traspaso locales: llevan el estado de una maquina concreta (IP de
+# la LAN, rutas, hardware, `.wslconfig`) y un registro de trabajo fechado.
+# Nada de eso pertenece a un repositorio publico. Lo que si era duradero
+# vive ahora en docs/troubleshooting.md.
+CONTEXTO.md
