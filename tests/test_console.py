@@ -61,3 +61,43 @@ def test_set_no_color_is_a_one_way_switch() -> None:
         assert console_module.console.no_color is True
     finally:
         console_module.console.no_color = original
+
+
+# --- render_to_ansi: el tema se resuelve donde está definido -------------------------
+
+
+def test_render_to_ansi_resolves_the_axion_theme() -> None:
+    """Un renderable con estilos `axion.*` se pinta sin reventar.
+
+    Textual dibuja su `RichLog` con una `Console` propia que no conoce el
+    tema: pasarle un `Panel` con `axion.label` directamente lanzaba
+    `MissingStyle`. No se veía mal — se caía la TUI entera al terminar la
+    instalación, justo en el panel de cierre.
+    """
+    from rich.panel import Panel
+    from rich.text import Text
+
+    from axion_wizard.render.console import render_to_ansi
+
+    body = Text("dentro", style="axion.label")
+    output = render_to_ansi(Panel(body, border_style="axion.border"), width=40)
+
+    assert "dentro" in output
+    # `styles=True` conserva los códigos ANSI: si el tema no se hubiera
+    # resuelto, saldría texto pelado.
+    assert "\x1b[" in output
+
+
+def test_render_to_ansi_respects_the_requested_width() -> None:
+    from rich.panel import Panel
+
+    from axion_wizard.render.console import render_to_ansi
+
+    narrow = render_to_ansi(Panel("x"), width=30)
+    assert max(len(line) for line in _strip_ansi(narrow).splitlines()) <= 30
+
+
+def _strip_ansi(text: str) -> str:
+    import re
+
+    return re.sub(r"\x1b\[[0-9;]*m", "", text)

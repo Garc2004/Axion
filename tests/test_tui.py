@@ -8,10 +8,12 @@ cubrir esto en CI.
 from pathlib import Path
 
 import pytest
+from pydantic import SecretStr
 
 from axion_wizard.cli import GlobalState
 from axion_wizard.domain.config import WireguardVariant
 from axion_wizard.errors import ConfigError
+from axion_wizard.steps import orchestrator
 
 pytestmark = pytest.mark.anyio
 
@@ -422,3 +424,46 @@ def test_tui_does_not_persist_anything_on_dry_run(tmp_path: Path) -> None:
     app._mark_resolved_steps_complete(GlobalState(project_dir=tmp_path, dry_run=True))
 
     assert not state_store.state_path(tmp_path).exists()
+
+
+# --- panel de cierre: uno solo, compartido con la CLI --------------------------------
+
+
+async def test_tui_closing_summary_comes_from_the_shared_renderer(
+    tmp_path: Path, mocker
+) -> None:
+    """El panel de cierre de la TUI es el mismo objeto que imprime la CLI.
+
+    Estuvo duplicado a mano: tres líneas reescritas con markup propio, sin
+    los avisos acumulados y solo cuando todo había ido bien. Una copia que
+    se queda atrás en silencio es peor que no tenerla, porque parece que
+    ambas interfaces dicen lo mismo. Se afirma la delegación, no el texto,
+    para que este test siga valiendo cuando el panel cambie de contenido.
+    """
+    from axion_wizard.domain.config import AccessMode, AxionConfig, WireguardVariant
+    from axion_wizard.tui.app import ProgressScreen
+
+    app = _app(tmp_path, mocker)
+    app._install_context.config = AxionConfig(
+        access_mode=AccessMode.LAN,
+        host="192.168.1.50",
+        wireguard_variant=WireguardVariant.PORTS,
+        postgres_password=SecretStr("a" * 64),
+        wireguard_admin_password_hash=SecretStr("$2b$12$" + "b" * 53),
+        ollama_model="qwen2.5:3b",
+        project_dir=tmp_path,
+    )
+    app._install_context.warn("algo quedó a medias")
+
+    render = mocker.patch(
+        "axion_wizard.steps.orchestrator.render_closing_summary",
+        wraps=orchestrator.render_closing_summary,
+    )
+
+    async with app.run_test(size=TERMINAL_SIZE) as pilot:
+        await app.push_screen(ProgressScreen(["uno"]))
+        await pilot.pause()
+        app._finish(all_ok=True)
+        await pilot.pause()
+
+    render.assert_called_once_with(app._install_context, True)

@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import ctypes
+import io
 import sys
 
-from rich.console import Console
+from rich.console import Console, RenderableType
 from rich.theme import Theme
 
 #: Codepage UTF-8 de Windows, para `SetConsoleOutputCP`.
@@ -82,3 +83,26 @@ def set_no_color(no_color: bool) -> None:
     if no_color:
         console.no_color = True
         error_console.no_color = True
+
+
+def render_to_ansi(renderable: RenderableType, width: int = 100) -> str:
+    """Pinta un renderable con el tema AXION y devuelve el texto con ANSI.
+
+    Existe por la TUI. Textual dibuja su `RichLog` con una `Console` propia,
+    que no conoce el tema `axion.*`: escribir ahí un `Panel` que use
+    `axion.label` revienta con `MissingStyle` — no se ve mal, se cae.
+
+    Resolviendo el tema aquí, donde está definido, la TUI solo tiene que
+    reproducir los colores ya resueltos. Es lo que permite que las dos
+    interfaces compartan un mismo renderizador (`render_closing_summary`)
+    en vez de reescribir su contenido a mano en cada una.
+    """
+    buffer = Console(
+        theme=AXION_THEME,
+        width=width,
+        file=io.StringIO(),
+        record=True,
+        force_terminal=True,
+    )
+    buffer.print(renderable)
+    return buffer.export_text(styles=True)

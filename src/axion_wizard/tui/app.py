@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from pydantic import SecretStr
+from rich.console import RenderableType
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -299,6 +300,25 @@ class ProgressScreen(Screen):
     def log_line(self, text: str) -> None:
         self.query_one("#log", RichLog).write(text)
 
+    def log_renderable(self, renderable: RenderableType) -> None:
+        """Vuelca un renderable de Rich (un `Panel`, una `Table`) en el log.
+
+        Se pinta antes con la consola del wizard en vez de pasárselo tal cual
+        al `RichLog`: Textual lo dibujaría con una `Console` propia, que no
+        conoce el tema `axion.*` y revienta con `MissingStyle` en cuanto el
+        renderable use `axion.label` (ver `render.console.render_to_ansi`).
+
+        Compartir el renderizador es lo que evita que el panel de cierre de
+        la TUI se vuelva una copia a mano del de la CLI, como ya lo fue.
+        """
+        from rich.text import Text
+
+        from axion_wizard.render.console import render_to_ansi
+
+        log = self.query_one("#log", RichLog)
+        width = max(log.size.width - 2, 40)
+        log.write(Text.from_ansi(render_to_ansi(renderable, width=width)))
+
 
 class AxionInstallerApp(App):
     """App raíz: formulario → progreso, con los pasos en un worker.
@@ -501,26 +521,21 @@ class AxionInstallerApp(App):
         if not isinstance(screen, ProgressScreen):
             return
 
+        from axion_wizard.steps import orchestrator
+
         screen.sub_title = "Completado" if all_ok else "Terminado con errores"
-        config = self._install_context.config
-        if config is not None:
-            # Mismo contenido que el panel de cierre de la CLI
-            # (`orchestrator.render_closing_summary`): dónde entrar y qué
-            # quedó pendiente. Estaba duplicado a mano aquí, y solo se
-            # mostraba cuando todo había ido bien — justo al revés de cuando
-            # más falta hace saber por dónde entrar a lo que sí funciona.
+
+        # El mismo panel de cierre que imprime la CLI, no una copia a mano:
+        # dónde entrar, con qué modelo y qué avisos quedaron. Estuvo
+        # duplicado aquí, y la copia se fue quedando atrás — mostraba solo
+        # tres líneas, sin los avisos acumulados, y únicamente cuando todo
+        # había ido bien, que es justo al revés de cuando más falta hace
+        # saber por dónde entrar a lo que sí funciona.
+        panel = orchestrator.render_closing_summary(self._install_context, all_ok)
+        if panel is not None:
             screen.log_line("")
-            screen.log_line(f"[bold green]Mattermost:[/] https://{config.host}")
-            screen.log_line(
-                f"[bold green]Panel WireGuard:[/] http://{config.host}:51821 "
-                "[dim](http, no https)[/]"
-            )
-            screen.log_line(f"[bold green]Modelo de IA:[/] {config.ollama_model}")
-        for warning in self._install_context.warnings:
-            screen.log_line(f"[yellow]Aviso:[/] {warning}")
-        screen.log_line(
-            "\n[dim]Re-validar en cualquier momento con: axion-wizard doctor[/]"
-        )
+            screen.log_renderable(panel)
+
         screen.log_line("[dim]Pulsa `q` para salir.[/]")
 
 
