@@ -464,12 +464,12 @@ def test_render_nginx_conf_has_no_static_upstream_block() -> None:
 
 
 def test_validate_compose_yaml_shape_rejects_missing_services() -> None:
-    with pytest.raises(ConfigError, match="forma esperada"):
+    with pytest.raises(ConfigError, match="not shaped as expected"):
         s05.validate_compose_yaml_shape("not_services: {}\n")
 
 
 def test_validate_compose_yaml_shape_rejects_missing_managed_service() -> None:
-    with pytest.raises(ConfigError, match="Faltan servicios"):
+    with pytest.raises(ConfigError, match="Managed services missing"):
         s05.validate_compose_yaml_shape("services:\n  postgres: {}\n")
 
 
@@ -621,13 +621,13 @@ def test_merge_compose_rejects_non_mapping_root_with_actionable_error() -> None:
     """Regresión: un compose cuya raíz no es un mapping hacía reventar el
     merge con un `TypeError` crudo en vez de un error accionable."""
     rendered = s05.render_compose(make_config())
-    with pytest.raises(ConfigError, match="mapping en la raíz"):
+    with pytest.raises(ConfigError, match="no mapping at its root"):
         s05.merge_compose_preserving_user_edits("- just\n- a\n- list\n", rendered)
 
 
 def test_merge_compose_rejects_invalid_yaml_with_actionable_error() -> None:
     rendered = s05.render_compose(make_config())
-    with pytest.raises(ConfigError, match="no es YAML válido"):
+    with pytest.raises(ConfigError, match="not valid YAML"):
         s05.merge_compose_preserving_user_edits("services: [unclosed\n", rendered)
 
 

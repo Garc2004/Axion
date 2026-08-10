@@ -85,7 +85,7 @@ async def test_form_reports_mismatched_passwords(tmp_path: Path, mocker) -> None
         await pilot.click("#start")
         await pilot.pause()
 
-        assert "no coinciden" in screen.last_error
+        assert "do not match" in screen.last_error
 
 
 async def test_form_rejects_a_forbidden_character(tmp_path: Path, mocker) -> None:
@@ -198,7 +198,7 @@ async def test_form_is_grouped_into_titled_sections(tmp_path: Path, mocker) -> N
         rendered = [
             str(s.content) for s in app.screen.query(Static) if "section-title" in s.classes
         ]
-        assert rendered == ["1 · Acceso", "2 · Seguridad", "3 · Modelo"]
+        assert rendered == ["1 · Access", "2 · Security", "3 · Model"]
 
 
 async def test_error_banner_is_hidden_until_there_is_an_error(tmp_path: Path, mocker) -> None:

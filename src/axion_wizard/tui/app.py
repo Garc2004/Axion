@@ -1,16 +1,16 @@
-"""App Textual del instalador (`axion-wizard install --tui`).
+"""The installer's Textual app (`axion-wizard install --tui`).
 
-Dos pantallas y un hilo:
+Two screens and one thread:
 
-1. **Formulario.** Recoge lo mismo que el paso 3 interactivo, con la misma
-   validación en vivo (`utils.secrets`), y construye el `AxionConfig`.
-2. **Progreso.** Lista los diez pasos con su estado y vuelca el log a un
-   panel desplazable.
+1. **Form.** Collects the same things the interactive step 3 does, with the
+   same live validation (`utils.secrets`), and builds the `AxionConfig`.
+2. **Progress.** Lists the ten steps with their status and dumps the log into
+   a scrollable panel.
 
-Los pasos corren en un worker en hilo aparte, no en el bucle de eventos: son
-llamadas bloqueantes (subprocess, HTTP síncrono, `asyncio.run` interno) y
-ejecutarlas en el hilo de la UI la dejaría congelada durante minutos, justo
-mientras más información necesita mostrar.
+The steps run in a worker on a separate thread, not on the event loop: they
+are blocking calls (subprocess, synchronous HTTP, an internal `asyncio.run`)
+and running them on the UI thread would freeze it for minutes — precisely
+when it has the most to show.
 """
 
 from __future__ import annotations
@@ -44,20 +44,20 @@ from axion_wizard.utils import secrets as secret_utils
 if TYPE_CHECKING:
     from axion_wizard.cli import GlobalState
 
-#: Tema base de Textual: una paleta ya diseñada (azules/cian fríos,
-#: contraste cuidado) en vez de inventar colores hex a mano. El resto de la
-#: CSS de esta app se apoya en sus variables (`$primary`, `$success`,
-#: `$warning`, `$error`, `$surface`…) para heredar esa cohesión sin
-#: reimplementarla.
+#: Textual's base theme: a palette that has already been designed (cool
+#: blues/cyans, careful contrast) rather than inventing hex colours by hand.
+#: The rest of this app's CSS leans on its variables (`$primary`, `$success`,
+#: `$warning`, `$error`, `$surface`…) to inherit that cohesion without
+#: reimplementing it.
 APP_THEME = "nord"
 
-#: Estados de un paso, con su marca. Se mantienen aparte del widget para que
-#: la pantalla de progreso no tenga que conocer detalles de presentación.
-#: Los glifos vienen de `axion_wizard.render.ui` — los mismos que usan las tablas
-#: de la CLI (`doctor`, `network-check`…) — para que un ✓ signifique lo
-#: mismo aquí que allá. El color sí es propio: el markup de Textual no
-#: resuelve variables de tema (`$success`) dentro de texto enriquecido,
-#: solo en CSS, así que aquí se usan nombres de color Rich literales.
+#: A step's states, with their marks. Kept apart from the widget so the
+#: progress screen does not have to know presentation details. The glyphs come
+#: from `axion_wizard.render.ui` — the same ones the CLI's tables use
+#: (`doctor`, `network-check`…) — so that a ✓ means the same thing here as
+#: there. The colour is this module's own: Textual's markup does not resolve
+#: theme variables (`$success`) inside rich text, only in CSS, so literal Rich
+#: colour names are used here.
 PENDING, RUNNING, DONE, FAILED, SKIPPED = "pending", "running", "done", "failed", "skipped"
 
 _STATUS_MARKS = {
@@ -70,7 +70,7 @@ _STATUS_MARKS = {
 
 
 class StepLine(Static):
-    """Una línea de la lista de pasos, con su marca de estado."""
+    """One line of the step list, with its status mark."""
 
     def __init__(self, index: int, total: int, title: str) -> None:
         super().__init__()
@@ -90,11 +90,11 @@ class StepLine(Static):
 
     @property
     def text(self) -> str:
-        """El texto con marcado, tal como se pinta.
+        """The marked-up text, exactly as it is drawn.
 
-        Existe para que los tests puedan comprobar qué muestra la línea sin
-        depender de cómo Textual guarde el contenido de un `Static`, que ha
-        cambiado entre versiones.
+        It exists so the tests can check what the line shows without depending
+        on how Textual stores a `Static`'s content, which has changed between
+        versions.
         """
         mark, style = _STATUS_MARKS[self._status]
         detail = f"  [dim]{self._detail}[/]" if self._detail else ""
@@ -105,15 +105,15 @@ class StepLine(Static):
 
 
 class ConfigScreen(Screen):
-    """Paso 3 en formulario: mismo contenido, misma validación."""
+    """Step 3 as a form: same content, same validation."""
 
-    BINDINGS = [("escape", "app.quit", "Cancelar")]
+    BINDINGS = [("escape", "app.quit", "Cancel")]
 
     def __init__(self, state: GlobalState) -> None:
         super().__init__()
         self._state = state
-        #: Último error de validación mostrado. Es lo que comprueban los
-        #: tests: el mensaje es comportamiento, cómo lo pinte el `Static` no.
+        #: The last validation error shown. It is what the tests check: the
+        #: message is behaviour; how the `Static` paints it is not.
         self.last_error = ""
 
     def compose(self) -> ComposeResult:
@@ -121,76 +121,76 @@ class ConfigScreen(Screen):
         with VerticalScroll(id="form"):
             yield Static(self._environment_line(), id="environment-summary")
 
-            yield Static("1 · Acceso", classes="section-title")
+            yield Static("1 · Access", classes="section-title")
             with Vertical(classes="section"):
-                yield Label("Modo de acceso")
+                yield Label("Access mode")
                 yield Select(
                     [
-                        ("IP de la LAN (certificado autofirmado)", AccessMode.LAN.value),
-                        ("Dominio propio (Let's Encrypt DNS-01)", AccessMode.DOMAIN.value),
+                        ("LAN IP (self-signed certificate)", AccessMode.LAN.value),
+                        ("Own domain (Let's Encrypt DNS-01)", AccessMode.DOMAIN.value),
                     ],
                     value=AccessMode.LAN.value,
                     id="access_mode",
                     allow_blank=False,
                 )
-                yield Label("IP o dominio de acceso")
+                yield Label("Access IP or domain")
                 yield Input(placeholder="192.168.1.50", id="host")
 
-            yield Static("2 · Seguridad", classes="section-title")
+            yield Static("2 · Security", classes="section-title")
             with Vertical(classes="section"):
-                yield Label("Usuario del panel WireGuard")
+                yield Label("WireGuard panel username")
                 yield Input(value=DEFAULT_PANEL_USERNAME, id="panel_username")
-                yield Label("Contraseña del panel WireGuard")
+                yield Label("WireGuard panel password")
                 yield Static(
-                    f"Mínimo {secret_utils.MIN_PANEL_PASSWORD_LENGTH} caracteres "
-                    "(lo que wg-easy exige para dejar entrar), y sin "
+                    f"At least {secret_utils.MIN_PANEL_PASSWORD_LENGTH} characters "
+                    "(what wg-easy requires in order to let you in), and no "
                     + ", ".join(f"`{c}`" for c in secret_utils.FORBIDDEN_PASSWORD_CHAR_REASONS)
-                    + ": rompen el shell y los archivos .env.",
+                    + ": they break the shell and .env files.",
                     classes="hint",
                 )
                 yield Input(password=True, id="panel_password")
-                yield Label("Repite la contraseña")
+                yield Label("Repeat the password")
                 yield Input(password=True, id="panel_password_repeat")
 
-            yield Static("3 · Modelo", classes="section-title")
+            yield Static("3 · Model", classes="section-title")
             with Vertical(classes="section"):
-                yield Label("Modelo de IA (nombre en Ollama)")
+                yield Label("AI model (name in Ollama)")
                 yield Input(placeholder="qwen2.5:1.5b", id="model")
 
             yield Static("", id="error", classes="error")
             with Horizontal(id="actions"):
-                # Arranca deshabilitado: la variante de WireGuard la decide el
-                # paso 1, que corre en un worker en hilo, y `on_mount` muestra
-                # este formulario sin esperarlo. Quien rellenara y pulsara
-                # antes de que terminara la detección se llevaba el valor por
-                # defecto (`ports`) — en Linux nativo, la variante equivocada
-                # y un compose que no corresponde a la plataforma.
-                yield Button("Instalar", variant="primary", id="start", disabled=True)
-                yield Button("Cancelar", variant="error", id="cancel")
+                # Starts disabled: the WireGuard variant is decided by step 1,
+                # which runs in a threaded worker, and `on_mount` shows this
+                # form without waiting for it. Anyone who filled it in and
+                # pressed before detection finished got the default (`ports`)
+                # — on native Linux, the wrong variant and a compose file that
+                # does not match the platform.
+                yield Button("Install", variant="primary", id="start", disabled=True)
+                yield Button("Cancel", variant="error", id="cancel")
         yield Footer()
 
     def on_mount(self) -> None:
         self.title = "AXION Wizard"
-        self.sub_title = f"Configuración — {self._state.project_dir}"
+        self.sub_title = f"Configuration — {self._state.project_dir}"
         self.query_one("#host", Input).focus()
-        # La detección puede haber terminado ya (entorno cacheado, worker
-        # rápido) antes de que esta pantalla se montara.
+        # Detection may already have finished (cached environment, a fast
+        # worker) before this screen was mounted.
         if getattr(self.app, "environment_ready", False):
             self.mark_environment_ready()
 
     def mark_environment_ready(self) -> None:
-        """Habilita el envío una vez el paso 1 ha decidido la variante."""
+        """Enable submission once step 1 has decided the variant."""
         self.query_one("#start", Button).disabled = False
         self.query_one("#environment-summary", Static).update(self._environment_line())
 
     def _environment_line(self) -> str:
-        """Eco de lo que decidió el paso 1, para no dejar al usuario a
-        ciegas sobre qué detectó el wizard antes de mostrar el formulario
-        — la CLI lo muestra en una tabla completa; aquí, en una línea.
+        """An echo of what step 1 decided, so the user is not left blind about
+        what the wizard detected before the form appeared — the CLI shows it in
+        a full table; here, in one line.
 
-        Tres estados, y el primero es el que faltaba: mientras la detección
-        corre no se puede afirmar nada, y enseñar el valor por defecto como
-        si fuera un hallazgo es peor que decir que se está mirando.
+        Three states, and the first is the one that was missing: while
+        detection is running nothing can be asserted, and showing the default
+        as though it were a finding is worse than saying we are still looking.
         """
         context = getattr(self.app, "_install_context", None)
         facts = context.environment if context is not None else None
@@ -228,14 +228,14 @@ class ConfigScreen(Screen):
         model = self.query_one("#model", Input).value.strip()
 
         if not host:
-            raise ValueError("El host no puede estar vacío.")
+            raise ValueError("The host cannot be empty.")
         if not model:
-            raise ValueError("Indica el modelo de Ollama a usar.")
+            raise ValueError("Give the Ollama model to use.")
         if password != repeated:
-            raise ValueError("Las contraseñas no coinciden.")
-        # Las mismas reglas que el prompt de la CLI, y por el mismo motivo:
-        # `INIT_PASSWORD` no valida longitud, así que una contraseña corta
-        # crea la cuenta del panel igual y solo falla después, al entrar.
+            raise ValueError("The passwords do not match.")
+        # The same rules as the CLI's prompt, and for the same reason:
+        # `INIT_PASSWORD` does not validate length, so a short password
+        # creates the panel account anyway and only fails later, on login.
         try:
             secret_utils.validate_wireguard_username(username)
             secret_utils.validate_wireguard_password(password)
@@ -253,14 +253,15 @@ class ConfigScreen(Screen):
                 access_mode=access_mode,
                 host=host,
                 wireguard_variant=WireguardVariant(variant),
-                # Se reutiliza la contraseña ya escrita en `.env`, si la hay, en
-                # vez de generar una nueva. Postgres solo aplica
-                # `POSTGRES_PASSWORD` al inicializar su volumen y la ignora en
-                # todo arranque posterior: una contraseña nueva sobre un volumen
-                # ya inicializado deja a Mattermost sin poder autenticarse, sin
-                # ningún error que lo explique. El camino de la CLI ya lo evitaba
-                # (ver `s03_config.existing_postgres_password`, que documenta el
-                # incidente); este no, y reintroducía el mismo fallo.
+                # The password already written into `.env` is reused, if there
+                # is one, rather than generating a new one. Postgres only
+                # applies `POSTGRES_PASSWORD` when initialising its volume and
+                # ignores it on every later start: a new password over an
+                # already-initialised volume leaves Mattermost unable to
+                # authenticate, with no error to explain it. The CLI path
+                # already avoided this (see
+                # `s03_config.existing_postgres_password`, which documents the
+                # incident); this one did not, and reintroduced the same bug.
                 postgres_password=SecretStr(
                     existing_postgres_password(self._state.project_dir)
                     or secret_utils.generate_hex_secret()
@@ -275,7 +276,7 @@ class ConfigScreen(Screen):
 
 
 class ProgressScreen(Screen):
-    """Los diez pasos con su estado, y el log debajo."""
+    """The ten steps with their status, and the log below."""
 
     BINDINGS = [("q", "app.quit", "Salir")]
 
@@ -313,13 +314,14 @@ class ProgressScreen(Screen):
     def log_renderable(self, renderable: RenderableType) -> None:
         """Vuelca un renderable de Rich (un `Panel`, una `Table`) en el log.
 
-        Se pinta antes con la consola del wizard en vez de pasárselo tal cual
-        al `RichLog`: Textual lo dibujaría con una `Console` propia, que no
-        conoce el tema `axion.*` y revienta con `MissingStyle` en cuanto el
-        renderable use `axion.label` (ver `render.console.render_to_ansi`).
+        It is painted with the wizard's console first rather than handed
+        straight to the `RichLog`: Textual would draw it with a `Console` of
+        its own, which does not know the `axion.*` theme and blows up with
+        `MissingStyle` as soon as the renderable uses `axion.label` (see
+        `render.console.render_to_ansi`).
 
-        Compartir el renderizador es lo que evita que el panel de cierre de
-        la TUI se vuelva una copia a mano del de la CLI, como ya lo fue.
+        Sharing the renderer is what stops the TUI's closing panel from
+        becoming a hand-made copy of the CLI's, as it once was.
         """
         from rich.text import Text
 
@@ -331,13 +333,13 @@ class ProgressScreen(Screen):
 
 
 class AxionInstallerApp(App):
-    """App raíz: formulario → progreso, con los pasos en un worker.
+    """The root app: form → progress, with the steps in a worker.
 
-    El aspecto se apoya en el tema `nord` de Textual (ver `APP_THEME`) más
-    esta CSS, que solo añade estructura: agrupar el formulario en secciones
-    con título de borde, dar peso visual a la sección activa
-    (`:focus-within`), y tratar el error de validación como una alerta real
-    —bordeada, con fondo— en vez de una línea de texto rojo suelta.
+    Its look leans on Textual's `nord` theme (see `APP_THEME`) plus this CSS,
+    which only adds structure: grouping the form into sections with border
+    titles, giving visual weight to the active section (`:focus-within`), and
+    treating a validation error as a real alert — bordered, with a background
+    — rather than a loose line of red text.
     """
 
     CSS = """
@@ -350,11 +352,10 @@ class AxionInstallerApp(App):
         margin-bottom: 1;
     }
 
-    /* Encabezados de sección deliberadamente ligeros: una etiqueta con
-    reborde inferior, no una caja completa. Un borde por sección (3 en este
-    formulario) cuesta 2 filas de chrome cada uno más el padding — en una
-    terminal de 24-30 filas eso empuja los botones fuera de la vista sin
-    aportar mucho más que un texto en color ya no aporte. */
+    /* Deliberately light section headings: a label with a bottom rule, not a
+    full box. One border per section (3 in this form) costs 2 rows of chrome
+    each plus padding — in a 24-30 row terminal that pushes the buttons out of
+    view without adding much that coloured text does not already give. */
     .section-title {
         text-style: bold;
         color: $primary;
@@ -423,18 +424,18 @@ class AxionInstallerApp(App):
         self._state = state
         self.succeeded = False
         self.detected_variant = WireguardVariant.PORTS.value
-        #: `True` en cuanto el paso 1 ha decidido la variante. Hasta entonces
-        #: el formulario no deja enviar: ver el botón `#start` de `ConfigScreen`.
+        #: `True` as soon as step 1 has decided the variant. Until then the
+        #: form will not submit: see `ConfigScreen`'s `#start` button.
         self.environment_ready = False
         self._install_context = InstallContext(project_dir=state.project_dir)
         self._install_steps: list = []
         self.theme = APP_THEME
 
     def on_mount(self) -> None:
-        # El paso 1 no pregunta nada y decide la variante que el formulario
-        # necesita, así que se lanza antes de mostrarlo. El formulario aparece
-        # de inmediato (esperar en negro se ve como un cuelgue) pero con el
-        # envío bloqueado hasta que la detección termina.
+        # Step 1 asks nothing and decides the variant the form needs, so it is
+        # launched before showing it. The form appears immediately (waiting on
+        # a black screen looks like a hang) but with submission blocked until
+        # detection finishes.
         self._detect_environment()
         self.push_screen(ConfigScreen(self._state))
 
@@ -463,12 +464,12 @@ class AxionInstallerApp(App):
         self.exit(message=f"{exc.title}: {exc.what}\n\n{exc.why}")
 
     def begin_install(self, config: AxionConfig) -> None:
-        """Arranca los pasos 2-9 con la configuración ya resuelta."""
+        """Start steps 2-9 with the configuration already resolved."""
         from axion_wizard.steps import orchestrator
 
         self._install_context.config = config
-        # Desatendido a propósito: Textual tiene la terminal, así que ningún
-        # paso puede abrir un prompt de questionary por debajo.
+        # Unattended on purpose: Textual owns the terminal, so no step may
+        # open a questionary prompt underneath it.
         install_state = _quiet_copy(self._state, unattended=True)
         self._install_steps = orchestrator.build_steps(install_state, self._install_context)
 
@@ -477,14 +478,14 @@ class AxionInstallerApp(App):
         self._run_steps(install_state)
 
     def _mark_resolved_steps_complete(self, install_state: GlobalState) -> None:
-        """Da por hechos los pasos que la TUI ya resolvió por su cuenta.
+        """Take as done the steps the TUI has already resolved on its own.
 
-        El entorno se detectó al arrancar y la configuración la puso el
-        formulario, así que no hay que volver a ejecutarlos. Se marcan en el
-        *estado persistido* en vez de saltárselos con un `if` dentro del
-        bucle —que es lo que se hacía— para que el mecanismo de reanudación
-        los vea igual que a cualquier otro paso: al reanudar, `run_steps`
-        llama a su `restore()` y repuebla el contexto desde el disco.
+        The environment was detected at startup and the configuration came
+        from the form, so there is no need to run them again. They are marked
+        in the *persisted state* rather than skipped with an `if` inside the
+        loop — which is what used to happen — so the resume mechanism sees them
+        exactly like any other step: on resume, `run_steps` calls their
+        `restore()` and repopulates the context from disk.
         """
         from axion_wizard.utils import state as state_store
 
@@ -492,20 +493,21 @@ class AxionInstallerApp(App):
             return
         wizard_state = state_store.load_state(self._install_context.project_dir)
         for name, message in (
-            ("environment", "resuelto por la TUI antes del formulario"),
-            ("config", "resuelto en el formulario de la TUI"),
+            ("environment", "resolved by the TUI before the form"),
+            ("config", "filled in on the TUI form"),
         ):
             wizard_state.mark_complete(name, message)
         state_store.save_state(self._install_context.project_dir, wizard_state)
 
     @work(thread=True)
     def _run_steps(self, install_state: GlobalState) -> None:
-        """Ejecuta los pasos por el mismo camino que la CLI.
+        """Run the steps down the same path as the CLI.
 
-        Este worker tenía su propio bucle, copiado de `orchestrator.run_steps`
-        pero sin la persistencia del progreso: una instalación `--tui`
-        interrumpida no se reanudaba, pese a que el README lo promete para
-        `install`. Ahora delega en el orquestador y solo aporta el reporter.
+        This worker used to have its own loop, copied from
+        `orchestrator.run_steps` but without progress persistence: an
+        interrupted `--tui` install did not resume, even though the README
+        promises it does for `install`. It now delegates to the orchestrator
+        and supplies only the reporter.
         """
         from axion_wizard.steps import orchestrator
 
@@ -533,41 +535,41 @@ class AxionInstallerApp(App):
 
         from axion_wizard.steps import orchestrator
 
-        screen.sub_title = "Completado" if all_ok else "Terminado con errores"
+        screen.sub_title = "Complete" if all_ok else "Finished with errors"
 
-        # El mismo panel de cierre que imprime la CLI, no una copia a mano:
-        # dónde entrar, con qué modelo y qué avisos quedaron. Estuvo
-        # duplicado aquí, y la copia se fue quedando atrás — mostraba solo
-        # tres líneas, sin los avisos acumulados, y únicamente cuando todo
-        # había ido bien, que es justo al revés de cuando más falta hace
-        # saber por dónde entrar a lo que sí funciona.
+        # The same closing panel the CLI prints, not a hand-made copy: where
+        # to log in, with which model, and what warnings were left. It was
+        # duplicated here, and the copy fell behind — it showed only three
+        # lines, without the accumulated warnings, and only when everything had
+        # gone well, which is precisely the opposite of when it is most needed
+        # to know how to reach the parts that do work.
         panel = orchestrator.render_closing_summary(self._install_context, all_ok)
         if panel is not None:
             screen.log_line("")
             screen.log_renderable(panel)
 
-        screen.log_line("[dim]Pulsa `q` para salir.[/]")
+        screen.log_line("[dim]Press `q` to quit.[/]")
 
 
 class _TuiStepReporter:
-    """Traduce los eventos de `orchestrator.run_steps` a la pantalla Textual.
+    """Translate `orchestrator.run_steps` events onto the Textual screen.
 
-    Todo pasa por `call_from_thread` porque el orquestador corre en un worker
-    en hilo aparte: tocar widgets desde ahí directamente es una condición de
-    carrera con el bucle de eventos.
+    Everything goes through `call_from_thread` because the orchestrator runs
+    in a worker on a separate thread: touching widgets from there directly is
+    a race with the event loop.
 
-    Los índices del orquestador son 1-based (son para enseñar, `[3/9]`) y los
-    de `ProgressScreen` 0-based (son posiciones de lista); la conversión vive
-    aquí y en un solo sitio.
+    The orchestrator's indices are 1-based (they are for display, `[3/9]`) and
+    `ProgressScreen`'s are 0-based (they are list positions); the conversion
+    lives here and in exactly one place.
     """
 
     def __init__(self, app: AxionInstallerApp, screen: ProgressScreen) -> None:
         self._app = app
         self._screen = screen
-        #: Último paso arrancado. Cuando un paso lanza `AxionError`, el
-        #: orquestador re-lanza sin llegar a `on_step_finished`, así que sin
-        #: recordarlo su línea se quedaría girando en "ejecutando" para
-        #: siempre — con el error impreso justo debajo.
+        #: The last step started. When a step raises `AxionError`, the
+        #: orchestrator re-raises without reaching `on_step_finished`, so
+        #: without remembering it that line would spin on "running" forever —
+        #: with the error printed right below it.
         self._current_index: int | None = None
 
     def _set(self, index: int, status: str, detail: str = "") -> None:
@@ -602,7 +604,7 @@ class _TuiStepReporter:
         self._log(f"[yellow]{message}[/]")
 
     def report_error(self, exc: AxionError) -> None:
-        """El panel de error de la CLI, desarmado en líneas para el log."""
+        """The CLI's error panel, taken apart into lines for the log."""
         if self._current_index is not None:
             self._set(self._current_index, FAILED, exc.what)
             self._current_index = None
@@ -612,11 +614,11 @@ class _TuiStepReporter:
 
 
 def _quiet_copy(state: GlobalState, **overrides: object) -> GlobalState:
-    """Copia de `GlobalState` con la salida a consola silenciada.
+    """A copy of `GlobalState` with console output silenced.
 
-    Los pasos imprimen con Rich sobre stdout, y Textual es dueño de la
-    pantalla: sin silenciarlos, sus tablas y paneles se cuelan por encima de
-    la interfaz y la dejan ilegible.
+    The steps print with Rich onto stdout, and Textual owns the screen:
+    without silencing them, their tables and panels bleed over the interface
+    and leave it unreadable.
     """
     from dataclasses import replace
 
