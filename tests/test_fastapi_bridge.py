@@ -46,6 +46,7 @@ def _load_bridge(monkeypatch, **env: str):
         "MM_WEBHOOK_TOKEN",
         "MM_BOT_TOKEN",
         "MM_URL",
+        "AI_REPLY_IN_THREAD",
     ):
         monkeypatch.delenv(key, raising=False)
     for key, value in env.items():
@@ -146,7 +147,9 @@ def test_async_mode_answers_immediately_with_an_empty_body(monkeypatch, mocker) 
     assert posted.await_args.args[1] == "respuesta larga"
 
 
-def test_async_mode_threads_the_reply_under_the_original_post(monkeypatch, mocker) -> None:
+def test_async_mode_threads_the_reply_under_the_original_post_by_default(
+    monkeypatch, mocker
+) -> None:
     bridge = _load_bridge(monkeypatch, MM_BOT_TOKEN="bot-token")
     mocker.patch.object(bridge, "generate", mocker.AsyncMock(return_value="r"))
     posted = mocker.patch.object(bridge, "post_to_channel", mocker.AsyncMock())
@@ -155,6 +158,23 @@ def test_async_mode_threads_the_reply_under_the_original_post(monkeypatch, mocke
         client.post("/webhook/mattermost", data=_webhook_form(post_id="post456"))
 
     assert posted.await_args.kwargs["root_id"] == "post456"
+
+
+@pytest.mark.parametrize("falsy_value", ["false", "False", "0", "no", "NO"])
+def test_async_mode_posts_as_a_plain_message_when_threading_is_disabled(
+    monkeypatch, mocker, falsy_value: str
+) -> None:
+    """Elección del wizard (paso 9), no del código: quien prefiera ver la
+    respuesta directamente en el canal, sin tener que abrir un hilo, puede
+    desactivarlo."""
+    bridge = _load_bridge(monkeypatch, MM_BOT_TOKEN="bot-token", AI_REPLY_IN_THREAD=falsy_value)
+    mocker.patch.object(bridge, "generate", mocker.AsyncMock(return_value="r"))
+    posted = mocker.patch.object(bridge, "post_to_channel", mocker.AsyncMock())
+
+    with TestClient(bridge.app) as client:
+        client.post("/webhook/mattermost", data=_webhook_form(post_id="post456"))
+
+    assert posted.await_args.kwargs["root_id"] == ""
 
 
 def test_async_mode_falls_back_to_sync_without_a_channel_id(monkeypatch, mocker) -> None:

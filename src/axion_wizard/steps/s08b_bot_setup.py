@@ -13,6 +13,11 @@ síncrono, con el límite de tiempo del webhook.
 
 Los dos son opcionales. Dejarlos en blanco no rompe nada: se aplican más
 tarde con los mismos comandos, sin perder nada por haberlos omitido aquí.
+
+Si se da un token de bot, también pregunta si la respuesta debe colgar del
+mensaje que la disparó (en hilo, plegado hasta hacer clic) o publicarse como
+mensaje normal del canal — `AI_REPLY_IN_THREAD` en `.env`, sin efecto en modo
+síncrono.
 """
 
 from __future__ import annotations
@@ -23,6 +28,7 @@ from axion_wizard.steps.prompts import interactive_input_available
 
 MM_BOT_TOKEN_KEY = "MM_BOT_TOKEN"
 MM_WEBHOOK_TOKEN_KEY = "MM_WEBHOOK_TOKEN"
+AI_REPLY_IN_THREAD_KEY = "AI_REPLY_IN_THREAD"
 
 
 class BotSetupStep(Step):
@@ -62,6 +68,11 @@ class BotSetupStep(Step):
         updates: dict[str, str] = {}
         if bot_token:
             updates[MM_BOT_TOKEN_KEY] = bot_token
+            # Sin bot no hay modo asíncrono, y sin modo asíncrono esto no
+            # tiene ningún efecto — de ahí que solo se pregunte aquí dentro.
+            thread_preference = self._collect_thread_preference()
+            if thread_preference is not None:
+                updates[AI_REPLY_IN_THREAD_KEY] = "true" if thread_preference else "false"
         if webhook_token:
             updates[MM_WEBHOOK_TOKEN_KEY] = webhook_token
 
@@ -98,17 +109,9 @@ class BotSetupStep(Step):
         obligaría a cualquier otro lector de `AxionConfig` a saber de ellos
         sin necesidad.
         """
-        path = self.state.config_path
-        if path is None or not path.exists():
+        raw = self._load_toml()
+        if raw is None:
             return None, None
-
-        import tomllib
-
-        try:
-            raw = tomllib.loads(path.read_text(encoding="utf-8"))
-        except (tomllib.TOMLDecodeError, OSError):
-            return None, None
-
         return self._clean(raw.get("mm_bot_token")), self._clean(raw.get("mm_webhook_token"))
 
     def _ask_token(self, label: str) -> str | None:
@@ -116,6 +119,53 @@ class BotSetupStep(Step):
 
         answer = questionary.text(f"Token del {label} (vacío para omitir):").ask()
         return self._clean(answer)
+
+    def _collect_thread_preference(self) -> bool | None:
+        """Si la respuesta va colgada del mensaje que la disparó (hilo,
+        plegado hasta hacer clic) o se publica como mensaje normal del
+        canal. `None` deja el valor por defecto del `.env` tal cual —
+        `AI_REPLY_IN_THREAD` ya se preserva entre instalaciones como
+        cualquier otro ajuste de este tipo, así que no hace falta forzar
+        nada si no hay de dónde sacar una respuesta."""
+        if self.state.unattended:
+            return self._thread_preference_from_config_file()
+        if not interactive_input_available():
+            return None
+
+        import questionary
+
+        return questionary.confirm(
+            "¿Colgar la respuesta del mensaje que la disparó, en vez de publicarla "
+            "como mensaje normal del canal?",
+            default=True,
+        ).ask()
+
+    def _thread_preference_from_config_file(self) -> bool | None:
+        raw = self._load_toml()
+        if raw is None:
+            return None
+        value = raw.get("ai_reply_in_thread")
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            cleaned = value.strip().lower()
+            if cleaned in ("true", "1", "yes", "si", "sí"):
+                return True
+            if cleaned in ("false", "0", "no"):
+                return False
+        return None
+
+    def _load_toml(self) -> dict | None:
+        path = self.state.config_path
+        if path is None or not path.exists():
+            return None
+
+        import tomllib
+
+        try:
+            return tomllib.loads(path.read_text(encoding="utf-8"))
+        except (tomllib.TOMLDecodeError, OSError):
+            return None
 
     @staticmethod
     def _clean(value: object) -> str | None:

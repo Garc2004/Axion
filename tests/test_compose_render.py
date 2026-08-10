@@ -71,6 +71,11 @@ def test_render_compose_raises_the_outgoing_webhook_timeout() -> None:
     assert int(timeout) >= 120, "un margen menor deja fuera a los modelos de 3B en CPU"
 
 
+def test_render_compose_passes_the_thread_preference_to_fastapi_with_a_default() -> None:
+    fastapi = _load_yaml(s05.render_compose(make_config()))["services"]["fastapi"]
+    assert fastapi["environment"]["AI_REPLY_IN_THREAD"] == "${AI_REPLY_IN_THREAD:-true}"
+
+
 def test_render_compose_injects_ssrf_env_var() -> None:
     text = s05.render_compose(make_config())
     assert f'{s05.SSRF_ENV_KEY}: "{s05.SSRF_ENV_VALUE}"' in text
@@ -207,6 +212,18 @@ def test_env_falls_back_to_defaults_when_the_previous_value_is_empty() -> None:
     )
     assert f"BACKUP_CRON_EXPRESSION={s05.DEFAULT_BACKUP_CRON_EXPRESSION}" in text
     assert f"BACKUP_RETENTION_DAYS={s05.DEFAULT_BACKUP_RETENTION_DAYS}" in text
+
+
+def test_env_defaults_to_threaded_replies_on_a_fresh_install() -> None:
+    """Preserva el comportamiento que ya estaba desplegado antes de que este
+    ajuste existiera: no cambiar nada para quien no elige nada."""
+    text = render_env(make_config())
+    assert f"AI_REPLY_IN_THREAD={s05.DEFAULT_AI_REPLY_IN_THREAD}" in text
+
+
+def test_env_keeps_a_customised_thread_preference() -> None:
+    text = render_env(make_config(), preserved={"AI_REPLY_IN_THREAD": "false"})
+    assert "AI_REPLY_IN_THREAD=false" in text
 
 
 # --- variante WireGuard: host vs ports --------------------------------------

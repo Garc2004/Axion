@@ -190,7 +190,14 @@ PRESERVED_ENV_KEYS = (
     # falla al autenticarse.
     "N8N_ENCRYPTION_KEY",
     "N8N_TIMEZONE",
+    # Solo tiene efecto en modo asíncrono (con MM_BOT_TOKEN puesto); se
+    # pregunta junto con el token del bot en el paso 9.
+    "AI_REPLY_IN_THREAD",
 )
+
+#: Regenerar el .env sin que el usuario haya elegido nunca no debe cambiar
+#: el comportamiento que ya tenía desplegado.
+DEFAULT_AI_REPLY_IN_THREAD = "true"
 
 
 def existing_env_value(project_dir: Path, key: str) -> str | None:
@@ -267,6 +274,9 @@ def render_env(
                 preserved.get("N8N_ENCRYPTION_KEY") or secret_utils.generate_hex_secret()
             ),
             "n8n_timezone": preserved.get("N8N_TIMEZONE") or DEFAULT_N8N_TIMEZONE,
+            "ai_reply_in_thread": (
+                preserved.get("AI_REPLY_IN_THREAD") or DEFAULT_AI_REPLY_IN_THREAD
+            ),
         },
     )
 

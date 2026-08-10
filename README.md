@@ -140,10 +140,11 @@ wireguard_admin_password = "panel-seguro"    # se hashea con bcrypt aquí
 # postgres_password = "..."                  # opcional; si falta se genera (hex)
 # mm_bot_token = "..."                       # opcional; si se conocen de antemano
 # mm_webhook_token = "..."                   # (p.ej. reinstalando sobre el mismo Mattermost)
+# ai_reply_in_thread = false                 # opcional; solo con mm_bot_token puesto
 ```
 
-Sin esos dos últimos, el paso 9 (bot y webhook) se omite sin más — no hay
-prompt que hacer sin terminal, y se aplican después con `set-bot-token`/
+Sin esos, el paso 9 (bot y webhook) se omite sin más — no hay prompt que
+hacer sin terminal, y se aplican después con `set-bot-token`/
 `set-webhook-token` igual que en el camino interactivo.
 
 ### Interfaz a pantalla completa
@@ -233,6 +234,13 @@ ahí no rompe nada: se aplica más tarde exactamente igual.
 A partir de ahí no hay techo de tiempo y puedes usar el modelo que el
 hardware aguante. Sin token, el puente sigue funcionando en modo síncrono
 exactamente como antes.
+
+Con el bot puesto, el paso 9 pregunta además si la respuesta debe colgar del
+mensaje que la disparó —en hilo, plegada hasta hacer clic— o publicarse como
+mensaje normal del canal (`AI_REPLY_IN_THREAD` en `.env`, por defecto en
+hilo). Sin efecto en modo síncrono: ahí quien decide es el propio mecanismo
+de webhooks salientes de Mattermost, no este código. Cambiarlo después de
+instalado es editar esa línea en `.env` y `axion-wizard up fastapi`.
 
 Mientras ese token no esté puesto, el wizard sube el plazo que Mattermost
 concede al webhook de sus 30 segundos por defecto a **180**

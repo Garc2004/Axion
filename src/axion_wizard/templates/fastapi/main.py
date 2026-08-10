@@ -54,6 +54,15 @@ MM_BOT_TOKEN = os.environ.get("MM_BOT_TOKEN", "")
 MM_URL = os.environ.get("MM_URL", "http://mattermost:8065")
 MM_API_TIMEOUT_SECONDS = 30.0
 
+# Solo importa en modo asíncrono: en modo síncrono la respuesta la publica
+# el propio mecanismo de webhooks salientes de Mattermost, no este código, y
+# no hay forma de pedirle que cuelgue la respuesta de un hilo.
+AI_REPLY_IN_THREAD = os.environ.get("AI_REPLY_IN_THREAD", "true").strip().lower() not in (
+    "false",
+    "0",
+    "no",
+)
+
 TIMEOUT_MESSAGE = (
     "El modelo `{model}` tardó demasiado en responder. Suele significar que es "
     "grande para este hardware: probar uno más pequeño con `axion-wizard model`."
@@ -137,7 +146,9 @@ async def answer_in_background(prompt: str, channel_id: str, root_id: str) -> No
     if not message.strip():
         return
     try:
-        await post_to_channel(channel_id, message, root_id=root_id)
+        await post_to_channel(
+            channel_id, message, root_id=root_id if AI_REPLY_IN_THREAD else ""
+        )
     except httpx.HTTPError as exc:
         log.error("No se pudo publicar la respuesta en Mattermost: %s", exc)
 

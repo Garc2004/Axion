@@ -302,6 +302,48 @@ en la próxima ejecución real de `axion-wizard install` (retoma en el paso 8).
 
 ---
 
+## 6.f Bot creado, y respuesta en hilo vs. mensaje normal (10/08, cierre)
+
+El usuario creó el bot, lo sumó al canal, y le pasó el segundo obstáculo real
+de Mattermost con bots: **un bot recién creado no pertenece a ningún
+equipo**, y sumarlo directo a un canal falla con *"1 user was not selected
+because they are not a part of this team"*. Hay que añadirlo primero al
+equipo desde Consola del sistema → Administración de usuarios → Equipos.
+Documentado en el README junto al resto del flujo del bot.
+
+Con el bot funcionando, la respuesta llegó **en hilo** (plegada bajo el
+mensaje que la disparó, "1 reply" a un clic de abrir) — comportamiento a
+propósito de `answer_in_background` en `fastapi/main.py`
+(`root_id=post_id`, para no llenar el canal de mensajes sueltos), pero el
+usuario prefería poder elegirlo. Se añadió `AI_REPLY_IN_THREAD` (`.env`,
+`true`/`false`, por defecto `true` — no cambia nada para quien ya lo tenía
+desplegado):
+
+- `fastapi/main.py`: nueva constante `AI_REPLY_IN_THREAD`; si es `false`,
+  `answer_in_background` publica con `root_id=""` en vez del id del mensaje
+  original. Sin efecto en modo síncrono (ahí decide el propio mecanismo de
+  webhooks salientes de Mattermost, no este código).
+- `docker-compose.yml.j2`: `AI_REPLY_IN_THREAD: ${AI_REPLY_IN_THREAD:-true}`
+  en el servicio `fastapi`.
+- `env.j2` / `PRESERVED_ENV_KEYS` / `render_env`: mismo patrón que
+  `BACKUP_CRON_EXPRESSION` — declarado siempre, con valor por defecto,
+  conservado entre instalaciones.
+- **Paso 9** (`s08b_bot_setup.py`): con token de bot puesto, pregunta además
+  "¿en hilo o mensaje normal?" (`questionary.confirm`, default `True`) y lo
+  escribe en el mismo lote que los tokens —un solo recreate de fastapi—. Sin
+  bot no se pregunta: sin modo asíncrono el ajuste no tiene ningún efecto. En
+  `--unattended` sale de `ai_reply_in_thread` en el `axion.toml` (booleano o
+  string), y si no está, no se fuerza nada.
+
+Para cambiarlo en un despliegue que ya pasó el paso 9 (no se vuelve a
+preguntar solo, `revalidate_on_resume = False`): editar `AI_REPLY_IN_THREAD`
+en `.env` a mano y `axion-wizard up fastapi`.
+
+14 tests nuevos entre `test_fastapi_bridge.py`, `test_compose_render.py` y
+`test_steps.py`.
+
+---
+
 ## 7. Pendientes
 
 1. **Crear el bot en Mattermost.** El *paso* 9 (§6.d) ya se detiene a pedir el

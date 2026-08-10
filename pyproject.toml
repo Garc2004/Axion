@@ -1,6 +1,6 @@
 [project]
 name = "axion-wizard"
-version = "0.2.1"
+version = "0.2.2"
 description = "Instalador/orquestador del stack AXION (Mattermost + WireGuard + Ollama + FastAPI sobre Docker)"
 readme = "README.md"
 license = "Apache-2.0"

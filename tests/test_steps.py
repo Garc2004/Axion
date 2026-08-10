@@ -666,6 +666,7 @@ def test_bot_setup_step_writes_both_tokens_and_recreates_fastapi_once(
     )
     ask = mocker.patch("questionary.text")
     ask.return_value.ask.side_effect = ["bot-token-123", "webhook-token-456"]
+    mocker.patch("questionary.confirm").return_value.ask.return_value = True
 
     context = _context(tmp_path)
     step = BotSetupStep(GlobalState(project_dir=tmp_path, quiet=True), context)
@@ -675,7 +676,7 @@ def test_bot_setup_step_writes_both_tokens_and_recreates_fastapi_once(
     assert result.ok is True
     update_env.assert_any_call(tmp_path / ".env", "MM_BOT_TOKEN", "bot-token-123")
     update_env.assert_any_call(tmp_path / ".env", "MM_WEBHOOK_TOKEN", "webhook-token-456")
-    # Un solo recreate para los dos tokens, no uno por cada uno.
+    # Un solo recreate para los tres valores, no uno por cada uno.
     deploy.assert_called_once()
     wait_healthy.assert_called_once()
 
@@ -691,6 +692,7 @@ def test_bot_setup_step_accepts_only_the_bot_token(tmp_path: Path, mocker) -> No
     )
     ask = mocker.patch("questionary.text")
     ask.return_value.ask.side_effect = ["bot-token-123", ""]
+    mocker.patch("questionary.confirm").return_value.ask.return_value = True
 
     context = _context(tmp_path)
     step = BotSetupStep(GlobalState(project_dir=tmp_path, quiet=True), context)
@@ -698,7 +700,7 @@ def test_bot_setup_step_accepts_only_the_bot_token(tmp_path: Path, mocker) -> No
     result = step.run()
 
     assert result.ok is True
-    update_env.assert_called_once_with(tmp_path / ".env", "MM_BOT_TOKEN", "bot-token-123")
+    update_env.assert_any_call(tmp_path / ".env", "MM_BOT_TOKEN", "bot-token-123")
     deploy.assert_called_once()
 
 
@@ -772,6 +774,113 @@ def test_bot_setup_step_reads_tokens_from_the_toml_when_unattended(
     update_env.assert_any_call(tmp_path / ".env", "MM_BOT_TOKEN", "bot-desde-toml")
     update_env.assert_any_call(tmp_path / ".env", "MM_WEBHOOK_TOKEN", "hook-desde-toml")
     deploy.assert_called_once()
+
+
+def test_bot_setup_step_asks_thread_preference_only_when_theres_a_bot_token(
+    tmp_path: Path, mocker
+) -> None:
+    """Sin bot no hay modo asíncrono, y sin modo asíncrono este ajuste no
+    tiene ningún efecto — no debería ni preguntarse."""
+    from axion_wizard.steps.s08b_bot_setup import BotSetupStep
+
+    _mock_apply_targets(mocker)
+    mocker.patch(
+        "axion_wizard.steps.s08b_bot_setup.interactive_input_available", return_value=True
+    )
+    ask = mocker.patch("questionary.text")
+    ask.return_value.ask.side_effect = ["", "webhook-token-456"]
+    confirm = mocker.patch("questionary.confirm")
+
+    context = _context(tmp_path)
+    step = BotSetupStep(GlobalState(project_dir=tmp_path, quiet=True), context)
+    step.run()
+
+    confirm.assert_not_called()
+
+
+def test_bot_setup_step_writes_the_thread_preference_when_confirmed(
+    tmp_path: Path, mocker
+) -> None:
+    from axion_wizard.steps.s08b_bot_setup import BotSetupStep
+
+    update_env, _deploy, _wait = _mock_apply_targets(mocker)
+    mocker.patch(
+        "axion_wizard.steps.s08b_bot_setup.interactive_input_available", return_value=True
+    )
+    ask = mocker.patch("questionary.text")
+    ask.return_value.ask.side_effect = ["bot-token-123", ""]
+    mocker.patch("questionary.confirm").return_value.ask.return_value = True
+
+    context = _context(tmp_path)
+    step = BotSetupStep(GlobalState(project_dir=tmp_path, quiet=True), context)
+    step.run()
+
+    update_env.assert_any_call(tmp_path / ".env", "AI_REPLY_IN_THREAD", "true")
+
+
+def test_bot_setup_step_writes_the_thread_preference_when_declined(
+    tmp_path: Path, mocker
+) -> None:
+    """Elegir "no" también debe escribirse: dejarlo sin escribir dejaría el
+    valor por defecto (en hilo) sin que la respuesta "no" tuviera efecto."""
+    from axion_wizard.steps.s08b_bot_setup import BotSetupStep
+
+    update_env, _deploy, _wait = _mock_apply_targets(mocker)
+    mocker.patch(
+        "axion_wizard.steps.s08b_bot_setup.interactive_input_available", return_value=True
+    )
+    ask = mocker.patch("questionary.text")
+    ask.return_value.ask.side_effect = ["bot-token-123", ""]
+    mocker.patch("questionary.confirm").return_value.ask.return_value = False
+
+    context = _context(tmp_path)
+    step = BotSetupStep(GlobalState(project_dir=tmp_path, quiet=True), context)
+    step.run()
+
+    update_env.assert_any_call(tmp_path / ".env", "AI_REPLY_IN_THREAD", "false")
+
+
+def test_bot_setup_step_reads_thread_preference_from_the_toml_when_unattended(
+    tmp_path: Path, mocker
+) -> None:
+    from axion_wizard.steps.s08b_bot_setup import BotSetupStep
+
+    update_env, _deploy, _wait = _mock_apply_targets(mocker)
+    config_path = tmp_path / "axion.toml"
+    config_path.write_text(
+        'mm_bot_token = "bot-desde-toml"\nai_reply_in_thread = false\n', encoding="utf-8"
+    )
+
+    context = _context(tmp_path)
+    step = BotSetupStep(
+        GlobalState(project_dir=tmp_path, quiet=True, unattended=True, config_path=config_path),
+        context,
+    )
+    step.run()
+
+    update_env.assert_any_call(tmp_path / ".env", "AI_REPLY_IN_THREAD", "false")
+
+
+def test_bot_setup_step_unattended_bot_token_without_thread_preference_leaves_default(
+    tmp_path: Path, mocker
+) -> None:
+    """Sin `ai_reply_in_thread` en el axion.toml no hay de dónde sacar una
+    respuesta: no se fuerza nada, y `.env` conserva el valor que ya tenía."""
+    from axion_wizard.steps.s08b_bot_setup import BotSetupStep
+
+    update_env, _deploy, _wait = _mock_apply_targets(mocker)
+    config_path = tmp_path / "axion.toml"
+    config_path.write_text('mm_bot_token = "bot-desde-toml"\n', encoding="utf-8")
+
+    context = _context(tmp_path)
+    step = BotSetupStep(
+        GlobalState(project_dir=tmp_path, quiet=True, unattended=True, config_path=config_path),
+        context,
+    )
+    step.run()
+
+    written_keys = {call.args[1] for call in update_env.call_args_list}
+    assert "AI_REPLY_IN_THREAD" not in written_keys
 
 
 def test_bot_setup_step_unattended_without_tokens_in_the_toml_just_skips(

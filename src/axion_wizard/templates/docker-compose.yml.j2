@@ -145,6 +145,9 @@ services:
       # de un modelo lento se pierde entera (ver fastapi/main.py).
       MM_BOT_TOKEN: ${MM_BOT_TOKEN:-}
       MM_URL: "http://mattermost:8065"
+      # Solo importa en modo asíncrono (con MM_BOT_TOKEN puesto). Se pregunta
+      # junto con el token del bot en el paso 9.
+      AI_REPLY_IN_THREAD: ${AI_REPLY_IN_THREAD:-true}
     depends_on:
       - ollama
     networks:
