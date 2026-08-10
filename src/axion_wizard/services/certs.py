@@ -1,11 +1,11 @@
-"""Generación de certificados TLS con SAN, sin depender de `openssl` (§4.4).
+"""TLS certificate generation with SAN, without depending on `openssl` (§4.4).
 
-Por qué importa: los clientes Go y las bibliotecas modernas de Android
-rechazan certificados que solo declaran el host en el CN. Sin `subjectAltName`,
-el login desde el app móvil de Mattermost falla con
-`x509: certificate relies on legacy Common Name field` aunque todo lo demás
-esté correcto — por eso el SAN es obligatorio y se verifica leyendo el propio
-certificado de vuelta tras generarlo.
+Why it matters: Go clients and modern Android libraries reject certificates
+that only declare the host in the CN. Without `subjectAltName`, logging in
+from the Mattermost mobile app fails with
+`x509: certificate relies on legacy Common Name field` even when everything
+else is correct — hence the SAN being mandatory and verified by reading the
+certificate itself back after generating it.
 """
 
 from __future__ import annotations
@@ -30,10 +30,10 @@ RSA_KEY_SIZE = 4096
 CERT_VALIDITY_DAYS = 825
 EXTRA_SAN_DNS_NAMES = ("axion.local", "ia.local")
 
-#: Nombres con los que el propio equipo que hospeda el stack se llama a sí
-#: mismo. Van siempre en el SAN porque esa máquina es el sitio más probable
-#: desde donde se abre Mattermost, y sin ellos `https://localhost` da un aviso
-#: de certificado inválido aunque todo lo demás esté bien.
+#: The names the machine hosting the stack uses for itself. They always go in
+#: the SAN because that machine is the likeliest place Mattermost gets opened
+#: from, and without them `https://localhost` throws an invalid-certificate
+#: warning even when everything else is right.
 LOOPBACK_SAN_NAMES = ("localhost", "127.0.0.1")
 
 
@@ -54,21 +54,22 @@ def _general_name_for(host: str) -> x509.GeneralName:
 def build_san_general_names(
     host: str, extra_hosts: Sequence[str] = ()
 ) -> list[x509.GeneralName]:
-    """`IP:<ip>` o `DNS:<dominio>` para `host`, más los DNS names fijos que
-    exige la spec (`axion.local`, `ia.local`) y los `extra_hosts` que pida
-    quien llama.
+    """`IP:<ip>` or `DNS:<domain>` for `host`, plus the fixed DNS names the
+    spec requires (`axion.local`, `ia.local`) and whatever `extra_hosts` the
+    caller asks for.
 
-    `extra_hosts` existe por §6.1: en Linux con `network_mode: host`,
-    `10.8.0.1` es un IP real del host y los clientes de la VPN entran por ahí,
-    así que el certificado tiene que cubrirlo además del host de acceso — o el
-    navegador rechaza la conexión desde dentro del túnel.
+    `extra_hosts` exists because of §6.1: on Linux with `network_mode: host`,
+    `10.8.0.1` is a real host IP and VPN clients arrive through it, so the
+    certificate has to cover it as well as the access host — otherwise the
+    browser refuses the connection from inside the tunnel.
     """
     general_names: list[x509.GeneralName] = [_general_name_for(host)]
     general_names.extend(x509.DNSName(name) for name in EXTRA_SAN_DNS_NAMES)
 
     seen = {host, *EXTRA_SAN_DNS_NAMES}
-    # `localhost`/`127.0.0.1` van junto a los demás y con el mismo control de
-    # duplicados, para no repetirlos si el host de acceso ya es uno de ellos.
+    # `localhost`/`127.0.0.1` go in with the rest and through the same
+    # duplicate check, so they are not repeated when the access host is
+    # already one of them.
     for extra in (*LOOPBACK_SAN_NAMES, *extra_hosts):
         extra = extra.strip()
         if extra and extra not in seen:
@@ -121,27 +122,27 @@ MAX_COMMON_NAME_LENGTH = 64
 
 
 def validate_cert_host(host: str) -> str:
-    """Valida el host antes de construir el certificado.
+    """Validate the host before building the certificate.
 
-    Sin esto, `cryptography` falla más abajo con un mensaje sobre longitudes
-    de atributos X.509 que no le dice nada al usuario que escribió mal el
-    `gen-cert`.
+    Without this, `cryptography` fails further down with a message about X.509
+    attribute lengths that means nothing to a user who simply mistyped their
+    `gen-cert` argument.
     """
     host = host.strip()
     if not host:
         raise ConfigError(
-            what="No se indicó un host para el certificado",
-            why="El certificado necesita una IP o un dominio para su CN y su SAN.",
-            steps=["Ejecutar `axion-wizard gen-cert <IP|DOMINIO>` con un valor concreto."],
+            what="No host was given for the certificate",
+            why="The certificate needs an IP or a domain for its CN and its SAN.",
+            steps=["Run `axion-wizard gen-cert <IP|DOMAIN>` with a concrete value."],
         )
     if len(host) > MAX_COMMON_NAME_LENGTH:
         raise ConfigError(
-            what=f"El host del certificado excede {MAX_COMMON_NAME_LENGTH} caracteres",
+            what=f"The certificate host exceeds {MAX_COMMON_NAME_LENGTH} characters",
             why=(
-                f"El Common Name de X.509 está limitado a {MAX_COMMON_NAME_LENGTH} "
-                f"caracteres y se recibieron {len(host)}."
+                f"X.509's Common Name is limited to {MAX_COMMON_NAME_LENGTH} "
+                f"characters and {len(host)} were given."
             ),
-            steps=["Usar un nombre de host más corto, o la IP de acceso."],
+            steps=["Use a shorter host name, or the access IP."],
         )
     return host
 
@@ -149,10 +150,10 @@ def validate_cert_host(host: str) -> str:
 def generate_certificate(
     host: str, cert_path: Path, key_path: Path, extra_hosts: Sequence[str] = ()
 ) -> GeneratedCert:
-    """Genera un par cert/key autofirmado para `host` (IP o dominio) y lo
-    escribe en disco con la clave privada restringida al usuario actual.
+    """Generate a self-signed cert/key pair for `host` (IP or domain) and
+    write it to disk with the private key restricted to the current user.
 
-    `extra_hosts` añade nombres al SAN sin tocar el CN — ver
+    `extra_hosts` adds names to the SAN without touching the CN — see
     `build_san_general_names`.
     """
     host = validate_cert_host(host)
@@ -179,32 +180,32 @@ def generate_certificate(
 
 
 def _write_private_key(key_path: Path, pem: bytes) -> None:
-    """Escribe la clave privada sin exponerla ni un instante.
+    """Write the private key without exposing it for even an instant.
 
-    `write_bytes` la crea con los permisos por defecto (0644 en POSIX) y
-    `restrict_to_owner` la cierra *después*: entre las dos hay una ventana en
-    la que cualquier usuario del sistema puede leerla. Es corta, pero es
-    exactamente el escenario contra el que existe §6.2, y en POSIX se evita
-    del todo creando el archivo ya en 0600.
+    `write_bytes` creates it with default permissions (0644 on POSIX) and
+    `restrict_to_owner` locks it down *afterwards*: between the two there is a
+    window in which any user on the system can read it. It is short, but it is
+    exactly the scenario §6.2 exists to prevent, and on POSIX it is avoided
+    entirely by creating the file at 0600 in the first place.
 
-    En Windows no hay equivalente atómico —el modo de `os.open` se ignora, ahí
-    manda la ACL— así que ese camino sigue siendo escribir y luego `icacls`.
+    Windows has no atomic equivalent — `os.open`'s mode is ignored there, the
+    ACL is what counts — so that path remains write-then-`icacls`.
     """
     if _platform.system() == "Windows":
         key_path.write_bytes(pem)
         return
 
-    # O_TRUNC y no O_EXCL: regenerar el certificado sobre uno existente es un
-    # caso normal, no un error. El modo solo se aplica al crear, así que un
-    # archivo preexistente se re-restringe con `restrict_to_owner` después.
+    # O_TRUNC and not O_EXCL: regenerating the certificate over an existing
+    # one is normal, not an error. The mode only applies on creation, so a
+    # pre-existing file is re-locked by `restrict_to_owner` afterwards.
     descriptor = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(descriptor, "wb") as handle:
         handle.write(pem)
 
 
 def restrict_key_permissions(key_path: Path, timeout: float = 15.0) -> None:
-    """`chmod 600` no tiene efecto real en Windows (§6.2): ahí se aplica una
-    ACL restringida al usuario actual vía `icacls`."""
+    """`chmod 600` has no real effect on Windows (§6.2): there an ACL
+    restricted to the current user is applied via `icacls` instead."""
     restrict_to_owner(key_path, timeout=timeout)
 
 
@@ -213,8 +214,8 @@ def load_certificate(cert_path: Path) -> x509.Certificate:
 
 
 def describe_san(certificate: x509.Certificate) -> list[str]:
-    """Lee la extensión SAN de vuelta del certificado y la formatea como
-    `IP:...` / `DNS:...` — la verificación que exige §4.4."""
+    """Read the SAN extension back off the certificate and format it as
+    `IP:...` / `DNS:...` — the verification §4.4 requires."""
     try:
         ext = certificate.extensions.get_extension_for_class(x509.SubjectAlternativeName)
     except x509.ExtensionNotFound:
@@ -230,18 +231,18 @@ def describe_san(certificate: x509.Certificate) -> list[str]:
 
 
 def verify_certificate_has_san(cert_path: Path) -> list[str]:
-    """Lanza `ConfigError` si el certificado en `cert_path` no tiene SAN."""
+    """Raise `ConfigError` if the certificate at `cert_path` has no SAN."""
     certificate = load_certificate(cert_path)
     san_entries = describe_san(certificate)
     if not san_entries:
         raise ConfigError(
-            what=f"El certificado {cert_path} no tiene subjectAltName",
+            what=f"The certificate at {cert_path} has no subjectAltName",
             why=(
-                "Los clientes Go y las bibliotecas modernas de Android rechazan "
-                "certificados que solo declaran el host en el CN. El login desde el "
-                "app móvil de Mattermost fallaría con "
+                "Go clients and modern Android libraries reject certificates that "
+                "only declare the host in the CN. Logging in from the Mattermost "
+                "mobile app would fail with "
                 "'x509: certificate relies on legacy Common Name field'."
             ),
-            steps=["Regenerar el certificado con `axion-wizard gen-cert <IP|DOMINIO>`."],
+            steps=["Regenerate the certificate with `axion-wizard gen-cert <IP|DOMAIN>`."],
         )
     return san_entries

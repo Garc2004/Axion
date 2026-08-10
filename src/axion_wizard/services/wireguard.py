@@ -1,24 +1,24 @@
-"""Panel wg-easy: espera, autenticación, creación de cliente y QR (§4.8).
+"""The wg-easy panel: waiting, authentication, client creation and QR (§4.8).
 
-**Nota de implementación:** el contrato REST de wg-easy no está versionado ni
-documentado formalmente por el proyecto — este módulo lo sigue de la mejor
-forma posible y valida la forma de cada respuesta antes de usarla, en vez de
-asumir campos a ciegas, para fallar con un `NetworkError`/`DeploymentError`
-accionable si el panel responde de una forma inesperada.
+**Implementation note:** wg-easy's REST contract is neither versioned nor
+formally documented by the project — this module follows it as closely as it
+can and validates the shape of every response before using it, rather than
+assuming fields blindly, so that an unexpected answer surfaces as an
+actionable `NetworkError`/`DeploymentError`.
 
-Está escrito contra la **v15** (verificado sobre la etiqueta `v15.3.0`), que
-cambió el contrato entero respecto a la v14:
+It is written against **v15** (verified against the `v15.3.0` tag), which
+changed the entire contract from v14:
 
     v14                                  v15
     POST /api/session {password}         POST /api/session {username, password, remember}
     GET  /api/wireguard/client           GET  /api/client
-    POST /api/wireguard/client           POST /api/client  -> devuelve el clientId
+    POST /api/wireguard/client           POST /api/client  -> returns the clientId
     GET  /api/wireguard/client/<id>/…    GET  /api/client/<id>/configuration
 
-El cambio más útil es el último: la v14 respondía `{"success": true}` sin el
-objeto creado, así que había que listar antes y después y comparar ids para
-averiguar cuál era el nuevo. La v15 devuelve `clientId` directamente y todo
-ese baile desapareció.
+The last change is the most useful: v14 answered `{"success": true}` without
+the created object, so the only way to learn the new id was to list before
+and after and compare. v15 returns `clientId` directly and that whole dance
+went away.
 """
 
 from __future__ import annotations
@@ -39,18 +39,18 @@ DEFAULT_READY_TIMEOUT = 60.0
 DEFAULT_HTTP_TIMEOUT = 10.0
 
 PANEL_HTTPS_WARNING = (
-    "El panel de WireGuard sirve HTTP puro, no HTTPS (arranca con INSECURE=true). "
-    "Abrirlo con https:// da ERR_SSL_PROTOCOL_ERROR — usar siempre http://."
+    "The WireGuard panel serves plain HTTP, not HTTPS (it starts with INSECURE=true). "
+    "Opening it with https:// gives ERR_SSL_PROTOCOL_ERROR — always use http://."
 )
 
 
 def build_panel_url(host: str, port: int = DEFAULT_PANEL_PORT) -> str:
-    """El panel sirve HTTP puro: construir siempre con `http://` explícito
-    (§4.8) — nunca `https://`, aunque el resto del stack use TLS.
+    """The panel serves plain HTTP: always build with an explicit `http://`
+    (§4.8) — never `https://`, even though the rest of the stack uses TLS.
 
-    En la v15 esto es además una consecuencia declarada: el `wg.env` que
-    genera el wizard pone `INSECURE=true`, sin lo cual el panel directamente
-    se niega a responder por HTTP.
+    On v15 this is a declared consequence too: the `wg.env` the wizard
+    generates sets `INSECURE=true`, without which the panel flatly refuses to
+    answer over HTTP.
     """
     return f"http://{host}:{port}"
 
@@ -61,7 +61,7 @@ async def wait_for_panel_ready(
     wait_min: float = 1.0,
     wait_max: float = 10.0,
 ) -> None:
-    """Espera con backoff exponencial a que el panel responda algo (§4.8)."""
+    """Wait with exponential backoff for the panel to answer anything (§4.8)."""
 
     async def _check() -> bool:
         async with httpx.AsyncClient(timeout=DEFAULT_HTTP_TIMEOUT) as client:
@@ -81,12 +81,11 @@ async def wait_for_panel_ready(
         await retryer(_check)
     except RetryError as exc:
         raise NetworkError(
-            what=f"El panel de WireGuard en {base_url} no respondió a tiempo",
-            why=f"Se agotó el timeout de {timeout:g}s esperando una respuesta HTTP del panel.",
+            what=f"The WireGuard panel at {base_url} did not answer in time",
+            why=f"The {timeout:g}s timeout expired waiting for an HTTP response from the panel.",
             steps=[
-                "Verificar que el contenedor wireguard esté corriendo: "
-                "docker compose ps wireguard",
-                "Revisar sus logs: docker compose logs wireguard",
+                "Check the wireguard container is running: docker compose ps wireguard",
+                "Read its logs: docker compose logs wireguard",
             ],
         ) from exc
 
@@ -99,7 +98,7 @@ class WireguardClient:
 
 
 class WireguardPanelClient:
-    """Cliente HTTP de sesión única contra la API del panel wg-easy."""
+    """A single-session HTTP client against the wg-easy panel API."""
 
     def __init__(self, base_url: str, timeout: float = DEFAULT_HTTP_TIMEOUT) -> None:
         self.base_url = base_url.rstrip("/")
@@ -117,40 +116,40 @@ class WireguardPanelClient:
     async def _send(
         self, method: Callable[..., Awaitable[httpx.Response]], path: str, **kwargs: Any
     ) -> httpx.Response:
-        """Envuelve toda petición al panel para que un corte de red salga como
-        `NetworkError` accionable y no como un `httpx.ConnectError` crudo.
+        """Wrap every request to the panel so a network drop surfaces as an
+        actionable `NetworkError` rather than a raw `httpx.ConnectError`.
 
-        Va aquí y no en cada método porque el diagnóstico es idéntico en los
-        tres: el contenedor se cayó, o la red entre wizard y panel dejó de
-        funcionar a mitad del alta del cliente.
+        It lives here and not in each method because the diagnosis is
+        identical in all three: the container went down, or the network
+        between wizard and panel stopped working mid-enrolment.
         """
         try:
             return await method(path, **kwargs)
         except httpx.HTTPError as exc:
             raise NetworkError(
-                what=f"No se pudo contactar al panel de WireGuard en {self.base_url}",
+                what=f"Could not reach the WireGuard panel at {self.base_url}",
                 why=str(exc),
                 steps=[
-                    "Verificar que el contenedor wireguard esté corriendo: "
-                    "docker compose ps wireguard",
-                    "Revisar sus logs: docker compose logs wireguard",
-                    "Reintentar el alta del cliente.",
+                    "Check the wireguard container is running: docker compose ps wireguard",
+                    "Read its logs: docker compose logs wireguard",
+                    "Retry enrolling the client.",
                 ],
             ) from exc
 
     async def login(self, username: str, password: str) -> None:
-        """Autentica contra el panel v15.
+        """Authenticate against the v15 panel.
 
-        Tres detalles del contrato que no se pueden omitir:
+        Three details of the contract that cannot be skipped:
 
-        - `username` es obligatorio. La v14 no tenía usuarios.
-        - `remember` también, aunque parezca opcional: su esquema zod lo
-          declara `z.boolean()` sin `.optional()`, así que omitirlo devuelve
-          un 400 de validación que no menciona el campo que falta.
-        - Un 200 **no** significa que se haya entrado. Con 2FA activo el
-          panel responde 200 con `{"status": "TOTP_REQUIRED"}` y sin sesión;
-          darlo por bueno dejaba al wizard llamando a `/api/client` sin
-          autenticar y fallando después con un 401 que parecía otra cosa.
+        - `username` is mandatory. v14 had no users at all.
+        - So is `remember`, however optional it looks: its zod schema declares
+          it `z.boolean()` without `.optional()`, so omitting it returns a 400
+          validation error that never mentions the missing field.
+        - A 200 does **not** mean you are in. With 2FA enabled the panel
+          answers 200 with `{"status": "TOTP_REQUIRED"}` and no session;
+          taking that at face value left the wizard calling `/api/client`
+          unauthenticated and failing later with a 401 that looked like
+          something else entirely.
         """
         response = await self._send(
             self._client.post,
@@ -159,51 +158,51 @@ class WireguardPanelClient:
         )
         if response.status_code == 401:
             raise DeploymentError(
-                what="El panel de WireGuard rechazó las credenciales",
+                what="The WireGuard panel rejected the credentials",
                 why=(
-                    f"El usuario {username!r} y su contraseña no coinciden con los que "
-                    "wg-easy tiene guardados."
+                    f"User {username!r} and its password do not match what wg-easy has "
+                    "stored."
                 ),
                 steps=[
-                    "Verificar el usuario y la contraseña del panel del paso 3 "
-                    "(INIT_USERNAME / INIT_PASSWORD en wg.env).",
-                    "Recordar que INIT_* solo se aplica en el primer arranque: si el "
-                    "volumen ya existía, valen las credenciales de entonces.",
+                    "Check the panel username and password from step 3 "
+                    "(INIT_USERNAME / INIT_PASSWORD in wg.env).",
+                    "Remember INIT_* only applies on first boot: if the volume already "
+                    "existed, the credentials from back then are the ones that count.",
                 ],
             )
         if response.status_code >= 400:
             raise DeploymentError(
-                what=f"El panel de WireGuard devolvió {response.status_code} al autenticar",
-                why=response.text.strip()[:500] or "Sin más detalle en el cuerpo de la respuesta.",
-                steps=["Revisar los logs del contenedor wireguard."],
+                what=f"The WireGuard panel returned {response.status_code} on authentication",
+                why=response.text.strip()[:500] or "No further detail in the response body.",
+                steps=["Read the wireguard container's logs."],
             )
 
         status = self._json_status(response)
         if status == "TOTP_REQUIRED":
             raise DeploymentError(
-                what="El panel de WireGuard pide un segundo factor",
+                what="The WireGuard panel is asking for a second factor",
                 why=(
-                    "La cuenta del panel tiene 2FA activo, y el wizard no tiene de "
-                    "dónde sacar el código."
+                    "The panel account has 2FA enabled, and the wizard has nowhere to "
+                    "get the code from."
                 ),
                 steps=[
-                    f"Crear el cliente desde el panel: {self.base_url}",
-                    "O desactivar temporalmente el 2FA de esa cuenta y reintentar.",
+                    f"Create the client from the panel instead: {self.base_url}",
+                    "Or temporarily disable 2FA on that account and retry.",
                 ],
             )
         if status == "INVALID_TOTP_CODE":
             raise DeploymentError(
-                what="El panel de WireGuard rechazó el segundo factor",
-                why="wg-easy respondió INVALID_TOTP_CODE al autenticar.",
-                steps=[f"Crear el cliente desde el panel: {self.base_url}"],
+                what="The WireGuard panel rejected the second factor",
+                why="wg-easy answered INVALID_TOTP_CODE on authentication.",
+                steps=[f"Create the client from the panel instead: {self.base_url}"],
             )
 
     @staticmethod
     def _json_status(response: httpx.Response) -> str | None:
-        """El campo `status` de una respuesta del panel, si lo trae.
+        """The `status` field of a panel response, if it carries one.
 
-        Un cuerpo que no sea JSON no es motivo para abortar: solo significa
-        que no hay estado que interpretar.
+        A non-JSON body is no reason to abort: it only means there is no
+        status to interpret.
         """
         try:
             data = response.json()
@@ -214,63 +213,63 @@ class WireguardPanelClient:
         return None
 
     async def list_clients(self) -> list[dict[str, Any]]:
-        """Todos los clientes ya dados de alta en el panel."""
+        """Every client already enrolled in the panel."""
         response = await self._send(self._client.get, "/api/client")
         if response.status_code >= 400:
             raise DeploymentError(
-                what="No se pudo listar los clientes del panel de WireGuard",
+                what="Could not list the WireGuard panel's clients",
                 why=response.text.strip()[:500] or f"HTTP {response.status_code}",
-                steps=["Revisar los logs del contenedor wireguard."],
+                steps=["Read the wireguard container's logs."],
             )
         try:
             data = response.json()
         except ValueError as exc:
             raise DeploymentError(
-                what="La lista de clientes del panel no es JSON válido",
+                what="The panel's client list is not valid JSON",
                 why=response.text.strip()[:500],
                 steps=[
-                    "Reportar este error — el contrato de la API de wg-easy pudo haber cambiado."
+                    "Report this error — wg-easy's API contract may have changed."
                 ],
             ) from exc
         if not isinstance(data, list):
             raise DeploymentError(
-                what="La lista de clientes del panel no tiene la forma esperada",
-                why=f"Se esperaba un array JSON; llegó {type(data).__name__}.",
+                what="The panel's client list is not shaped as expected",
+                why=f"A JSON array was expected; {type(data).__name__} arrived.",
                 steps=[
-                    "Reportar este error — el contrato de la API de wg-easy pudo haber cambiado."
+                    "Report this error — wg-easy's API contract may have changed."
                 ],
             )
         return [entry for entry in data if isinstance(entry, dict)]
 
     async def create_client(self, name: str) -> str:
-        """Crea un cliente y devuelve su id.
+        """Create a client and return its id.
 
-        La v15 responde `{"success": true, "clientId": ...}`, así que el id
-        sale de la propia respuesta. La v14 no lo devolvía —solo
-        `{"success": true}`— y obligaba a listar antes y después y comparar
-        ids para deducir cuál era el nuevo, con la ambigüedad extra de que
-        wg-easy nunca ha exigido nombres únicos. Ese rodeo entero
-        desapareció con el cambio de versión.
+        v15 answers `{"success": true, "clientId": …}`, so the id comes
+        straight out of the response. v14 did not return it — only
+        `{"success": true}` — and forced a list-before, list-after comparison
+        to deduce which one was new, with the added ambiguity that wg-easy has
+        never required unique names. That entire detour went away with the
+        version change.
         """
         response = await self._send(self._client.post, "/api/client", json={"name": name})
         if response.status_code >= 400:
             raise DeploymentError(
-                what=f"El panel de WireGuard no pudo crear el cliente '{name}'",
+                what=f"The WireGuard panel could not create client '{name}'",
                 why=response.text.strip()[:500] or f"HTTP {response.status_code}",
-                steps=["Revisar los logs del contenedor wireguard."],
+                steps=["Read the wireguard container's logs."],
             )
 
         client_id = _client_id_from_creation(response)
         if client_id is None:
             raise DeploymentError(
-                what="El panel no devolvió el id del cliente recién creado",
+                what="The panel did not return the id of the client it just created",
                 why=(
-                    f"Se esperaba `clientId` en la respuesta a la creación de '{name}'; "
-                    f"llegó: {response.text.strip()[:200] or '(cuerpo vacío)'}"
+                    f"`clientId` was expected in the response to creating '{name}'; "
+                    f"what arrived was: {response.text.strip()[:200] or '(empty body)'}"
                 ),
                 steps=[
-                    f"Comprobar en el panel si '{name}' se creó igual, en {self.base_url}",
-                    "Reportar este error — el contrato de la API de wg-easy pudo haber cambiado.",
+                    f"Check in the panel whether '{name}' was created anyway, at {self.base_url}",
+                    "Report this error — wg-easy's API contract may have changed.",
                 ],
             )
         return client_id
@@ -281,20 +280,20 @@ class WireguardPanelClient:
         )
         if response.status_code >= 400:
             raise DeploymentError(
-                what=f"No se pudo descargar la configuración del cliente {client_id}",
+                what=f"Could not download the configuration for client {client_id}",
                 why=response.text.strip()[:500] or f"HTTP {response.status_code}",
-                steps=["Revisar los logs del contenedor wireguard."],
+                steps=["Read the wireguard container's logs."],
             )
         return response.text
 
 
 def _client_id_from_creation(response: httpx.Response) -> str | None:
-    """El `clientId` de la respuesta a `POST /api/client`, si viene.
+    """The `clientId` from the response to `POST /api/client`, if present.
 
-    Se acepta un id numérico además de una cadena: el esquema del panel lo
-    declara como el identificador de la fila, y confiar en que siempre
-    llegue serializado como texto es exactamente el tipo de suposición que
-    este módulo evita en el resto de respuestas.
+    A numeric id is accepted as well as a string: the panel's schema declares
+    it as the row identifier, and trusting that it always arrives serialised
+    as text is exactly the kind of assumption this module avoids everywhere
+    else.
     """
     try:
         data = response.json()
@@ -311,8 +310,8 @@ def _client_id_from_creation(response: httpx.Response) -> str | None:
 
 
 def render_qr_terminal(data: str) -> str:
-    """QR en caracteres de bloque Unicode, para mostrar en la propia
-    terminal sin depender del navegador (§4.8)."""
+    """A QR code in Unicode block characters, to display in the terminal
+    itself without depending on a browser (§4.8)."""
     qr = segno.make(data)
     buffer = io.StringIO()
     qr.terminal(out=buffer, compact=True)

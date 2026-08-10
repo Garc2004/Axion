@@ -71,7 +71,7 @@ def test_wait_for_panel_ready_raises_network_error_on_timeout(mocker) -> None:
     mock_client = _mock_get_client(mocker, side_effect=httpx.ConnectError("refused"))
     mocker.patch("axion_wizard.services.wireguard.httpx.AsyncClient", return_value=mock_client)
 
-    with pytest.raises(NetworkError, match="no respondió"):
+    with pytest.raises(NetworkError, match="did not answer"):
         asyncio.run(
             wg.wait_for_panel_ready("http://x:51821", timeout=0.05, wait_min=0.01, wait_max=0.02)
         )
@@ -128,7 +128,7 @@ def test_list_clients_rejects_a_non_array_body(mocker) -> None:
         mocker, get=mocker.AsyncMock(return_value=httpx.Response(200, json={"clients": []}))
     )
     panel = _client_with_mocked_httpx(mocker, mock_inner)
-    with pytest.raises(DeploymentError, match="forma esperada"):
+    with pytest.raises(DeploymentError, match="not shaped as expected"):
         asyncio.run(panel.list_clients())
 
 
@@ -137,7 +137,7 @@ def test_list_clients_rejects_non_json_body(mocker) -> None:
         mocker, get=mocker.AsyncMock(return_value=httpx.Response(200, text="not json"))
     )
     panel = _client_with_mocked_httpx(mocker, mock_inner)
-    with pytest.raises(DeploymentError, match="JSON válido"):
+    with pytest.raises(DeploymentError, match="valid JSON"):
         asyncio.run(panel.list_clients())
 
 
@@ -146,7 +146,7 @@ def test_list_clients_http_error_raises_deployment_error(mocker) -> None:
         mocker, get=mocker.AsyncMock(return_value=httpx.Response(500, text="boom"))
     )
     panel = _client_with_mocked_httpx(mocker, mock_inner)
-    with pytest.raises(DeploymentError, match="No se pudo listar"):
+    with pytest.raises(DeploymentError, match="Could not list"):
         asyncio.run(panel.list_clients())
 
 
@@ -192,7 +192,7 @@ def test_login_sends_username_and_remember(mocker) -> None:
 def test_login_wrong_password_raises_deployment_error(mocker) -> None:
     mock_inner = _inner_client(mocker, post=mocker.AsyncMock(return_value=httpx.Response(401)))
     panel = _client_with_mocked_httpx(mocker, mock_inner)
-    with pytest.raises(DeploymentError, match="rechazó"):
+    with pytest.raises(DeploymentError, match="rejected"):
         asyncio.run(panel.login("admin", "wrong-password"))
 
 
@@ -204,7 +204,7 @@ def test_login_totp_required_is_not_treated_as_success(mocker) -> None:
         return_value=httpx.Response(200, json={"status": "TOTP_REQUIRED"})
     )
     panel = _client_with_mocked_httpx(mocker, _inner_client(mocker, post=post))
-    with pytest.raises(DeploymentError, match="segundo factor"):
+    with pytest.raises(DeploymentError, match="second factor"):
         asyncio.run(panel.login("admin", "correct-password"))
 
 
@@ -249,7 +249,7 @@ def test_create_client_without_a_client_id_raises_deployment_error(mocker) -> No
     cambio — mejor fallar accionable que devolver un id equivocado."""
     post = mocker.AsyncMock(return_value=httpx.Response(200, json={"success": True}))
     panel = _client_with_mocked_httpx(mocker, _inner_client(mocker, post=post))
-    with pytest.raises(DeploymentError, match="no devolvió el id"):
+    with pytest.raises(DeploymentError, match="did not return the id"):
         asyncio.run(panel.create_client("my-phone"))
 
 
@@ -258,7 +258,7 @@ def test_create_client_http_error_raises_deployment_error(mocker) -> None:
         mocker, post=mocker.AsyncMock(return_value=httpx.Response(400, text="bad name"))
     )
     panel = _client_with_mocked_httpx(mocker, mock_inner)
-    with pytest.raises(DeploymentError, match="no pudo crear"):
+    with pytest.raises(DeploymentError, match="could not create"):
         asyncio.run(panel.create_client("my-phone"))
 
 
@@ -291,7 +291,7 @@ def test_create_client_connection_error_raises_network_error(mocker) -> None:
         post=mocker.AsyncMock(side_effect=httpx.ConnectError("refused")),
     )
     panel = _client_with_mocked_httpx(mocker, mock_inner)
-    with pytest.raises(NetworkError, match="No se pudo contactar"):
+    with pytest.raises(NetworkError, match="Could not reach"):
         asyncio.run(panel.create_client("my-phone"))
 
 

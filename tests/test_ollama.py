@@ -217,7 +217,7 @@ def test_has_known_requirements() -> None:
 def test_model_with_unknown_requirements_is_not_claimed_compatible() -> None:
     unknown = ollama.ModelInfo(name="mystery", size_bytes=0, min_ram_gb=0, needs_gpu=False)
     assert ollama.is_model_within_hardware(unknown, ram_gb=64, has_gpu=True) is False
-    assert ollama.suitability_reason(unknown, 64, True) == "requisitos desconocidos"
+    assert ollama.suitability_reason(unknown, 64, True) == "requirements unknown"
 
 
 def test_model_with_unknown_requirements_is_never_recommended() -> None:
@@ -282,13 +282,13 @@ def test_is_model_within_hardware_needs_gpu() -> None:
 def test_suitability_reason_gpu_takes_priority() -> None:
     model = ollama.ModelInfo(name="x", size_bytes=1, min_ram_gb=64, needs_gpu=True)
     reason = ollama.suitability_reason(model, ram_gb=4, has_gpu=False)
-    assert reason == "requiere GPU dedicada"
+    assert reason == "needs a dedicated GPU"
 
 
 def test_suitability_reason_ram() -> None:
     model = ollama.ModelInfo(name="x", size_bytes=1, min_ram_gb=16, needs_gpu=False)
     reason = ollama.suitability_reason(model, ram_gb=8, has_gpu=False)
-    assert reason == "necesita 16 GB de RAM libre"
+    assert reason == "needs 16 GB of free RAM"
 
 
 def test_suitability_reason_none_when_fits() -> None:

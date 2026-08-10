@@ -1,13 +1,13 @@
-"""Catálogo de modelos de Ollama en tres niveles, y descarga con progreso (§5).
+"""A three-tier Ollama model catalogue, and downloads with progress (§5).
 
-1. **Instalados**: `GET /api/tags` contra el puerto publicado en loopback
-   (127.0.0.1:11434, ver `docker-compose.yml.j2`). Se muestran primero.
-2. **Catálogo remoto**: la librería pública de Ollama. Su API no es estable
-   ni está versionada formalmente — va envuelta en try/except con timeout
-   corto y degrada en silencio al nivel 3 si falla por cualquier motivo.
-3. **Fallback embebido**: lista curada dentro del binario, con tamaño
-   aproximado y RAM/VRAM recomendada. Red de seguridad para instalaciones
-   sin internet o si la API remota cambia de forma.
+1. **Installed**: `GET /api/tags` against the port published on loopback
+   (127.0.0.1:11434, see `docker-compose.yml.j2`). Shown first.
+2. **Remote catalogue**: Ollama's public library. Its API is neither stable
+   nor formally versioned — it is wrapped in try/except with a short timeout
+   and degrades silently to tier 3 if it fails for any reason.
+3. **Embedded fallback**: a curated list inside the binary, with approximate
+   size and recommended RAM/VRAM. A safety net for installs with no internet,
+   or for when the remote API changes shape.
 """
 
 from __future__ import annotations
@@ -38,11 +38,11 @@ class ModelInfo:
     needs_gpu: bool
     tags: list[str] = field(default_factory=list)
     installed: bool = False
-    #: `True` si `min_ram_gb`/`needs_gpu` salieron de adivinar el recuento de
-    #: parámetros del nombre (`estimate_requirements_from_name`) y no de un
-    #: dato real. Es lo que permite que el catálogo curado los corrija:
-    #: sin esta marca, `enrich_from_embedded_catalog` no puede distinguir una
-    #: estimación de un dato bueno, porque las dos son un número > 0.
+    #: `True` if `min_ram_gb`/`needs_gpu` came from guessing the parameter
+    #: count out of the name (`estimate_requirements_from_name`) rather than
+    #: from a real figure. It is what lets the curated catalogue correct them:
+    #: without this flag, `enrich_from_embedded_catalog` cannot tell an
+    #: estimate from a good figure, because both are a number > 0.
     requirements_estimated: bool = False
 
     @property
@@ -50,14 +50,14 @@ class ModelInfo:
         return self.size_bytes / (1024**3)
 
 
-# --- Nivel 1: modelos ya instalados ------------------------------------------
+# --- Tier 1: models already installed ----------------------------------------
 
 
 async def list_installed_models(
     base_url: str = OLLAMA_LOCAL_BASE_URL, timeout: float = OLLAMA_LOCAL_TIMEOUT
 ) -> list[dict]:
-    """No lanza si Ollama no está corriendo o no responde a tiempo — devuelve
-    lista vacía, que es una entrada válida para el resto del flujo."""
+    """Does not raise if Ollama is not running or does not answer in time — it
+    returns an empty list, which is valid input for the rest of the flow."""
     async with httpx.AsyncClient(timeout=timeout) as client:
         try:
             response = await client.get(f"{base_url}/api/tags")
@@ -73,14 +73,14 @@ def installed_model_names(installed: list[dict]) -> set[str]:
     return {m["name"] for m in installed if isinstance(m, dict) and m.get("name")}
 
 
-# --- Nivel 2: catálogo remoto -------------------------------------------------
+# --- Tier 2: remote catalogue -------------------------------------------------
 
 
-#: GB de RAM por cada mil millones de parámetros, con cuantización de ~4 bits
-#: (lo que sirve Ollama por defecto) más el margen del contexto y el runtime.
+#: GB of RAM per billion parameters, at ~4-bit quantisation (what Ollama
+#: serves by default) plus headroom for the context window and the runtime.
 GB_PER_BILLION_PARAMS = 0.75
 
-#: A partir de este tamaño, correr en CPU deja de ser práctico.
+#: Past this size, running on CPU stops being practical.
 GPU_REQUIRED_PARAMS_B = 30.0
 
 #: `qwen2.5:7b`, `llama3.1:70b`, `mistral-large-3:675b`, `nemotron-3-nano:30b`…
@@ -88,16 +88,16 @@ _PARAM_COUNT_RE = re.compile(r"[:\-](\d+(?:\.\d+)?)\s*b\b", re.IGNORECASE)
 
 
 def estimate_requirements_from_name(name: str) -> tuple[float, bool] | None:
-    """Deduce `(min_ram_gb, needs_gpu)` del recuento de parámetros del nombre.
+    """Infer `(min_ram_gb, needs_gpu)` from the parameter count in the name.
 
-    La librería pública de Ollama devuelve poco más que nombres: no trae
-    RAM recomendada ni si hace falta GPU. Sin esto, todo modelo remoto
-    entraría con requisitos 0 y se anunciaría como compatible —
-    `mistral-large-3:675b` incluido—, que es justo lo contrario de lo que
-    pide §5. El sufijo de parámetros (`:7b`, `:675b`) es una convención
-    universal en esos nombres y estima el orden de magnitud bastante bien.
+    Ollama's public library returns little more than names: no recommended RAM
+    and no indication of whether a GPU is needed. Without this, every remote
+    model would arrive with requirements of 0 and be advertised as compatible
+    — `mistral-large-3:675b` included — which is the exact opposite of what §5
+    asks for. The parameter suffix (`:7b`, `:675b`) is a universal convention
+    in those names and estimates the order of magnitude quite well.
 
-    Devuelve `None` si el nombre no expone un recuento reconocible.
+    Returns `None` if the name exposes no recognisable count.
     """
     match = _PARAM_COUNT_RE.search(name)
     if not match:
@@ -115,7 +115,7 @@ def _parse_remote_catalog_entry(entry: dict) -> ModelInfo | None:
     needs_gpu = bool(entry.get("needs_gpu", False))
     estimated = False
 
-    # Solo estimamos si la API no aportó el dato: un valor real siempre gana.
+    # Only estimate when the API supplied nothing: a real value always wins.
     if min_ram_gb <= 0:
         estimate = estimate_requirements_from_name(name)
         if estimate is not None:
@@ -134,20 +134,20 @@ def _parse_remote_catalog_entry(entry: dict) -> ModelInfo | None:
 
 
 def enrich_from_embedded_catalog(models: list[ModelInfo]) -> list[ModelInfo]:
-    """Corrige con el catálogo curado los requisitos que no son un dato real.
+    """Correct with the curated catalogue any requirement that is not a real
+    figure.
 
-    Para los modelos que conocemos de primera mano, el dato curado es mejor
-    que cualquier estimación a partir del nombre — y esa era justo la parte
-    que no funcionaba: la condición era `min_ram_gb <= 0`, pero
-    `_parse_remote_catalog_entry` ya había rellenado el campo con la
-    estimación, así que **nunca** se aplicaba a ningún nombre con sufijo de
-    parámetros (`:0.5b`, `:7b`…) — es decir, a casi ninguno. `qwen2.5:0.5b`
-    se anunciaba con 0,4 GB en vez de los 2,0 reales, y como
-    `recommended_model` elige el más exigente que quepa, la recomendación
-    salía sesgada.
+    For models we know first-hand, the curated figure beats any estimate from
+    the name — and that was precisely the part that did not work: the
+    condition was `min_ram_gb <= 0`, but `_parse_remote_catalog_entry` had
+    already filled the field with its estimate, so it **never** applied to any
+    name carrying a parameter suffix (`:0.5b`, `:7b`…) — which is to say,
+    almost none of them. `qwen2.5:0.5b` was advertised at 0.4 GB instead of
+    its real 2.0, and since `recommended_model` picks the most demanding model
+    that fits, the recommendation came out skewed.
 
-    El orden de preferencia queda: dato real de la API > catálogo curado >
-    estimación por el nombre > desconocido.
+    The order of preference ends up: real figure from the API > curated
+    catalogue > estimate from the name > unknown.
     """
     embedded = {m.name: m for m in get_embedded_catalog()}
     for model in models:
@@ -168,8 +168,8 @@ def enrich_from_embedded_catalog(models: list[ModelInfo]) -> list[ModelInfo]:
 async def fetch_remote_catalog(
     url: str = OLLAMA_REMOTE_CATALOG_URL, timeout: float = OLLAMA_REMOTE_TIMEOUT
 ) -> list[ModelInfo] | None:
-    """Intento best-effort contra la librería pública de Ollama. `None`
-    significa "no disponible, usar el fallback embebido" — nunca lanza."""
+    """A best-effort attempt against Ollama's public library. `None` means
+    "unavailable, use the embedded fallback" — it never raises."""
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.get(url)
@@ -187,7 +187,7 @@ async def fetch_remote_catalog(
     return models or None
 
 
-# --- Nivel 3: fallback embebido -----------------------------------------------
+# --- Tier 3: embedded fallback ------------------------------------------------
 
 _EMBEDDED_CATALOG_DATA: tuple[dict, ...] = (
     dict(
@@ -257,7 +257,7 @@ _EMBEDDED_CATALOG_DATA: tuple[dict, ...] = (
 
 
 def get_embedded_catalog() -> list[ModelInfo]:
-    """Copias frescas — nunca devolver referencias a un estado mutable compartido."""
+    """Fresh copies — never hand back references to shared mutable state."""
     return [
         ModelInfo(
             name=d["name"],
@@ -270,45 +270,45 @@ def get_embedded_catalog() -> list[ModelInfo]:
     ]
 
 
-# --- Adecuación al hardware y orden de presentación ---------------------------
+# --- Hardware fit and presentation order --------------------------------------
 
 
 def is_model_within_hardware(model: ModelInfo, ram_gb: float, has_gpu: bool) -> bool:
     if model.needs_gpu and not has_gpu:
         return False
     if not has_known_requirements(model):
-        # Sin datos no se puede afirmar que quepa; se lista igual, pero no
-        # cuenta como "encaja" ni puede salir recomendado.
+        # With no data we cannot claim it fits; it is still listed, but it
+        # does not count as "fits" and cannot come out recommended.
         return False
     return ram_gb >= model.min_ram_gb
 
 
 def has_known_requirements(model: ModelInfo) -> bool:
-    """`False` cuando no sabemos qué necesita el modelo.
+    """`False` when we do not know what the model needs.
 
-    Pasa con entradas remotas cuyo nombre no expone el número de parámetros
-    y que tampoco están en el catálogo curado. Anunciarlas como
-    "compatible" sería afirmar algo que no hemos comprobado.
+    This happens with remote entries whose name does not expose a parameter
+    count and which are not in the curated catalogue either. Advertising them
+    as "compatible" would be asserting something we have not checked.
     """
     return model.min_ram_gb > 0
 
 
 def suitability_reason(model: ModelInfo, ram_gb: float, has_gpu: bool) -> str | None:
-    """Motivo por el que un modelo excede el hardware, o `None` si encaja.
-    Se muestra en amarillo sin ocultar el modelo (§5) — el usuario decide."""
+    """Why a model exceeds the hardware, or `None` if it fits. Shown in yellow
+    without hiding the model (§5) — the user decides."""
     if model.needs_gpu and not has_gpu:
-        return "requiere GPU dedicada"
+        return "needs a dedicated GPU"
     if not has_known_requirements(model):
-        return "requisitos desconocidos"
+        return "requirements unknown"
     if ram_gb < model.min_ram_gb:
-        return f"necesita {model.min_ram_gb:g} GB de RAM libre"
+        return f"needs {model.min_ram_gb:g} GB of free RAM"
     return None
 
 
 def sort_by_hardware_fit(models: list[ModelInfo], ram_gb: float, has_gpu: bool) -> list[ModelInfo]:
-    """Ordena por adecuación al hardware detectado, no alfabéticamente (§5):
-    primero los que encajan (el más capaz que aún quepa, primero), luego los
-    que exceden (el más cercano a encajar, primero)."""
+    """Order by fit to the detected hardware, not alphabetically (§5): those
+    that fit first (most capable that still fits, first), then those that
+    exceed it (closest to fitting, first)."""
 
     def sort_key(model: ModelInfo) -> tuple[int, float]:
         fits = is_model_within_hardware(model, ram_gb, has_gpu)
@@ -318,8 +318,8 @@ def sort_by_hardware_fit(models: list[ModelInfo], ram_gb: float, has_gpu: bool) 
 
 
 def recommended_model(models: list[ModelInfo], ram_gb: float, has_gpu: bool) -> ModelInfo | None:
-    """El modelo más capaz que aún encaja en el hardware detectado, o `None`
-    si ninguno encaja (todo el catálogo excede el hardware)."""
+    """The most capable model that still fits the detected hardware, or `None`
+    if none fits (the whole catalogue exceeds it)."""
     fitting = [m for m in models if is_model_within_hardware(m, ram_gb, has_gpu)]
     if not fitting:
         return None
@@ -338,14 +338,14 @@ async def build_catalog(
     base_url: str = OLLAMA_LOCAL_BASE_URL,
     remote_catalog_url: str = OLLAMA_REMOTE_CATALOG_URL,
 ) -> list[ModelInfo]:
-    """Combina los tres niveles: catálogo remoto si responde, si no el
-    embebido; marca instalados; ordena por adecuación al hardware.
+    """Combine the three tiers: the remote catalogue if it answers, otherwise
+    the embedded one; mark what is installed; order by hardware fit.
 
-    El remoto aporta *frescura* (nombres nuevos) pero no requisitos de
-    hardware, así que se enriquece con el catálogo curado antes de ordenar;
-    si no, todo saldría con requisitos 0 y se anunciaría como compatible.
-    Además se añaden los modelos curados que el remoto no traiga, para no
-    perder las recomendaciones de referencia.
+    The remote tier supplies *freshness* (new names) but no hardware
+    requirements, so it is enriched from the curated catalogue before
+    ordering; otherwise everything would come out with requirements of 0 and
+    be advertised as compatible. Curated models the remote tier does not carry
+    are added too, so the reference recommendations are not lost.
     """
     models = await fetch_remote_catalog(url=remote_catalog_url)
     if models:
@@ -361,7 +361,7 @@ async def build_catalog(
     return sort_by_hardware_fit(models, ram_gb=ram_gb, has_gpu=has_gpu)
 
 
-# --- Descarga con progreso -----------------------------------------------------
+# --- Downloads with progress --------------------------------------------------
 
 
 @dataclass
@@ -383,8 +383,8 @@ async def pull_model(
     base_url: str = OLLAMA_LOCAL_BASE_URL,
     timeout: float = OLLAMA_PULL_TIMEOUT,
 ) -> None:
-    """Descarga un modelo parseando el stream JSON-por-línea de `/api/pull`
-    (`completed`/`total`) para una barra de progreso real (§5)."""
+    """Download a model, parsing the line-delimited JSON stream of `/api/pull`
+    (`completed`/`total`) to drive a real progress bar (§5)."""
     try:
         async with httpx.AsyncClient(timeout=timeout) as client, client.stream(
             "POST", f"{base_url}/api/pull", json={"name": name}
@@ -394,11 +394,11 @@ async def pull_model(
                 _handle_pull_line(line, name, on_progress)
     except httpx.HTTPError as exc:
         raise OllamaError(
-            what=f"No se pudo contactar a Ollama para descargar {name}",
+            what=f"Could not reach Ollama to download {name}",
             why=str(exc),
             steps=[
-                "Verificar que el contenedor `ollama` esté corriendo: axion-wizard up ollama",
-                "Verificar conectividad con ollama.com.",
+                "Check the `ollama` container is running: axion-wizard up ollama",
+                "Check connectivity to ollama.com.",
             ],
         ) from exc
 
@@ -414,9 +414,9 @@ def _handle_pull_line(line: str, name: str, on_progress: Callable[[PullProgress]
 
     if data.get("error"):
         raise OllamaError(
-            what=f"Fallo al descargar el modelo {name}",
+            what=f"Failed to download model {name}",
             why=str(data["error"]),
-            steps=[f"Verificar que el modelo exista y reintentar: axion-wizard models pull {name}"],
+            steps=[f"Check the model exists and retry: axion-wizard models pull {name}"],
         )
 
     on_progress(

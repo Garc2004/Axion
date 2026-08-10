@@ -1,4 +1,4 @@
-"""Detección de hardware: RAM, CPU y GPU (§4.1)."""
+"""Hardware detection: RAM, CPU and GPU (§4.1)."""
 
 from __future__ import annotations
 
@@ -116,7 +116,7 @@ def parse_wmi_video_controllers(output: str) -> list[GpuInfo]:
 
 
 def detect_windows_gpus(timeout: float = 10.0) -> list[GpuInfo]:
-    """Fallback vía WMI cuando no hay `nvidia-smi`/`rocm-smi` en PATH."""
+    """WMI fallback for when neither `nvidia-smi` nor `rocm-smi` is on PATH."""
     if _platform.system() != "Windows":
         return []
     try:

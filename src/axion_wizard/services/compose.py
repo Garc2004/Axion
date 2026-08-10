@@ -1,8 +1,9 @@
-"""Wrapper de `docker compose` por subprocess (§4.6, §1.3).
+"""A subprocess wrapper around `docker compose` (§4.6, §1.3).
 
-Invocar `docker compose` vía subprocess es más fiable y transparente que el
-SDK docker-py, cuyo soporte de Compose v2 es pobre — de ahí que este módulo
-sea una fina capa sobre `utils.shell`, sin dependencias de `docker` (paquete).
+Invoking `docker compose` through a subprocess is more reliable and more
+transparent than the docker-py SDK, whose Compose v2 support is poor — hence
+this module being a thin layer over `utils.shell`, with no dependency on the
+`docker` package.
 """
 
 from __future__ import annotations
@@ -25,12 +26,13 @@ DEFAULT_LOG_TAIL_LINES = 30
 class ContainerStatus:
     service: str
     name: str
-    state: str  # "running", "exited", "created", ...
-    health: str | None  # "healthy" | "unhealthy" | "starting" | None (sin healthcheck)
+    state: str  # "running", "exited", "created", …
+    health: str | None  # "healthy" | "unhealthy" | "starting" | None (no healthcheck)
     image: str | None = None
-    #: puertos publicados del host reportados por Docker (campo `Publishers`
-    #: de `ps --format json`). Vacío para servicios en `network_mode: host`
-    #: — Docker no gestiona sus puertos, así que no aparecen aquí (§4.2/§6.1).
+    #: Host ports published as reported by Docker (the `Publishers` field of
+    #: `ps --format json`). Empty for services on `network_mode: host` —
+    #: Docker does not manage their ports, so they do not appear here
+    #: (§4.2/§6.1).
     published_ports: list[int] = field(default_factory=list)
 
     @property
@@ -43,12 +45,12 @@ class ContainerStatus:
 
     @property
     def never_started(self) -> bool:
-        """`True` si Compose creó el contenedor pero nunca llegó a arrancarlo.
+        """`True` if Compose created the container but never started it.
 
-        La causa habitual es un `depends_on: condition: service_healthy` que
-        no llegó a tiempo: Compose no arranca un servicio hasta que sus
-        dependencias están sanas, así que este contenedor puede llevar ahí
-        el mismo rato que el resto sin haber ejecutado una sola línea.
+        The usual cause is a `depends_on: condition: service_healthy` that did
+        not come good in time: Compose will not start a service until its
+        dependencies are healthy, so this container can have been sitting
+        there as long as the rest without executing a single line.
         """
         return self.state == "created"
 
@@ -57,14 +59,14 @@ def _compose_base_args(compose_path: Path) -> list[str]:
     return ["docker", "compose", "-f", str(compose_path)]
 
 
-#: Alias retenido por compatibilidad con los tests y llamadas existentes; la
-#: implementación única vive en `utils.jsonio` (la compartían tres módulos).
+#: Alias kept for compatibility with existing tests and callers; the single
+#: implementation lives in `utils.jsonio` (three modules shared it).
 _parse_json_lines_or_array = parse_json_lines_or_array
 
 
 def config_validate(compose_path: Path, timeout: float = DEFAULT_TIMEOUT) -> None:
-    """`docker compose config --quiet` — validación semántica real exigida
-    por §4.5 antes de desplegar. Requiere Docker instalado."""
+    """`docker compose config --quiet` — the real semantic validation §4.5
+    requires before deploying. Needs Docker installed."""
     try:
         result = run(
             [*_compose_base_args(compose_path), "config", "--quiet"],
@@ -73,17 +75,18 @@ def config_validate(compose_path: Path, timeout: float = DEFAULT_TIMEOUT) -> Non
         )
     except CommandNotFoundError as exc:
         raise ConfigError(
-            what="No se encontró Docker para validar el docker-compose.yml generado",
-            why="Sin Docker instalado no se puede confirmar que el archivo sea válido.",
-            steps=["Instalar Docker Desktop (Windows) o Docker Engine (Linux) y reintentar."],
+            what="Docker was not found, so the generated docker-compose.yml cannot be validated",
+            why="Without Docker installed there is no way to confirm the file is valid.",
+            steps=["Install Docker Desktop (Windows) or Docker Engine (Linux) and retry."],
         ) from exc
     if not result.ok:
         raise ConfigError(
-            what=f"`docker compose config` rechazó {compose_path.name}",
-            # Redactado: Compose interpola el `.env` antes de validar, así que
-            # su stderr puede citar una línea ya con la contraseña sustituida.
-            why=redact(result.stderr.strip()) or "Docker no dio más detalles en stderr.",
-            steps=["Revisar la sintaxis del docker-compose.yml generado."],
+            what=f"`docker compose config` rejected {compose_path.name}",
+            # Redacted: Compose interpolates the `.env` before validating, so
+            # its stderr can quote a line with the password already
+            # substituted in.
+            why=redact(result.stderr.strip()) or "Docker gave no further detail on stderr.",
+            steps=["Check the syntax of the generated docker-compose.yml."],
         )
 
 
@@ -93,14 +96,14 @@ def up(
     timeout: float = DEFAULT_UP_TIMEOUT,
     services: list[str] | None = None,
 ) -> CommandResult:
-    """`docker compose up -d --build`. Si se pasa `on_line`, la salida se
-    transmite línea a línea (para mapearla a barras de progreso de Rich).
+    """`docker compose up -d --build`. If `on_line` is given, the output is
+    streamed line by line (to map onto Rich progress bars).
 
-    `services` restringe la operación a esos nombres — Compose por sí solo
-    ya detecta cuándo la configuración *resuelta* de un servicio cambió
-    (p.ej. una variable de entorno interpolada desde `.env`) y lo recrea
-    aunque no se pida `--build` ni `--force-recreate`; no hace falta ninguno
-    de los dos aquí, solo evitar tocar servicios que no cambiaron.
+    `services` restricts the operation to those names — Compose already
+    detects on its own when a service's *resolved* configuration changed (an
+    environment variable interpolated from `.env`, say) and recreates it
+    without being asked for `--build` or `--force-recreate`; neither is needed
+    here, only avoiding services that did not change.
     """
     args = [*_compose_base_args(compose_path), "up", "-d", "--build"]
     if services:
@@ -111,13 +114,13 @@ def up(
 
 
 def restart(compose_path: Path, service: str, timeout: float = 60.0) -> CommandResult:
-    """`docker compose restart <servicio>`.
+    """`docker compose restart <service>`.
 
-    No relee el compose ni el `.env` —para eso hace falta `up`—, pero sí
-    reinicia el proceso de dentro, que es lo que hace falta cuando lo que
-    cambió no forma parte de la configuración del contenedor: los archivos
-    montados por bind mount y las IPs que el proceso resolvió al arrancar
-    (ver `s06_deploy.refresh_nginx`).
+    It re-reads neither the compose file nor the `.env` — that takes `up` —
+    but it does restart the process inside, which is what is needed when what
+    changed is not part of the container's configuration: bind-mounted files,
+    and the IPs the process resolved at startup (see
+    `s06_deploy.refresh_nginx`).
     """
     args = [*_compose_base_args(compose_path), "restart", service]
     return run(args, timeout=timeout, cwd=str(compose_path.parent))
@@ -134,7 +137,7 @@ def parse_ps_output(output: str) -> list[ContainerStatus]:
     entries = parse_json_lines_or_array(output)
     statuses = []
     for entry in entries:
-        health = entry.get("Health") or None  # compose reporta "" cuando no hay healthcheck
+        health = entry.get("Health") or None  # compose reports "" when there is no healthcheck
         publishers = entry.get("Publishers") or []
         published_ports = sorted(
             {
@@ -176,23 +179,24 @@ def get_service_status(
 def logs(
     compose_path: Path, service: str, tail: int = DEFAULT_LOG_TAIL_LINES, timeout: float = 30.0
 ) -> str:
-    """Log de un servicio, ya redactado.
+    """A service's log, already redacted.
 
-    La redacción se aplica aquí, en la frontera, y no en cada punto de
-    impresión: PostgreSQL y Mattermost registran su DSN completo —con la
-    contraseña— cuando fallan al conectar, y este log acaba tanto en el
-    panel de error de §4.6 como en el archivo de log del wizard.
+    Redaction is applied here, at the boundary, rather than at each print
+    site: PostgreSQL and Mattermost log their full DSN — password included —
+    when they fail to connect, and this log ends up both in §4.6's error panel
+    and in the wizard's log file.
 
-    Si el propio comando `docker compose logs` falla —el servicio no existe
-    en el compose, el daemon no responde— se devuelve ese error en vez de
-    una cadena vacía indistinguible de "el contenedor no escribió nada".
+    If the `docker compose logs` command itself fails — the service is not in
+    the compose file, the daemon is not answering — that error is returned
+    instead of an empty string indistinguishable from "the container wrote
+    nothing".
     """
     args = [*_compose_base_args(compose_path), "logs", "--no-color", "--tail", str(tail), service]
     result = run(args, timeout=timeout, cwd=str(compose_path.parent))
     if not result.ok:
-        fallback = f"`docker compose logs` salió con {result.returncode}"
+        fallback = f"`docker compose logs` exited with {result.returncode}"
         detail = redact(result.stderr.strip()) or fallback
-        return f"[no se pudo leer el log: {detail}]"
+        return f"[could not read the log: {detail}]"
     return redact(result.stdout)
 
 
@@ -204,59 +208,58 @@ def exec_in_service(
 
 
 def describe_service_state(status: ContainerStatus | None, service: str) -> str:
-    """Explica por qué un servicio no está operativo, más allá del log.
+    """Explain why a service is not operational, beyond its log.
 
-    Existe porque un log vacío es ambiguo por sí solo: puede ser que el
-    contenedor haya arrancado y realmente no escriba nada, o que nunca haya
-    llegado a arrancar —en cuyo caso "sin salida en el log" es literalmente
-    correcto pero no dice la causa real, que casi siempre es una dependencia
-    (`depends_on: condition: service_healthy`) que no llegó a tiempo. Sin
-    esto, diagnosticarlo exige un `docker compose ps` aparte para ver qué
-    estado tiene realmente cada contenedor.
+    This exists because an empty log is ambiguous on its own: the container
+    may have started and genuinely written nothing, or it may never have
+    started at all — in which case "no output in the log" is literally correct
+    but says nothing about the real cause, which is almost always a dependency
+    (`depends_on: condition: service_healthy`) that did not come good in time.
+    Without this, diagnosing it takes a separate `docker compose ps` to see
+    what state each container is actually in.
     """
     if status is None:
         return (
-            f"El servicio `{service}` ni siquiera se llegó a crear — Compose no "
-            "arranca un servicio hasta que sus dependencias (`depends_on`) están "
-            "listas."
+            f"Service `{service}` was never even created — Compose does not start "
+            "a service until its dependencies (`depends_on`) are ready."
         )
     if status.never_started:
         return (
-            f"El contenedor de `{service}` se creó pero nunca llegó a arrancar; "
-            "por eso no hay log que mostrar. La causa habitual es una "
-            "dependencia (`depends_on: condition: service_healthy`) que no "
-            "llegó a estar sana a tiempo."
+            f"The container for `{service}` was created but never started, which "
+            "is why there is no log to show. The usual cause is a dependency "
+            "(`depends_on: condition: service_healthy`) that did not become "
+            "healthy in time."
         )
     if not status.is_running:
-        return f"El contenedor de `{service}` arrancó y terminó (estado: `{status.state}`)."
+        return f"The container for `{service}` started and exited (state: `{status.state}`)."
     if not status.is_healthy_or_no_healthcheck:
         return (
-            f"El contenedor de `{service}` está corriendo pero su healthcheck "
-            f"no pasa (estado: `{status.health}`)."
+            f"The container for `{service}` is running but its healthcheck is not "
+            f"passing (state: `{status.health}`)."
         )
-    return f"El contenedor de `{service}` está corriendo y sano."
+    return f"The container for `{service}` is running and healthy."
 
 
 def build_deployment_failure_error(compose_path: Path, service: str) -> DeploymentError:
-    """Arma un `DeploymentError` con el estado del contenedor y las últimas
-    `DEFAULT_LOG_TAIL_LINES` líneas de su log, tal como exige §4.6."""
+    """Assemble a `DeploymentError` carrying the container's state and the
+    last `DEFAULT_LOG_TAIL_LINES` lines of its log, as §4.6 requires."""
     status = get_service_status(compose_path, service)
     state_note = describe_service_state(status, service)
     tail = logs(compose_path, service, tail=DEFAULT_LOG_TAIL_LINES).strip()
-    tail = tail or "(sin salida en el log)"
+    tail = tail or "(no output in the log)"
 
-    steps = [f"Revisar el log completo: docker compose -f {compose_path} logs {service}"]
+    steps = [f"Read the full log: docker compose -f {compose_path} logs {service}"]
     if status is None or status.never_started:
-        # El log de ESTE servicio no va a decir nada útil: el problema está
-        # en la dependencia que lo bloquea, así que se apunta a mirar el
-        # conjunto antes de perder tiempo en un contenedor que nunca corrió.
+        # THIS service's log will say nothing useful: the problem is in the
+        # dependency blocking it, so point at the whole picture before anyone
+        # wastes time on a container that never ran.
         steps.insert(
-            0, f"Ver el estado de todos los servicios: docker compose -f {compose_path} ps"
+            0, f"See the state of every service: docker compose -f {compose_path} ps"
         )
-    steps.append(f"Reintentar tras corregir el problema: axion-wizard up {service}")
+    steps.append(f"Retry once the problem is fixed: axion-wizard up {service}")
 
     return DeploymentError(
-        what=f"El servicio `{service}` no llegó a estar operativo",
-        why=f"{state_note}\n\nÚltimas {DEFAULT_LOG_TAIL_LINES} líneas de su log:\n\n{tail}",
+        what=f"Service `{service}` never became operational",
+        why=f"{state_note}\n\nLast {DEFAULT_LOG_TAIL_LINES} lines of its log:\n\n{tail}",
         steps=steps,
     )

@@ -282,7 +282,7 @@ def test_build_deployment_failure_error_handles_empty_log(mocker) -> None:
         return_value=CommandResult(args=[], returncode=0, stdout="", stderr=""),
     )
     error = compose.build_deployment_failure_error(Path("docker-compose.yml"), "ollama")
-    assert "sin salida" in error.why
+    assert "no output" in error.why
 
 
 # --- never_started / describe_service_state ------------------------------------------
@@ -308,21 +308,21 @@ def test_never_started_false_when_running(mocker) -> None:
 
 def test_describe_service_state_when_never_created() -> None:
     text = compose.describe_service_state(None, "mattermost")
-    assert "ni siquiera se llegó a crear" in text
+    assert "was never even created" in text
     assert "mattermost" in text
 
 
 def test_describe_service_state_when_created_but_never_started() -> None:
     status = compose.ContainerStatus(service="mattermost", name="x", state="created", health=None)
     text = compose.describe_service_state(status, "mattermost")
-    assert "nunca llegó a arrancar" in text
+    assert "never started" in text
     assert "depends_on" in text
 
 
 def test_describe_service_state_when_exited() -> None:
     status = compose.ContainerStatus(service="mattermost", name="x", state="exited", health=None)
     text = compose.describe_service_state(status, "mattermost")
-    assert "arrancó y terminó" in text
+    assert "started and exited" in text
     assert "exited" in text
 
 
@@ -340,7 +340,7 @@ def test_describe_service_state_when_running_and_healthy() -> None:
         service="mattermost", name="x", state="running", health="healthy"
     )
     text = compose.describe_service_state(status, "mattermost")
-    assert "corriendo y sano" in text
+    assert "running and healthy" in text
 
 
 def test_failure_error_explains_a_service_that_never_started(mocker) -> None:
@@ -357,8 +357,8 @@ def test_failure_error_explains_a_service_that_never_started(mocker) -> None:
 
     error = compose.build_deployment_failure_error(Path("docker-compose.yml"), "mattermost")
 
-    assert "nunca llegó a arrancar" in error.why
-    assert "sin salida en el log" in error.why
+    assert "never started" in error.why
+    assert "no output in the log" in error.why
     # Con el servicio bloqueado, mirar `ps` de todo el stack va antes que
     # revisar el log de un contenedor que nunca corrió.
     assert "ps" in error.steps[0]
@@ -370,7 +370,7 @@ def test_failure_error_notes_when_the_service_was_never_created(mocker) -> None:
         return_value=CommandResult(args=[], returncode=0, stdout="[]", stderr=""),
     )
     error = compose.build_deployment_failure_error(Path("docker-compose.yml"), "mattermost")
-    assert "ni siquiera se llegó a crear" in error.why
+    assert "was never even created" in error.why
 
 
 def test_logs_reports_when_the_command_itself_fails(mocker) -> None:
@@ -385,7 +385,7 @@ def test_logs_reports_when_the_command_itself_fails(mocker) -> None:
     )
     output = compose.logs(Path("docker-compose.yml"), "mattermost")
     assert "no such service" in output
-    assert "no se pudo leer el log" in output
+    assert "could not read the log" in output
 
 
 def test_logs_command_failure_message_redacts_secrets(mocker) -> None:
@@ -424,5 +424,5 @@ def test_config_validate_rejects_invalid_compose(mocker) -> None:
         "axion_wizard.services.compose.run",
         return_value=CommandResult(args=[], returncode=1, stdout="", stderr="yaml: bad indent"),
     )
-    with pytest.raises(ConfigError, match="rechazó"):
+    with pytest.raises(ConfigError, match="rejected"):
         compose.config_validate(Path("docker-compose.yml"))

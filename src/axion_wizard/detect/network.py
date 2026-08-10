@@ -1,4 +1,4 @@
-"""IP LAN, MAC, CGNAT y puertos libres (§4.2)."""
+"""LAN IP, MAC, CGNAT and free ports (§4.2)."""
 
 from __future__ import annotations
 
@@ -34,11 +34,11 @@ class PortStatus:
     port: int
     protocol: str
     in_use: bool
-    used_by: str | None = None  # p.ej. "docker:mm-wireguard"
-    #: `False` cuando el sistema no dejó enumerar los sockets (ver
-    #: `PortScan.inspectable`). `in_use` es entonces un valor por defecto sin
-    #: información detrás, no una observación — quien decida algo a partir de
-    #: él tiene que distinguir "libre" de "no se pudo mirar".
+    used_by: str | None = None  # e.g. "docker:mm-wireguard"
+    #: `False` when the system would not let us enumerate the sockets (see
+    #: `PortScan.inspectable`). `in_use` is then a default with no information
+    #: behind it, not an observation — anyone deciding anything from it has to
+    #: tell "free" apart from "could not look".
     inspectable: bool = True
 
     @property
@@ -48,19 +48,19 @@ class PortStatus:
 
 @dataclass
 class PortScan:
-    """Puertos ocupados vistos por `psutil`, con la salvedad de si se pudo mirar.
+    """Busy ports as seen by `psutil`, plus whether we were allowed to look.
 
-    Existe porque enumerar sockets es una operación privilegiada en buena
-    parte de los sistemas: en Linux y macOS sin root, `psutil.net_connections`
-    lanza `AccessDenied`. Devolver conjuntos vacíos en ese caso —lo que se
-    hacía antes— es indistinguible de "no hay nada escuchando", y hacía que
-    `doctor`, que no eleva, reportara en rojo todos los puertos de un stack
-    perfectamente sano.
+    This exists because enumerating sockets is a privileged operation on most
+    systems: on Linux and macOS without root, `psutil.net_connections` raises
+    `AccessDenied`. Returning empty sets in that case — which is what happened
+    before — is indistinguishable from "nothing is listening", and made
+    `doctor`, which does not elevate, report every port of a perfectly healthy
+    stack in red.
     """
 
     tcp: set[int] = field(default_factory=set)
     udp: set[int] = field(default_factory=set)
-    #: `False` si el SO denegó la enumeración: `tcp`/`udp` no significan nada.
+    #: `False` if the OS denied enumeration: `tcp`/`udp` then mean nothing.
     inspectable: bool = True
 
     def contains(self, port: int, protocol: str) -> bool:
@@ -82,26 +82,26 @@ def list_interfaces() -> list[InterfaceInfo]:
 
 
 def get_default_route_ip(timeout: float = 2.0) -> str | None:
-    """IP de la interfaz que el SO usaría para salir a internet.
+    """IP of the interface the OS would use to reach the internet.
 
-    `connect()` en UDP no envía ningún paquete — solo hace que el kernel
-    resuelva qué interfaz local usaría para alcanzar ese destino, según su
-    tabla de rutas. Es la señal fiable de "interfaz principal", indistinta
-    de cómo se llame el adaptador.
+    A UDP `connect()` sends no packet — it only makes the kernel resolve which
+    local interface it would use to reach that destination, per its routing
+    table. It is the reliable signal for "primary interface", regardless of
+    what the adapter happens to be called.
 
-    Existe porque en cualquier máquina con Docker Desktop, WSL2 o Hyper-V
-    —el público objetivo de este wizard— `psutil.net_if_addrs()` casi
-    siempre enumera antes un vSwitch virtual (`vEthernet (Default Switch)`,
-    típicamente `172.x.x.x`) que la tarjeta de red real: tomar "el primero
-    con IP" daba una dirección solo alcanzable desde el propio host, nunca
-    desde el móvil ni otro equipo de la LAN — justo lo que necesita acceder
-    al panel de WireGuard o a Mattermost.
+    This exists because on any machine with Docker Desktop, WSL2 or Hyper-V —
+    this wizard's entire audience — `psutil.net_if_addrs()` almost always
+    enumerates a virtual vSwitch (`vEthernet (Default Switch)`, typically
+    `172.x.x.x`) before the real network card: taking "the first one with an
+    IP" produced an address reachable only from the host itself, never from a
+    phone or another machine on the LAN — which is precisely what needs to
+    reach the WireGuard panel or Mattermost.
     """
     with closing(socket.socket(socket.AF_INET, socket.SOCK_DGRAM)) as probe:
         try:
             probe.settimeout(timeout)
-            # 8.8.8.8:80 es solo un destino de referencia para resolver la
-            # ruta; no se establece conexión real ni se transmite nada.
+            # 8.8.8.8:80 is only a reference destination for resolving the
+            # route; no real connection is made and nothing is transmitted.
             probe.connect(("8.8.8.8", 80))
             return probe.getsockname()[0]
         except OSError:
@@ -121,8 +121,8 @@ def get_primary_interface(prefer_name: str | None = None) -> InterfaceInfo | Non
             if iface.ip == default_ip:
                 return iface
 
-    # Sin ruta por defecto resoluble (sandbox sin red, etc.): se cae al
-    # comportamiento anterior como último recurso, no como camino normal.
+    # With no resolvable default route (a sandbox with no network, say): fall
+    # back to the previous behaviour as a last resort, not as the normal path.
     for iface in interfaces:
         if iface.ip and not iface.ip.startswith("127."):
             return iface
@@ -130,7 +130,7 @@ def get_primary_interface(prefer_name: str | None = None) -> InterfaceInfo | Non
 
 
 async def get_public_ipv4(timeout: float = 5.0) -> str | None:
-    """IP pública saliente, forzando IPv4 (evita falsos CGNAT en hosts dual-stack)."""
+    """Outbound public IP, forcing IPv4 (avoids false CGNAT on dual-stack hosts)."""
     transport = httpx.AsyncHTTPTransport(local_address="0.0.0.0")
     async with httpx.AsyncClient(transport=transport, timeout=timeout) as client:
         try:
@@ -142,8 +142,9 @@ async def get_public_ipv4(timeout: float = 5.0) -> str | None:
 
 
 def parse_network_category(output: str) -> str | None:
-    """Extrae la categoría (`Public`/`Private`/`DomainAuthenticated`) de la
-    salida de `Get-NetConnectionProfile`, con o sin cabecera de tabla."""
+    """Extract the category (`Public`/`Private`/`DomainAuthenticated`) from
+    the output of `Get-NetConnectionProfile`, with or without a table
+    header."""
     for raw_line in output.splitlines():
         line = raw_line.strip()
         if not line or line.upper().startswith(("INTERFACEALIAS", "---", "NETWORKCATEGORY")):
@@ -157,13 +158,13 @@ def parse_network_category(output: str) -> str | None:
 def get_windows_network_category(
     interface_name: str | None = None, timeout: float = 10.0
 ) -> str | None:
-    """Categoría de red de Windows (`Public`/`Private`/`DomainAuthenticated`).
+    """Windows network category (`Public`/`Private`/`DomainAuthenticated`).
 
-    Importa porque el perfil "Public" aplica por defecto
-    `BlockInbound,AllowOutbound` en el Firewall de Windows — con *mirrored
-    networking* de WSL2 activo, eso basta para bloquear en silencio el
-    acceso LAN a los puertos que Docker Desktop publica, aunque las reglas
-    de firewall específicas del wizard estén bien puestas (§4.1/§6.5).
+    It matters because the "Public" profile applies
+    `BlockInbound,AllowOutbound` by default in the Windows Firewall — with
+    WSL2 *mirrored networking* active, that alone silently blocks LAN access
+    to the ports Docker Desktop publishes, even when the wizard's own firewall
+    rules are correctly in place (§4.1/§6.5).
     """
     if _platform.system() != "Windows":
         return None
@@ -184,25 +185,25 @@ def get_windows_network_category(
 
 
 def is_cgnat(public_ip: str | None, router_wan_ip: str | None) -> bool:
-    """No se puede leer el router de forma fiable, así que `router_wan_ip` lo
-    aporta el usuario copiándolo del panel de administración."""
+    """The router cannot be read reliably, so `router_wan_ip` is supplied by
+    the user, copied from its admin panel."""
     if not public_ip or not router_wan_ip:
         return False
     return public_ip.strip() != router_wan_ip.strip()
 
 
 def scan_bound_ports() -> PortScan:
-    """Puertos ocupados en este host, separados por protocolo.
+    """Busy ports on this host, split by protocol.
 
-    TCP y UDP se detectan de forma distinta a propósito: un socket UDP no
-    tiene estado `LISTEN` (psutil lo reporta como `NONE`), así que filtrar
-    por `status == CONN_LISTEN` — como haría el camino obvio — dejaría
-    fuera **todos** los sockets UDP, incluido el 51820 de WireGuard. Se
-    distingue por `conn.type` (SOCK_STREAM / SOCK_DGRAM) en su lugar.
+    TCP and UDP are detected differently on purpose: a UDP socket has no
+    `LISTEN` state (psutil reports it as `NONE`), so filtering on
+    `status == CONN_LISTEN` — the obvious approach — would leave out **every**
+    UDP socket, WireGuard's 51820 included. `conn.type` (SOCK_STREAM /
+    SOCK_DGRAM) is used to tell them apart instead.
 
-    Si el SO deniega la enumeración (Linux/macOS sin root), se devuelve un
-    `PortScan` con `inspectable=False` en vez de uno vacío: son cosas
-    distintas y confundirlas producía falsos negativos en `doctor`.
+    If the OS denies enumeration (Linux/macOS without root), a `PortScan` with
+    `inspectable=False` is returned rather than an empty one: they are
+    different things, and confusing them produced false negatives in `doctor`.
     """
     scan = PortScan()
     try:
@@ -219,25 +220,24 @@ def scan_bound_ports() -> PortScan:
             if conn.status == psutil.CONN_LISTEN:
                 scan.tcp.add(port)
         elif conn.type == socket.SOCK_DGRAM:
-            # Un socket UDP enlazado ya ocupa el puerto; no hay estado que mirar.
+            # A bound UDP socket already occupies the port; no state to check.
             scan.udp.add(port)
     return scan
 
 
 def bound_ports_by_protocol() -> dict[str, set[int]]:
-    """Vista de `scan_bound_ports` como diccionario, sin el dato de si se
-    pudo mirar. Se conserva para quien solo quiera los puertos; el camino
-    que necesita distinguir "libre" de "no se pudo comprobar" debe usar
-    `scan_bound_ports` directamente."""
+    """`scan_bound_ports` as a plain dict, dropping whether we could look.
+    Kept for callers that only want the ports; any path that needs to tell
+    "free" from "could not check" must use `scan_bound_ports` directly."""
     scan = scan_bound_ports()
     return {"tcp": scan.tcp, "udp": scan.udp}
 
 
 def check_ports_psutil(ports: list[tuple[int, str]] | None = None) -> list[PortStatus]:
-    """Puertos ocupados vistos desde este host (TCP en escucha y UDP enlazados).
+    """Busy ports as seen from this host (listening TCP and bound UDP).
 
-    No ve los publicados por contenedores de Docker Desktop (viven en otra
-    VM), ver `merge_docker_published_ports`.
+    It does not see those published by Docker Desktop containers (they live in
+    another VM) — see `merge_docker_published_ports`.
     """
     ports = ports if ports is not None else REQUIRED_PORTS
     scan = scan_bound_ports()
@@ -256,7 +256,7 @@ def check_ports_psutil(ports: list[tuple[int, str]] | None = None) -> list[PortS
 
 
 def parse_docker_ports_field(ports_field: str) -> list[tuple[int, str]]:
-    """Parsea el campo `Ports` de `docker ps`, p.ej.
+    """Parse the `Ports` field of `docker ps`, e.g.
     `0.0.0.0:443->443/tcp, 0.0.0.0:51820->51820/udp`."""
     results: list[tuple[int, str]] = []
     if not ports_field:
@@ -278,8 +278,8 @@ def parse_docker_ports_field(ports_field: str) -> list[tuple[int, str]]:
 def merge_docker_published_ports(
     statuses: list[PortStatus], docker_ps_output: list[dict]
 ) -> list[PortStatus]:
-    """Nota crítica de §4.2: bajo Docker Desktop, `psutil`/`ss` no ven los
-    puertos publicados por contenedores. Complementar siempre con
+    """Critical note from §4.2: under Docker Desktop, `psutil`/`ss` cannot see
+    ports published by containers. Always supplement with
     `docker ps --format json`."""
     published: dict[tuple[int, str], str] = {}
     for container in docker_ps_output:
@@ -297,8 +297,8 @@ def merge_docker_published_ports(
                     protocol=status.protocol,
                     in_use=True,
                     used_by=f"docker:{published[key]}",
-                    # Docker sí nos lo contó, así que este puerto concreto es
-                    # una observación real aunque `psutil` no pudiera mirar.
+                    # Docker did tell us, so this particular port is a real
+                    # observation even if `psutil` was not allowed to look.
                     inspectable=True,
                 )
             )
@@ -310,8 +310,8 @@ def merge_docker_published_ports(
 async def check_connectivity(
     targets: list[str] | None = None, timeout: float = 5.0
 ) -> dict[str, bool]:
-    """Alcanzabilidad de los hosts de los que dependen `docker pull` y
-    `ollama pull` más adelante en el flujo."""
+    """Reachability of the hosts that `docker pull` and `ollama pull` depend
+    on later in the flow."""
     targets = targets if targets is not None else CONNECTIVITY_TARGETS
     results: dict[str, bool] = {}
     async with httpx.AsyncClient(timeout=timeout) as client:

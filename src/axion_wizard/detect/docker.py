@@ -1,4 +1,4 @@
-"""Detección del motor Docker: versión, Compose v2 y contexto activo (§4.1)."""
+"""Docker engine detection: version, Compose v2 and active context (§4.1)."""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ from axion_wizard.utils.shell import CommandNotFoundError, CommandTimeoutError, 
 
 DESKTOP_CONTEXT_NAME = "desktop-linux"
 
-#: Cómo se le entrega la GPU a Ollama. Cada valor implica una imagen y una
-#: sección de compose distintas; `none` significa inferencia en CPU.
+#: How the GPU is handed to Ollama. Each value implies a different image and
+#: a different compose section; `none` means CPU inference.
 GPU_ACCELERATION_NONE = "none"
 GPU_ACCELERATION_NVIDIA = "nvidia"
 GPU_ACCELERATION_ROCM = "rocm"
@@ -67,8 +67,8 @@ def get_compose_version(timeout: float = 10.0) -> tuple[str | None, bool]:
 
 
 def parse_context_ls(output: str) -> list[dict]:
-    """`docker context ls --format json` puede emitir un array JSON completo
-    o un objeto JSON por línea según la versión de la CLI; soportamos ambos."""
+    """`docker context ls --format json` can emit a whole JSON array or one
+    JSON object per line depending on the CLI version; both are supported."""
     return parse_json_lines_or_array(output)
 
 
@@ -111,25 +111,24 @@ def gather_docker_info(timeout: float = 10.0) -> DockerInfo:
 
 
 def docker_gpu_passthrough_works(timeout: float = 60.0) -> bool:
-    """Prueba real de si Docker puede pasarle una GPU a un contenedor.
+    """An actual test of whether Docker can hand a GPU to a container.
 
-    Detectar la GPU con `nvidia-smi` (`detect.hardware.detect_gpus`) no
-    basta: el passthrough en Docker Desktop/WSL2 exige controlador, versión
-    de WSL2 y *compute capability* compatibles, y con una GPU vieja
-    (arquitectura Kepler o anterior, p.ej.) el hook de
-    `nvidia-container-cli` falla al arrancar CUALQUIER contenedor con
-    `--gpus`, aunque `nvidia-smi` la vea perfectamente:
+    Detecting the GPU with `nvidia-smi` (`detect.hardware.detect_gpus`) is not
+    enough: passthrough under Docker Desktop/WSL2 requires a compatible
+    driver, WSL2 version and *compute capability*, and with an old GPU
+    (Kepler architecture or earlier, say) the `nvidia-container-cli` hook
+    fails to start ANY container with `--gpus`, even though `nvidia-smi` sees
+    it perfectly well:
 
         nvidia-container-cli: initialization error: WSL environment
         detected but no adapters were found
 
-    Sin esta prueba, el compose reserva la GPU para `ollama` incondicional-
-    mente cuando hay una GPU presente, y ese contenedor se queda parado en
-    `created` para siempre — arrastrando en cascada a `fastapi` (depende de
-    él) y, si `mattermost` también estaba esperando algo, a `nginx`. Se
-    prueba con una imagen mínima (`busybox`), que se descarga si hace
-    falta; el timeout por defecto es generoso para cubrir esa descarga en
-    la primera ejecución.
+    Without this test, the compose file reserves the GPU for `ollama`
+    unconditionally whenever a GPU is present, and that container sits in
+    `created` forever — cascading into `fastapi` (which depends on it) and,
+    if `mattermost` was waiting on something too, into `nginx`. The probe uses
+    a minimal image (`busybox`), pulled if needed; the default timeout is
+    generous to cover that pull on the first run.
     """
     try:
         result = run(["docker", "run", "--rm", "--gpus", "all", "busybox", "true"], timeout=timeout)
@@ -139,17 +138,17 @@ def docker_gpu_passthrough_works(timeout: float = 60.0) -> bool:
 
 
 def docker_rocm_passthrough_works(timeout: float = 60.0) -> bool:
-    """Prueba real de si Docker puede pasarle una GPU AMD a un contenedor.
+    """An actual test of whether Docker can hand an AMD GPU to a container.
 
-    ROCm no pasa por el runtime de NVIDIA: `--gpus` no le sirve de nada. La
-    GPU se entrega como dos dispositivos del kernel, `/dev/kfd` (el driver de
-    cómputo) y `/dev/dri` (el nodo de render), así que la prueba tiene que ser
-    esa y no la de `docker_gpu_passthrough_works` — usar aquella daba siempre
-    negativo en equipos AMD perfectamente capaces, y la GPU se quedaba sin
-    usar sin que nada lo explicara.
+    ROCm does not go through NVIDIA's runtime: `--gpus` does nothing for it.
+    The GPU is handed over as two kernel devices, `/dev/kfd` (the compute
+    driver) and `/dev/dri` (the render node), so the probe has to be that one
+    and not `docker_gpu_passthrough_works` — using the latter always came back
+    negative on perfectly capable AMD machines, and the GPU went unused with
+    nothing to explain why.
 
-    Falla, correctamente, cuando el kernel no trae `amdgpu` o el usuario no
-    está en los grupos `video`/`render`.
+    It fails, correctly, when the kernel does not carry `amdgpu` or the user
+    is not in the `video`/`render` groups.
     """
     try:
         result = run(

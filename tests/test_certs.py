@@ -136,7 +136,7 @@ def test_describe_san_empty_when_extension_absent(tmp_path: Path) -> None:
 def test_generate_certificate_rejects_empty_host(tmp_path: Path) -> None:
     """Sin este guard, `cryptography` fallaba con un mensaje sobre longitudes
     de atributos X.509 que no le dice nada al usuario."""
-    with pytest.raises(ConfigError, match="No se indicó un host"):
+    with pytest.raises(ConfigError, match="No host was given"):
         certs.generate_certificate("", tmp_path / "c.crt", tmp_path / "c.key")
 
 
@@ -147,7 +147,7 @@ def test_generate_certificate_rejects_whitespace_only_host(tmp_path: Path) -> No
 
 def test_generate_certificate_rejects_overlong_host(tmp_path: Path) -> None:
     too_long = "a" * 65 + ".example.com"
-    with pytest.raises(ConfigError, match="excede"):
+    with pytest.raises(ConfigError, match="exceeds"):
         certs.generate_certificate(too_long, tmp_path / "c.crt", tmp_path / "c.key")
 
 
