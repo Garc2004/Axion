@@ -1,9 +1,8 @@
-"""Acceso a plantillas empaquetadas dentro del binario de PyInstaller (§7.2).
+"""Access to templates packaged inside the PyInstaller binary (§7.2).
 
-Nunca usar rutas relativas a `__file__`: dentro de un bundle `--onefile` esa
-ruta apunta a un directorio temporal distinto en cada ejecución.
-`importlib.resources` sí resuelve correctamente tanto en modo desarrollo
-como empaquetado.
+Never use paths relative to `__file__`: inside a `--onefile` bundle that path
+points at a different temporary directory on every run. `importlib.resources`
+resolves correctly both in development and when packaged.
 """
 
 from __future__ import annotations
@@ -17,7 +16,7 @@ _TEMPLATES_PACKAGE = "axion_wizard.templates"
 
 
 def read_template_text(relative_path: str) -> str:
-    """Lee `axion_wizard/templates/<relative_path>` como texto UTF-8."""
+    """Read `axion_wizard/templates/<relative_path>` as UTF-8 text."""
     resource = files(_TEMPLATES_PACKAGE).joinpath(relative_path)
     return resource.read_text(encoding="utf-8")
 
@@ -29,9 +28,9 @@ def read_template_bytes(relative_path: str) -> bytes:
 
 @contextmanager
 def template_filesystem_path(relative_path: str) -> Iterator[Path]:
-    """Contextmanager que da una ruta de filesystem real a un recurso
-    empaquetado, para herramientas (p.ej. `docker build`) que necesitan una
-    ruta y no un objeto file-like."""
+    """Context manager giving a real filesystem path to a packaged resource,
+    for tools (e.g. `docker build`) that need a path rather than a file-like
+    object."""
     resource = files(_TEMPLATES_PACKAGE).joinpath(relative_path)
     with as_file(resource) as path:
         yield path

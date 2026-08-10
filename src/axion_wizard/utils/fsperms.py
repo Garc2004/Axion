@@ -1,8 +1,8 @@
-"""Restringe un archivo al usuario actual (§6.2).
+"""Restrict a file to the current user (§6.2).
 
-`chmod 600` no tiene efecto real en Windows: ahí se aplica una ACL
-restringida vía `icacls`. Usado tanto para la clave privada del certificado
-como para `.env`/`wg.env`, que llevan secretos en claro.
+`chmod 600` has no real effect on Windows: there, a restricted ACL is applied
+via `icacls` instead. Used both for the certificate's private key and for
+`.env`/`wg.env`, which hold secrets in the clear.
 """
 
 from __future__ import annotations
@@ -20,12 +20,12 @@ def restrict_to_owner(path: Path, timeout: float = 15.0) -> None:
         username = os.environ.get("USERNAME", "")
         if not username:
             raise ConfigError(
-                what="No se pudo determinar el usuario de Windows actual",
+                what="Could not determine the current Windows user",
                 why=(
-                    f"La variable de entorno USERNAME no está definida; sin ella no se "
-                    f"puede restringir el ACL de {path.name}."
+                    f"The USERNAME environment variable is not set; without it the ACL "
+                    f"on {path.name} cannot be restricted."
                 ),
-                steps=["Verificar que la variable de entorno USERNAME esté definida."],
+                steps=["Check that the USERNAME environment variable is set."],
             )
         result = run(
             ["icacls", str(path), "/inheritance:r", "/grant:r", f"{username}:F"],
@@ -33,13 +33,13 @@ def restrict_to_owner(path: Path, timeout: float = 15.0) -> None:
         )
         if not result.ok:
             raise ConfigError(
-                what=f"icacls falló restringiendo permisos de {path}",
+                what=f"icacls failed while restricting permissions on {path}",
                 why=(
-                    f"{path.name} quedaría con los permisos por defecto de Windows, "
-                    "potencialmente legible por otros usuarios del sistema."
+                    f"{path.name} would be left with Windows' default permissions, "
+                    "potentially readable by other users on the system."
                 ),
                 steps=[
-                    f'Ejecutar manualmente: icacls "{path}" /inheritance:r '
+                    f'Run it by hand: icacls "{path}" /inheritance:r '
                     f'/grant:r "{username}:F"'
                 ],
             )

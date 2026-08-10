@@ -62,7 +62,7 @@ def run_set_webhook_token(state: GlobalState, token: str) -> None:
 
     token = _validated_token(
         token,
-        label="el token",
+        label="the token",
         source_hint="Copiar el token desde Mattermost: Integraciones → Webhooks salientes.",
     )
     env_path = state.project_dir / ".env"
@@ -90,7 +90,7 @@ def run_set_bot_token(state: GlobalState, token: str) -> None:
 
     token = _validated_token(
         token,
-        label="el token del bot",
+        label="the bot token",
         source_hint=(
             "Crear un bot en Mattermost (Integraciones → Cuentas de bot) y copiar su token."
         ),
@@ -374,7 +374,7 @@ def run_model_prompt(state: GlobalState, prompt: str) -> None:
 
     prompt = prompt.strip()
     try:
-        secret_utils.validate_env_value(prompt, label="las instrucciones")
+        secret_utils.validate_env_value(prompt, label="the instructions")
     except secret_utils.InvalidEnvValueError as exc:
         raise ConfigError(
             what="Las instrucciones contienen un carácter que rompería el .env",

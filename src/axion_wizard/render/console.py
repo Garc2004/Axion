@@ -1,4 +1,4 @@
-"""Instancia Rich compartida y tema de colores del wizard."""
+"""The wizard's shared Rich instance and colour theme."""
 
 from __future__ import annotations
 
@@ -9,29 +9,28 @@ import sys
 from rich.console import Console, RenderableType
 from rich.theme import Theme
 
-#: Codepage UTF-8 de Windows, para `SetConsoleOutputCP`.
+#: Windows UTF-8 codepage, for `SetConsoleOutputCP`.
 _WINDOWS_UTF8_CODEPAGE = 65001
 
 
 def configure_stdio_encoding() -> None:
-    """Fuerza UTF-8 en stdout/stderr antes de imprimir nada.
+    """Force UTF-8 on stdout/stderr before anything is printed.
 
-    La consola de Windows usa por defecto una codepage regional (cp1252 en
-    Europa occidental) que no puede representar buena parte de lo que este
-    wizard imprime: el `✓` del modelo recomendado (§5), los bloques Unicode
-    del QR de WireGuard (§4.8) y hasta los acentos de sus propios mensajes.
-    Sin esto, `models` y `wireguard add-client` no es que se vean mal — se
-    caen con `UnicodeEncodeError` a mitad de la salida.
+    The Windows console defaults to a regional codepage (cp1252 in western
+    Europe) that cannot represent much of what this wizard prints: the `✓` on
+    the recommended model (§5) and the Unicode blocks of the WireGuard QR
+    code (§4.8). Without this, `models` and `wireguard add-client` do not
+    merely look wrong — they die with `UnicodeEncodeError` mid-output.
 
-    Se hacen dos cosas distintas y complementarias: `reconfigure` evita el
-    error al codificar, y `SetConsoleOutputCP` hace que la consola además
-    los dibuje bien. `errors="replace"` deja el fallo como un carácter feo
-    en el peor caso, nunca como una excepción.
+    Two distinct, complementary things happen: `reconfigure` avoids the
+    encoding error, and `SetConsoleOutputCP` additionally makes the console
+    draw them correctly. `errors="replace"` leaves the worst case as an ugly
+    character rather than an exception.
     """
     for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
         if reconfigure is None:
-            continue  # p.ej. stdout capturado por pytest
+            continue  # e.g. stdout captured by pytest
         try:
             reconfigure(encoding="utf-8", errors="replace")
         except (OSError, ValueError):
@@ -48,25 +47,25 @@ configure_stdio_encoding()
 
 AXION_THEME = Theme(
     {
-        # --- Semántica de estado: mismo significado en cualquier pantalla ---------
+        # --- Status semantics: the same meaning on every screen -------------------
         "axion.ok": "bold green",
         "axion.warn": "bold yellow",
         "axion.error": "bold red",
         "axion.info": "bold cyan",
-        # --- Estructura: bordes, cabeceras y títulos, no estados -------------------
+        # --- Structure: borders, headers and titles, not states -------------------
         #
-        # Separado de "info" a propósito: "info" es para texto que el usuario
-        # debe leer como dato (p.ej. una URL); "accent" es para el andamiaje
-        # visual (bordes de tabla, cabeceras) que debe notarse sin competir
-        # por atención con el contenido.
+        # Kept apart from "info" on purpose: "info" is for text the user should
+        # read as data (a URL, say); "accent" is for the visual scaffolding
+        # (table borders, headers) that should register without competing with
+        # the content for attention.
         "axion.accent": "cyan",
         "axion.border": "cyan",
         "axion.heading": "bold cyan",
         "axion.label": "bold",
-        # --- Texto secundario y secretos --------------------------------------------
+        # --- Secondary text and secrets ---------------------------------------------
         "axion.dim": "grey62",
         "axion.secret": "grey42",
-        # --- Banner de sección: bloque con fondo, para un título por pantalla ------
+        # --- Section banner: a filled block, for one title per screen --------------
         "axion.title": "bold white on blue",
     }
 )
@@ -86,16 +85,17 @@ def set_no_color(no_color: bool) -> None:
 
 
 def render_to_ansi(renderable: RenderableType, width: int = 100) -> str:
-    """Pinta un renderable con el tema AXION y devuelve el texto con ANSI.
+    """Render a renderable with the AXION theme and return ANSI text.
 
-    Existe por la TUI. Textual dibuja su `RichLog` con una `Console` propia,
-    que no conoce el tema `axion.*`: escribir ahí un `Panel` que use
-    `axion.label` revienta con `MissingStyle` — no se ve mal, se cae.
+    This exists for the TUI. Textual draws its `RichLog` with a `Console` of
+    its own, which does not know the `axion.*` theme: writing a `Panel` that
+    uses `axion.label` into it blows up with `MissingStyle` — it does not look
+    wrong, it crashes.
 
-    Resolviendo el tema aquí, donde está definido, la TUI solo tiene que
-    reproducir los colores ya resueltos. Es lo que permite que las dos
-    interfaces compartan un mismo renderizador (`render_closing_summary`)
-    en vez de reescribir su contenido a mano en cada una.
+    Resolving the theme here, where it is defined, leaves the TUI with nothing
+    to do but replay the already-resolved colours. That is what lets the two
+    interfaces share one renderer (`render_closing_summary`) instead of
+    rewriting its content by hand in each.
     """
     buffer = Console(
         theme=AXION_THEME,

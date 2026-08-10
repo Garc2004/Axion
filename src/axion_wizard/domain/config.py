@@ -1,17 +1,17 @@
-"""Modelo Pydantic de la configuración completa del wizard (§4.3).
+"""Pydantic model of the wizard's complete configuration (§4.3).
 
-Los secretos (`postgres_password`, `wireguard_admin_password`) se guardan
-como `SecretStr` para que Pydantic los enmascare en `repr()`/`str()` por
-defecto — nunca deben aparecer en consola ni en logs (§9). Las tags de
-imagen (§6.4) están deliberadamente fuera de este modelo: no son
-configurables por el usuario, viven en `axion_wizard.domain.images`.
+Secrets (`postgres_password`, `wireguard_admin_password`) are held as
+`SecretStr` so Pydantic masks them in `repr()`/`str()` by default — they must
+never reach the console or the logs (§9). Image tags (§6.4) are deliberately
+outside this model: they are not user-configurable and live in
+`axion_wizard.domain.images`.
 
-La contraseña del panel viaja aquí **en claro**, no como hash. No es un
-descuido: wg-easy v15 la quiere así en `INIT_PASSWORD` y la hashea ella al
-arrancar. Tenerla en claro además arregla algo que con la v14 no tenía
-arreglo — el paso 8 podía guardar el hash pero no volver a deducir la
-contraseña, así que tenía que pedírsela otra vez al usuario para dar de alta
-el primer cliente.
+The panel password travels here **in the clear**, not as a hash. That is not
+an oversight: wg-easy v15 wants it that way in `INIT_PASSWORD` and hashes it
+itself on startup. Having it in the clear also fixes something that had no
+fix under v14 — step 8 could store the hash but never recover the password
+from it, so it had to ask the user for it a second time in order to enrol the
+first client.
 """
 
 from __future__ import annotations
@@ -41,20 +41,20 @@ class WireguardVariant(StrEnum):
 
 
 class AxionConfig(BaseModel):
-    """Configuración completa necesaria para renderizar y desplegar el stack.
+    """Everything needed to render and deploy the stack.
 
-    Se construye una sola vez, al final del paso 3, después de que el
-    usuario confirma el resumen — de ahí que sea inmutable (`frozen=True`).
+    Built exactly once, at the end of step 3, after the user confirms the
+    summary — hence immutable (`frozen=True`).
     """
 
     model_config = ConfigDict(frozen=True)
 
     access_mode: AccessMode
-    host: str = Field(..., description="IP LAN o dominio de acceso, según access_mode.")
+    host: str = Field(..., description="LAN IP or access domain, per access_mode.")
     wireguard_variant: WireguardVariant
     postgres_password: SecretStr
     wireguard_admin_username: str = Field(
-        ..., description="Usuario administrador del panel wg-easy (v15 lo exige)."
+        ..., description="Admin username for the wg-easy panel (v15 requires one)."
     )
     wireguard_admin_password: SecretStr
     ollama_model: str
@@ -65,7 +65,7 @@ class AxionConfig(BaseModel):
     def _host_not_empty(cls, value: str) -> str:
         value = value.strip()
         if not value:
-            raise ValueError("host no puede estar vacío")
+            raise ValueError("host cannot be empty")
         return value
 
     @field_validator("ollama_model")
@@ -73,7 +73,7 @@ class AxionConfig(BaseModel):
     def _ollama_model_not_empty(cls, value: str) -> str:
         value = value.strip()
         if not value:
-            raise ValueError("ollama_model no puede estar vacío")
+            raise ValueError("ollama_model cannot be empty")
         return value
 
     @field_validator("postgres_password")
@@ -83,21 +83,21 @@ class AxionConfig(BaseModel):
         breaking_chars = set(raw) & set("/+=")
         if breaking_chars:
             raise ValueError(
-                f"postgres_password contiene {sorted(breaking_chars)!r}, que rompe la URL "
-                "postgres://user:pass@host:port/db — usar secrets.token_hex, no base64"
+                f"postgres_password contains {sorted(breaking_chars)!r}, which breaks the "
+                "postgres://user:pass@host:port/db URL — use secrets.token_hex, not base64"
             )
         return value
 
     @field_validator("wireguard_admin_password")
     @classmethod
     def _wireguard_password_is_usable(cls, value: SecretStr) -> SecretStr:
-        """Las mismas reglas que el prompt del paso 3, aplicadas otra vez aquí.
+        """The same rules as step 3's prompt, applied again here.
 
-        El prompt es el sitio amable para fallar, pero no es el único camino
-        hasta este modelo: `--unattended` lo construye desde un `axion.toml`
-        y la TUI desde su formulario. Validar en el modelo es lo que garantiza
-        que ninguno de los tres pueda escribir un `INIT_PASSWORD` que wg-easy
-        vaya a aceptar al crear la cuenta y a rechazar al hacer login.
+        The prompt is the kind place to fail, but it is not the only route to
+        this model: `--unattended` builds it from an `axion.toml` and the TUI
+        from its form. Validating in the model is what guarantees none of the
+        three can write an `INIT_PASSWORD` that wg-easy will accept when
+        creating the account and reject at login.
         """
         validate_wireguard_password(value.get_secret_value())
         return value
@@ -111,16 +111,16 @@ class AxionConfig(BaseModel):
 
     @model_validator(mode="after")
     def _register_secrets_for_redaction(self) -> AxionConfig:
-        """Da de alta los secretos de esta configuración para que `redact()`
-        los enmascare en cualquier salida (§9), incluida la que el wizard no
-        genera —logs de contenedores, stderr de Docker— donde aparecen
-        incrustados en medio de otro texto."""
+        """Register this configuration's secrets so `redact()` masks them in
+        any output (§9), including output the wizard did not generate —
+        container logs, Docker's stderr — where they appear embedded in the
+        middle of other text."""
         register_secret(self.postgres_password.get_secret_value())
         register_secret(self.wireguard_admin_password.get_secret_value())
         return self
 
 
 def describe_forbidden_wireguard_password_chars() -> dict[str, str]:
-    """Reexporta los motivos de rechazo de `utils.secrets` para mostrarlos en
-    el prompt interactivo del paso 3 sin duplicar la tabla."""
+    """Re-export the rejection reasons from `utils.secrets` so step 3's
+    interactive prompt can show them without duplicating the table."""
     return dict(FORBIDDEN_PASSWORD_CHAR_REASONS)

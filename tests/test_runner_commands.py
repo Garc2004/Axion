@@ -312,7 +312,7 @@ def test_set_webhook_token_rejects_forbidden_char(tmp_path: Path) -> None:
     _project_with_compose(tmp_path)
     result = runner.invoke(app, ["--project-dir", str(tmp_path), "set-webhook-token", "has$dollar"])
     assert result.exit_code == 1
-    assert "expansión de variable" in result.stderr
+    assert "variable expansion" in result.stderr
 
 
 def test_set_webhook_token_dry_run_does_not_write_or_deploy(tmp_path: Path, mocker) -> None:
@@ -550,7 +550,7 @@ def test_model_prompt_rejects_a_character_that_would_break_the_env(tmp_path: Pat
         app, ["--project-dir", str(project), "model", "prompt", "usa $VARIABLE"]
     )
     assert result.exit_code == 1
-    assert "expansión de variable" in result.stderr
+    assert "variable expansion" in result.stderr
 
 
 def test_model_set_rejects_an_empty_name(tmp_path: Path) -> None:
@@ -604,7 +604,7 @@ def test_set_bot_token_rejects_a_character_that_breaks_the_env(tmp_path: Path) -
     project = _project_with_compose(tmp_path)
     result = runner.invoke(app, ["--project-dir", str(project), "set-bot-token", "tok$en"])
     assert result.exit_code == 1
-    assert "expansión de variable" in result.stderr
+    assert "variable expansion" in result.stderr
 
 
 def test_set_bot_token_dry_run_writes_nothing(tmp_path: Path, mocker) -> None:

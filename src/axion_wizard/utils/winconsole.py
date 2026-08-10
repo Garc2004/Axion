@@ -1,17 +1,17 @@
-"""Mantiene abierta la ventana de consola cuando el proceso es su dueño.
+"""Keep the console window open when this process owns it.
 
-En Windows, un proceso al que se le *crea* la consola —doble clic desde el
-Explorador, o el relanzamiento elevado por UAC— la pierde en el instante en
-que termina: conhost destruye la ventana junto con el último proceso adjunto.
-Desde fuera eso es indistinguible de un cierre inesperado: la ventana
-parpadea y desaparece sin error, sin traceback y sin código de salida
-visible, aunque el programa haya terminado perfectamente.
+On Windows, a process that has a console *created* for it — double-clicked
+from Explorer, or relaunched elevated by UAC — loses it the instant it exits:
+conhost destroys the window along with the last attached process. From the
+outside that is indistinguishable from a crash: the window blinks and
+vanishes with no error, no traceback and no visible exit code, even though
+the program finished perfectly.
 
-Solo se pausa si se cumplen las tres condiciones a la vez: la consola es
-nuestra (`GetConsoleProcessList` devuelve 1), hay un humano al otro lado
-(stdin es una TTY) y nadie lo ha desactivado (`AXION_NO_PAUSE`). Así ni CI
-ni una tubería (`axion-wizard doctor | tee log.txt`) se quedan colgados
-esperando un Enter que nunca va a llegar.
+The pause only happens when all three conditions hold at once: the console is
+ours, there is a human on the other end (stdin is a TTY), and nobody has
+turned it off (`AXION_NO_PAUSE`). That way neither CI nor a pipe
+(`axion-wizard doctor | tee log.txt`) hangs waiting on an Enter that will
+never come.
 """
 
 from __future__ import annotations
@@ -22,33 +22,33 @@ import sys
 
 import psutil
 
-#: Escape para desactivar la pausa desde fuera (CI, wrappers, scripts).
+#: Escape hatch to disable the pause from outside (CI, wrappers, scripts).
 NO_PAUSE_ENV_VAR = "AXION_NO_PAUSE"
 
-PAUSE_PROMPT = "\nPulsa Enter para cerrar esta ventana… "
+PAUSE_PROMPT = "\nPress Enter to close this window… "
 
-#: Huecos del buffer de `GetConsoleProcessList`. Una consola normal tiene un
-#: puñado de procesos adjuntos; 32 sobra y evita una segunda llamada.
+#: Slots in the `GetConsoleProcessList` buffer. A normal console has a
+#: handful of attached processes; 32 is plenty and avoids a second call.
 _PROCESS_LIST_BUFFER_SIZE = 32
 
 _pause_enabled = True
 
 
 def disable_pause() -> None:
-    """Desactiva la pausa para lo que reste de proceso.
+    """Disable the pause for the rest of this process.
 
-    Lo usa el proceso padre tras relanzarse elevado: la ventana del hijo ya
-    pausa por su cuenta, y pedir dos veces Enter en dos ventanas distintas
-    para una sola ejecución es peor que no pausar.
+    Used by the parent after relaunching elevated: the child's window already
+    pauses on its own, and asking for Enter twice in two different windows for
+    a single run is worse than not pausing at all.
     """
     global _pause_enabled
     _pause_enabled = False
 
 
 def console_process_ids() -> list[int]:
-    """PIDs adjuntos a nuestra consola; lista vacía si no hay o no se puede.
+    """PIDs attached to our console; empty list if there is none or it fails.
 
-    Nunca lanza: sin consola, `GetConsoleProcessList` devuelve 0.
+    Never raises: with no console, `GetConsoleProcessList` returns 0.
     """
     if sys.platform != "win32":
         return []
@@ -74,13 +74,13 @@ def _executable_of(pid: int) -> str | None:
 
 
 def _own_executable() -> str | None:
-    """El ejecutable de este proceso.
+    """This process's own executable.
 
-    Función aparte, y sin `os.getpid()`, para que los tests puedan sustituirla
-    sin tocar nada global: parchear `winconsole.os.getpid` falsea `os.getpid`
-    para *todo* el proceso —`winconsole.os` es el módulo `os`— incluida la
-    factoría de temporales de pytest, que lo usa para nombrar y bloquear sus
-    directorios. Hacerlo disparaba la suite de 25 s a más de una hora.
+    A separate function, and without `os.getpid()`, so tests can substitute it
+    without touching anything global: patching `winconsole.os.getpid` fakes
+    `os.getpid` for the *whole* process — `winconsole.os` is the `os` module —
+    including pytest's temp-directory factory, which uses it to name and lock
+    its directories. Doing so blew the 25-second suite out to over an hour.
     """
     try:
         return os.path.normcase(psutil.Process().exe() or "")
@@ -89,23 +89,23 @@ def _own_executable() -> str | None:
 
 
 def owns_its_console() -> bool:
-    """`True` si la consola es exclusivamente nuestra y morirá con nosotros.
+    """`True` if the console is exclusively ours and will die with us.
 
-    El criterio es que *todo* proceso adjunto corra el mismo ejecutable que
-    nosotros. Si hay alguno distinto —`cmd.exe`, `powershell.exe`,
-    `bash.exe`, `WindowsTerminal.exe`— es que nos escribieron desde un shell
-    que sobrevive a nuestra salida, y ahí pausar solo estorba.
+    The criterion is that *every* attached process runs the same executable we
+    do. If any of them differs — `cmd.exe`, `powershell.exe`, `bash.exe`,
+    `WindowsTerminal.exe` — we were invoked from a shell that outlives our
+    exit, and pausing there only gets in the way.
 
-    **No basta con contar procesos.** La versión anterior comprobaba
-    `GetConsoleProcessList() == 1`, que es el truco habitual, y en el binario
-    distribuido no se cumplía nunca: PyInstaller `--onefile` arranca *dos*
-    procesos —el bootloader, que descomprime el bundle en un temporal, y el
-    hijo que ejecuta el código Python— y los dos quedan adjuntos a la misma
-    consola. Un `.exe` empaquetado ve siempre 2 como mínimo, así que la pausa
-    no llegaba a aplicarse jamás y la ventana seguía cerrándose sola.
+    **Counting processes is not enough.** The previous version checked
+    `GetConsoleProcessList() == 1`, which is the usual trick, and in the
+    distributed binary it was never true: PyInstaller `--onefile` starts *two*
+    processes — the bootloader, which unpacks the bundle into a temp dir, and
+    the child that runs the Python code — and both stay attached to the same
+    console. A packaged `.exe` always sees at least 2, so the pause never
+    applied and the window kept closing on its own.
 
-    Comparar por ejecutable, y no contar, distingue esos dos procesos
-    nuestros de un shell ajeno sin depender de cuántos sean.
+    Comparing by executable rather than counting tells those two processes of
+    ours apart from a foreign shell without depending on how many there are.
     """
     pids = console_process_ids()
     if not pids:
@@ -118,8 +118,8 @@ def owns_its_console() -> bool:
     for pid in pids:
         executable = _executable_of(pid)
         if executable is None:
-            # Un proceso que ya murió entre la llamada y la consulta no dice
-            # nada; uno que no podemos identificar, sí: podría ser el shell.
+            # A process that died between the call and the query tells us
+            # nothing; one we cannot identify does: it could be the shell.
             if psutil.pid_exists(pid):
                 return False
             continue
@@ -136,7 +136,7 @@ def _stdin_is_interactive() -> bool:
 
 
 def should_pause() -> bool:
-    """Las tres condiciones, en orden de coste creciente."""
+    """The three conditions, in order of increasing cost."""
     if not _pause_enabled:
         return False
     if os.environ.get(NO_PAUSE_ENV_VAR):
@@ -147,11 +147,11 @@ def should_pause() -> bool:
 
 
 def pause_if_console_would_close(prompt: str = PAUSE_PROMPT) -> None:
-    """Espera un Enter antes de dejar morir la ventana.
+    """Wait for an Enter before letting the window die.
 
-    El prompt va a stderr, no a stdout: quien redirija la salida del wizard
-    a un archivo no quiere este mensaje dentro (y si la redirige, tampoco
-    llegamos aquí, porque stdin/stdout dejan de ser TTY).
+    The prompt goes to stderr, not stdout: anyone redirecting the wizard's
+    output to a file does not want this message inside it (and if they do
+    redirect, we never get here anyway, because stdin/stdout stop being TTYs).
     """
     if not should_pause():
         return
@@ -160,4 +160,4 @@ def pause_if_console_would_close(prompt: str = PAUSE_PROMPT) -> None:
         sys.stderr.flush()
         sys.stdin.readline()
     except (OSError, ValueError, EOFError, KeyboardInterrupt):
-        pass  # Ctrl-C o stdin cerrado: cerrar sin más es exactamente lo pedido.
+        pass  # Ctrl-C or closed stdin: just closing is exactly what was asked.

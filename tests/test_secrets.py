@@ -27,7 +27,7 @@ def test_validate_wireguard_password_rejects_forbidden_chars(char: str) -> None:
 
 
 def test_validate_wireguard_password_explains_why() -> None:
-    with pytest.raises(sec.WeakPasswordError, match="expansión de variable"):
+    with pytest.raises(sec.WeakPasswordError, match="variable expansion"):
         sec.validate_wireguard_password("has$dollar")
 
 
@@ -38,13 +38,13 @@ def test_validate_wireguard_password_accepts_safe_password() -> None:
 @pytest.mark.parametrize("char", ["$", "`", "!"])
 def test_validate_env_value_rejects_forbidden_chars(char: str) -> None:
     with pytest.raises(sec.InvalidEnvValueError) as exc_info:
-        sec.validate_env_value(f"token{char}rest", label="el token")
+        sec.validate_env_value(f"token{char}rest", label="the token")
     assert exc_info.value.char == char
 
 
 def test_validate_env_value_uses_the_given_label() -> None:
-    with pytest.raises(sec.InvalidEnvValueError, match="^el token no puede contener"):
-        sec.validate_env_value("has$dollar", label="el token")
+    with pytest.raises(sec.InvalidEnvValueError, match="^the token cannot contain"):
+        sec.validate_env_value("has$dollar", label="the token")
 
 
 def test_validate_env_value_accepts_a_safe_value() -> None:

@@ -1,10 +1,10 @@
-"""Persistencia del progreso del wizard, para reanudar una instalación
-interrumpida desde el último paso completado.
+"""Persisting the wizard's progress, so an interrupted install resumes from
+the last completed step.
 
-Se guarda en `.axion-wizard-state.json` dentro del `project_dir` (§4,
-arquitectura). Deliberadamente no persiste secretos: solo el nombre de cada
-paso, si terminó bien, y un mensaje corto — los valores reales (contraseñas,
-hashes) viven en `.env`/`wg.env`, no aquí.
+Stored in `.axion-wizard-state.json` inside the `project_dir` (§4,
+architecture). It deliberately persists no secrets: only each step's name,
+whether it finished cleanly, and a short message — the real values
+(passwords, tokens) live in `.env`/`wg.env`, not here.
 """
 
 from __future__ import annotations
@@ -46,9 +46,9 @@ class WizardState:
         self.completed_steps = [s for s in self.completed_steps if s.name != step_name]
 
     def reset_from(self, step_name: str, ordered_step_names: list[str]) -> None:
-        """Descarta el estado de `step_name` en adelante — para cuando el
-        usuario fuerza re-ejecutar un paso ya completado y todo lo que
-        depende de él debe considerarse potencialmente inválido también."""
+        """Discard the state from `step_name` onwards — for when a completed
+        step is re-run and everything that was built on top of it has to be
+        treated as potentially invalid too."""
         if step_name not in ordered_step_names:
             return
         to_drop = set(ordered_step_names[ordered_step_names.index(step_name) :])
@@ -60,9 +60,9 @@ def state_path(project_dir: Path) -> Path:
 
 
 def load_state(project_dir: Path) -> WizardState:
-    """Nunca lanza: un archivo de estado ausente, corrupto, o de un schema
-    desconocido se trata como "sin progreso previo" en vez de bloquear al
-    usuario — el estado es una optimización, no una fuente de verdad crítica."""
+    """Never raises: a missing, corrupt, or unknown-schema state file is
+    treated as "no previous progress" rather than blocking the user — this
+    state is an optimisation, not a critical source of truth."""
     path = state_path(project_dir)
     if not path.exists():
         return WizardState()
@@ -82,20 +82,20 @@ def load_state(project_dir: Path) -> WizardState:
 
 
 def save_state(project_dir: Path, state: WizardState) -> None:
-    """Persiste el progreso de forma atómica.
+    """Persist the progress atomically.
 
-    Se escribe primero a un temporal en el mismo directorio y luego se hace
-    `os.replace`, que es atómico. Escribir directamente sobre el archivo
-    definitivo dejaría una ventana en la que una interrupción —justo el
-    escenario para el que existe este archivo— lo dejaría truncado, y el
-    wizard perdería todo el progreso al reanudar.
+    Written first to a temporary file in the same directory, then moved with
+    `os.replace`, which is atomic. Writing straight over the final file would
+    leave a window in which an interruption — precisely the scenario this file
+    exists for — would truncate it, and the wizard would lose all its progress
+    on resume.
     """
     project_dir.mkdir(parents=True, exist_ok=True)
     path = state_path(project_dir)
     payload = json.dumps(asdict(state), indent=2, ensure_ascii=False) + "\n"
 
-    # El temporal debe vivir en el mismo directorio: `os.replace` solo es
-    # atómico dentro de un mismo sistema de archivos.
+    # The temporary file has to live in the same directory: `os.replace` is
+    # only atomic within a single filesystem.
     with tempfile.NamedTemporaryFile(
         mode="w",
         encoding="utf-8",
@@ -112,17 +112,17 @@ def save_state(project_dir: Path, state: WizardState) -> None:
     try:
         os.replace(temp_path, path)
     except OSError:
-        # Sin esto, cada intento fallido —un antivirus con el archivo abierto,
-        # el disco lleno— dejaba un `.axion-wizard-state.json.*.tmp` suelto en
-        # el directorio del proyecto, y el usuario no tiene forma de saber que
-        # son basura nuestra.
+        # Without this, every failed attempt — antivirus holding the file
+        # open, a full disk — left a stray `.axion-wizard-state.json.*.tmp` in
+        # the project directory, and the user has no way to know it is our
+        # litter.
         temp_path.unlink(missing_ok=True)
         raise
 
 
 def next_pending_step(ordered_step_names: list[str], state: WizardState) -> str | None:
-    """El primer paso, en orden, que no está marcado como completado
-    exitosamente — el punto desde el que `install` reanuda."""
+    """The first step, in order, not marked as successfully completed — the
+    point `install` resumes from."""
     for name in ordered_step_names:
         if not state.is_complete(name):
             return name

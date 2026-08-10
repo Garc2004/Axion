@@ -1,13 +1,13 @@
-"""Subprocess seguro con streaming de salida.
+"""Safe subprocess execution with output streaming.
 
-Reglas de §6.3 de la spec:
-- Siempre `subprocess.run([...], shell=False)` con lista de argumentos, nunca
-  `os.system` ni cadenas armadas a mano.
-- Para comandos que deben correr dentro de WSL desde Windows: prefijar con
+Rules from §6.3 of the spec:
+- Always `subprocess.run([...], shell=False)` with an argument list, never
+  `os.system` or hand-assembled strings.
+- For commands that must run inside WSL from Windows: prefix with
   `["wsl.exe", "-d", distro, "--", ...]`.
-- `encoding="utf-8", errors="replace"` siempre — la consola de Windows puede
-  entregar cp1252 y hacer explotar el decode.
-- Timeout explícito en toda invocación; ningún subprocess sin límite.
+- `encoding="utf-8", errors="replace"` always — the Windows console can hand
+  back cp1252 and blow up the decode.
+- An explicit timeout on every invocation; no subprocess without a limit.
 """
 
 from __future__ import annotations
@@ -23,16 +23,16 @@ DEFAULT_TIMEOUT = 30.0
 
 
 class CommandNotFoundError(RuntimeError):
-    """El ejecutable no existe en PATH (ni en el WSL de destino)."""
+    """The executable is not on PATH (nor in the target WSL distro)."""
 
 
 class CommandTimeoutError(RuntimeError):
-    """El comando excedió el timeout permitido."""
+    """The command exceeded its allowed timeout."""
 
     def __init__(self, command_args: Sequence[str], timeout: float) -> None:
         self.command_args = list(command_args)
         self.timeout = timeout
-        super().__init__(f"timeout de {timeout}s excedido ejecutando: {' '.join(command_args)}")
+        super().__init__(f"{timeout}s timeout exceeded running: {' '.join(command_args)}")
 
 
 @dataclass
@@ -48,7 +48,7 @@ class CommandResult:
 
 
 def wsl_prefix(args: Sequence[str], distro: str | None = None) -> list[str]:
-    """Prefija `args` para que corran dentro de WSL desde un host Windows."""
+    """Prefix `args` so they run inside WSL from a Windows host."""
     prefix = ["wsl.exe"]
     if distro:
         prefix += ["-d", distro]
@@ -64,10 +64,10 @@ def run(
     env: dict[str, str] | None = None,
     input_text: str | None = None,
 ) -> CommandResult:
-    """Ejecuta un comando de forma segura y devuelve stdout/stderr decodificados.
+    """Run a command safely and return decoded stdout/stderr.
 
-    Nunca usa `shell=True`. Lanza `CommandNotFoundError` si el ejecutable no
-    existe y `CommandTimeoutError` si excede `timeout`.
+    Never uses `shell=True`. Raises `CommandNotFoundError` if the executable
+    does not exist and `CommandTimeoutError` if it exceeds `timeout`.
     """
     args = list(args)
     try:
@@ -83,7 +83,7 @@ def run(
             errors="replace",
         )
     except FileNotFoundError as exc:
-        raise CommandNotFoundError(f"ejecutable no encontrado: {args[0]!r}") from exc
+        raise CommandNotFoundError(f"executable not found: {args[0]!r}") from exc
     except subprocess.TimeoutExpired as exc:
         raise CommandTimeoutError(args, timeout) from exc
 
@@ -108,8 +108,8 @@ def run_streaming(
     cwd: str | None = None,
     env: dict[str, str] | None = None,
 ) -> CommandResult:
-    """Ejecuta un comando de larga duración, invocando `on_line` por cada línea
-    de stdout+stderr combinados a medida que llegan (para barras de progreso)."""
+    """Run a long-lived command, invoking `on_line` for each line of combined
+    stdout+stderr as it arrives (for progress bars)."""
     args = list(args)
     try:
         proc = subprocess.Popen(
@@ -124,7 +124,7 @@ def run_streaming(
             bufsize=1,
         )
     except FileNotFoundError as exc:
-        raise CommandNotFoundError(f"ejecutable no encontrado: {args[0]!r}") from exc
+        raise CommandNotFoundError(f"executable not found: {args[0]!r}") from exc
 
     lines: list[str] = []
     finished_cleanly = False
@@ -150,15 +150,14 @@ _STREAM_EOF = object()
 def _iter_lines_with_timeout(
     proc: subprocess.Popen, args: list[str], timeout: float
 ) -> Iterator[str]:
-    """Itera las líneas de `proc.stdout` respetando un deadline global real.
+    """Iterate the lines of `proc.stdout` against a real global deadline.
 
-    Iterar el pipe directamente (`for line in proc.stdout`) haría que el
-    timeout solo pudiera comprobarse *entre* líneas: un proceso que se
-    cuelga sin escribir nada bloquearía para siempre, que es justo lo que
-    §6.3 prohíbe. Se lee en un hilo aparte y se espera en una cola con
-    timeout, para poder abortar aunque no llegue una sola línea. Se usa un
-    hilo (y no `selectors`) porque en Windows no se puede hacer `select()`
-    sobre un pipe.
+    Iterating the pipe directly (`for line in proc.stdout`) would only let the
+    timeout be checked *between* lines: a process that hangs without writing
+    anything would block forever, which is exactly what §6.3 forbids. Instead
+    a separate thread reads, and this waits on a queue with a timeout, so it
+    can abort even if not one line ever arrives. A thread (rather than
+    `selectors`) because on Windows you cannot `select()` on a pipe.
     """
     assert proc.stdout is not None
     line_queue: queue.Queue[object] = queue.Queue()
@@ -187,34 +186,33 @@ def _iter_lines_with_timeout(
         yield item  # type: ignore[misc]
 
 
-#: Margen para que un proceso que ya cerró stdout acabe de salir por su
-#: cuenta antes de matarlo. Es la diferencia entre leer su código de salida
-#: real y sustituirlo por uno de señal.
+#: Grace period for a process that has already closed stdout to finish
+#: exiting on its own before being killed. It is the difference between
+#: reading its real exit code and replacing it with a signal's.
 _GRACEFUL_EXIT_TIMEOUT = 5.0
 
 
 def _terminate(proc: subprocess.Popen, *, expect_exit: bool = False) -> None:
-    """Se asegura de que el proceso quede muerto y libera el pipe.
+    """Make sure the process is dead and release the pipe.
 
-    Hay dos caminos, y confundirlos costaba el código de salida:
+    There are two paths, and confusing them cost the exit code:
 
-    - **Abortando** (`expect_exit=False`, p.ej. tras un timeout): primero
-      `kill()`, después `close()`. Cerrar el pipe mientras el hilo lector
-      sigue bloqueado en una lectura no lo interrumpe — `close()` se queda
-      esperando a que esa lectura termine, así que un proceso colgado
-      seguiría bloqueando aquí y el timeout no serviría de nada. Matando
-      primero, el hijo cierra su extremo, el lector recibe EOF y `close()`
-      retorna al instante.
+    - **Aborting** (`expect_exit=False`, e.g. after a timeout): `kill()`
+      first, `close()` after. Closing the pipe while the reader thread is
+      still blocked on a read does not interrupt it — `close()` waits for that
+      read to finish, so a hung process would still block here and the timeout
+      would achieve nothing. Killing first makes the child close its end, the
+      reader gets EOF, and `close()` returns immediately.
 
-    - **Terminación normal** (`expect_exit=True`, ya llegó el EOF del pipe):
-      **esperar** antes de matar. El EOF llega cuando el hijo cierra stdout,
-      que es parte de su salida pero no el final: durante esos microsegundos
-      `poll()` todavía devuelve `None`. Matar ahí era una carrera contra un
-      proceso que ya había terminado bien, y en Windows `TerminateProcess`
-      sí llega a ganarla — el código real se perdía y quedaba un 1, con lo
-      que un `docker compose up` correcto se reportaba como fallo de
-      despliegue. Aquí ya no hay nada colgado que temer: el pipe está
-      cerrado, así que esperar no puede bloquear indefinidamente.
+    - **Normal termination** (`expect_exit=True`, the pipe already hit EOF):
+      **wait** before killing. EOF arrives when the child closes stdout, which
+      is part of its exit but not the end of it: for those microseconds
+      `poll()` still returns `None`. Killing there was a race against a
+      process that had already finished cleanly, and on Windows
+      `TerminateProcess` does win it — the real code was lost and replaced by
+      a 1, so a successful `docker compose up` was reported as a deployment
+      failure. There is nothing hung to fear here: the pipe is closed, so
+      waiting cannot block indefinitely.
     """
     if not expect_exit and proc.poll() is None:
         proc.kill()

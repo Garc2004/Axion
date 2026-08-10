@@ -1,22 +1,22 @@
-"""Jerarquía de excepciones del wizard.
+"""The wizard's exception hierarchy.
 
-Cada excepción lleva tres campos obligatorios: qué pasó (`what`), por qué
-importa (`why`) y qué hacer (`steps`). El handler global de la CLI las
-renderiza en un panel de Rich con ese formato; nunca se muestra un traceback
-crudo al usuario salvo con `--verbose`.
+Every exception carries three mandatory fields: what happened (`what`), why
+it matters (`why`) and what to do about it (`steps`). The CLI's global
+handler renders them into a Rich panel in that shape; a raw traceback is
+never shown to the user except under `--verbose`.
 """
 
 from __future__ import annotations
 
 
 class AxionError(Exception):
-    """Excepción base del wizard.
+    """Base exception of the wizard.
 
     Args:
-        what: qué ocurrió, en una frase corta.
-        why: por qué esto es un problema para el usuario.
-        steps: lista de acciones concretas que el usuario puede tomar.
-        title: título del panel de error (por defecto, el nombre de la clase).
+        what: what happened, in one short sentence.
+        why: why this is a problem for the user.
+        steps: concrete actions the user can take.
+        title: error panel title (defaults to the class's own).
     """
 
     title: str = "Error"
@@ -32,30 +32,30 @@ class AxionError(Exception):
 
 
 class PlatformError(AxionError):
-    """SO no soportado, Docker ausente, Compose v1, etc."""
+    """Unsupported OS, Docker missing, Compose v1, and the like."""
 
-    title = "Error de plataforma"
+    title = "Platform error"
 
 
 class NetworkError(AxionError):
-    """CGNAT, puerto ocupado, sin conectividad."""
+    """CGNAT, busy port, no connectivity."""
 
-    title = "Error de red"
+    title = "Network error"
 
 
 class ConfigError(AxionError):
-    """Valor inválido, archivo corrupto."""
+    """Invalid value, corrupt file."""
 
-    title = "Error de configuración"
+    title = "Configuration error"
 
 
 class DeploymentError(AxionError):
-    """Fallo de compose, healthcheck agotado."""
+    """Compose failure, healthcheck timed out."""
 
-    title = "Error de despliegue"
+    title = "Deployment error"
 
 
 class OllamaError(AxionError):
-    """Pull fallido, modelo inexistente."""
+    """Failed pull, nonexistent model."""
 
-    title = "Error de Ollama"
+    title = "Ollama error"

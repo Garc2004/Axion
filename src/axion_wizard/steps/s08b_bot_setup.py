@@ -177,7 +177,7 @@ class BotSetupStep(Step):
         from axion_wizard.utils import secrets as secret_utils
 
         try:
-            secret_utils.validate_env_value(token, label="el token")
+            secret_utils.validate_env_value(token, label="the token")
         except secret_utils.InvalidEnvValueError as exc:
             console.print(f"[axion.warn]Token con carácter no válido, se omite: {exc}[/]")
             return None

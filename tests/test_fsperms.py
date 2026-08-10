@@ -37,7 +37,7 @@ def test_restrict_to_owner_windows_missing_username(mocker, monkeypatch, tmp_pat
     target.write_text("SECRET=1")
     monkeypatch.delenv("USERNAME", raising=False)
     mocker.patch("axion_wizard.utils.fsperms._platform.system", return_value="Windows")
-    with pytest.raises(ConfigError, match="usuario de Windows"):
+    with pytest.raises(ConfigError, match="Windows user"):
         fsperms.restrict_to_owner(target)
 
 

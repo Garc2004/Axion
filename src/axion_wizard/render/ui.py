@@ -1,16 +1,16 @@
-"""Vocabulario visual compartido entre la salida Rich (CLI) y la TUI Textual.
+"""Visual vocabulary shared by the Rich output (CLI) and the Textual TUI.
 
-Antes de este módulo, cada tabla del wizard —`network-check`, `models`,
-`doctor`, el entorno detectado, la pantalla de progreso de la TUI— definía
-sus propios colores y símbolos de estado por su cuenta. El resultado eran
-cinco superficies que no se sentían como la misma aplicación: unas decían
-"OK"/"FALLO" en texto plano, otras usaban glifos (`✓`/`✕`) solo en la TUI, y
-los bordes de panel mezclaban nombres de color sueltos (`"cyan"`, `"red"`)
-en vez de los tokens semánticos ya definidos en `console.py`.
+Before this module, every table in the wizard — `network-check`, `models`,
+`doctor`, the detected environment, the TUI's progress screen — defined its
+own colours and status symbols. The result was five surfaces that did not
+feel like the same application: some said "OK"/"FAIL" in plain text, others
+used glyphs (`✓`/`✕`) only in the TUI, and panel borders mixed loose colour
+names (`"cyan"`, `"red"`) instead of the semantic tokens already defined in
+`console.py`.
 
-Aquí vive la única definición de "qué aspecto tiene un OK" y "qué aspecto
-tiene una tabla de reporte del wizard", para que cualquier pantalla nueva
-la reutilice en vez de reinventarla.
+This is the single definition of "what an OK looks like" and "what a wizard
+report table looks like", so that any new screen reuses it rather than
+reinventing it.
 """
 
 from __future__ import annotations
@@ -18,13 +18,12 @@ from __future__ import annotations
 from rich import box
 from rich.table import Table
 
-# --- Glifos de estado ---------------------------------------------------------------
+# --- Status glyphs ------------------------------------------------------------------
 #
-# Los mismos seis estados que usa la pantalla de progreso de la TUI
-# (`tui/app.py`): que un ✓ signifique lo mismo en una tabla de `doctor` que
-# en la lista de pasos de `install --tui` es lo que hace que las dos
-# interfaces se sientan como una sola aplicación y no como dos productos
-# distintos que comparten nombre.
+# The same six states the TUI's progress screen uses (`tui/app.py`). A ✓
+# meaning the same thing in a `doctor` table as in the step list of
+# `install --tui` is what makes the two interfaces feel like one application
+# rather than two products sharing a name.
 GLYPH_OK = "✓"
 GLYPH_FAIL = "✕"
 GLYPH_WARN = "▲"
@@ -32,8 +31,8 @@ GLYPH_PENDING = "○"
 GLYPH_RUNNING = "◐"
 GLYPH_SKIPPED = "−"
 
-#: Glifo + estilo Rich por estado, para quien necesite ambos por separado
-#: (la TUI, que traduce esto a color de Textual en vez de markup Rich).
+#: Glyph + Rich style per state, for callers that need the two separately
+#: (the TUI, which turns this into a Textual colour rather than Rich markup).
 STATUS_STYLE: dict[str, tuple[str, str]] = {
     "ok": (GLYPH_OK, "axion.ok"),
     "fail": (GLYPH_FAIL, "axion.error"),
@@ -45,11 +44,11 @@ STATUS_STYLE: dict[str, tuple[str, str]] = {
 
 
 def ok(label: str = "OK") -> str:
-    """Marca de estado positivo lista para una celda de tabla Rich."""
+    """Positive status marker, ready for a Rich table cell."""
     return f"[axion.ok]{GLYPH_OK} {label}[/]"
 
 
-def fail(label: str = "FALLO") -> str:
+def fail(label: str = "FAIL") -> str:
     return f"[axion.error]{GLYPH_FAIL} {label}[/]"
 
 
@@ -57,31 +56,31 @@ def warn(label: str) -> str:
     return f"[axion.warn]{GLYPH_WARN} {label}[/]"
 
 
-def status(passed: bool, ok_label: str = "OK", fail_label: str = "FALLO") -> str:
-    """Atajo para el caso más común de todas las tablas del wizard: una
-    columna booleana OK/FALLO."""
+def status(passed: bool, ok_label: str = "OK", fail_label: str = "FAIL") -> str:
+    """Shortcut for the commonest case across the wizard's tables: a boolean
+    OK/FAIL column."""
     return ok(ok_label) if passed else fail(fail_label)
 
 
-# --- Tablas y paneles -----------------------------------------------------------------
+# --- Tables and panels ----------------------------------------------------------------
 
 
 def make_table(title: str) -> Table:
-    """Tabla con el aspecto común a todos los reportes del wizard.
+    """A table with the look common to every report in the wizard.
 
-    Centralizarlo aquí es lo que evita que `network-check`, `models`,
-    `doctor` y el entorno detectado (§4.1) se vean como cuatro tablas de
-    cuatro librerías distintas: mismo box, mismo estilo de cabecera, mismo
-    color de título y de borde.
+    Centralising it here is what stops `network-check`, `models`, `doctor` and
+    the detected environment (§4.1) from looking like four tables from four
+    different libraries: same box, same header style, same title and border
+    colour.
     """
     return Table(
         title=title,
         title_style="axion.heading",
-        # Un nombre de estilo del tema, no compuesto ("bold axion.accent"):
-        # Rich solo resuelve contra el tema un nombre de estilo *solo* — una
-        # cadena compuesta intenta parsear cada palabra como color literal y
-        # revienta con `MissingStyle` en cuanto no reconoce "axion.accent"
-        # como color válido.
+        # A theme style name, not a compound one ("bold axion.accent"): Rich
+        # only resolves a style name against the theme when it stands *alone*
+        # — a compound string tries to parse each word as a literal colour and
+        # blows up with `MissingStyle` as soon as it fails to recognise
+        # "axion.accent" as a valid colour.
         header_style="axion.heading",
         box=box.ROUNDED,
         border_style="axion.border",
