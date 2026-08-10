@@ -1,0 +1,80 @@
+# Generado por axion-wizard.
+
+# `Connection: upgrade` solo debe ir en la petición que realmente pide subir
+# a WebSocket ($http_upgrade no vacío) — fijarlo a "upgrade" para toda
+# petición (como hacía la versión anterior) le pide a las peticiones HTTP
+# normales que actualicen protocolo cuando no corresponde, y le impide a
+# nginx reutilizar la conexión keepalive hacia el backend en esos casos.
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+# Docker le asigna una IP nueva a un contenedor cada vez que se recrea, y
+# también cada vez que se para y se vuelve a arrancar. nginx resuelve los
+# nombres de un bloque `upstream` **una sola vez**, al cargar la
+# configuración, y se queda con esa IP para siempre: en cuanto Mattermost
+# cambia de IP, todo el stack devuelve 502 hasta que alguien reinicie nginx a
+# mano.
+#
+# No es hipotético y no basta con que lo arregle el wizard: el servicio de
+# copias para y rearranca Mattermost cada madrugada por la API de Docker, sin
+# pasar por aquí. Sin esto, el stack amanecía roto y ningún healthcheck se
+# enteraba — todos comprueban cada contenedor por dentro, ninguno atraviesa
+# nginx.
+#
+# `proxy_pass` solo vuelve a resolver el nombre si la dirección lleva una
+# variable, y para eso hace falta declarar un `resolver`: el DNS interno de
+# Docker, que en cualquier red definida por el usuario escucha en 127.0.0.11.
+# El precio es perder el pool de conexiones keepalive hacia el backend, que
+# con esta cantidad de usuarios no se nota.
+resolver 127.0.0.11 valid=10s ipv6=off;
+
+server {
+    listen 80;
+    server_name {{ host }};
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name {{ host }};
+
+    ssl_certificate     /etc/nginx/certs/cert.crt;
+    ssl_certificate_key /etc/nginx/certs/cert.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    client_max_body_size 100M;
+
+    location / {
+        # La variable es lo que obliga a nginx a re-resolver (ver el
+        # `resolver` de arriba); con el nombre escrito literalmente volvería a
+        # quedarse con la primera IP. `$request_uri` es obligatorio: en cuanto
+        # `proxy_pass` lleva una variable, nginx deja de reenviar por su
+        # cuenta la URI original.
+        set $mattermost_backend http://mattermost:8065;
+        proxy_pass $mattermost_backend$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # WebSocket (mensajería en tiempo real de Mattermost).
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+
+        # Keepalive a nivel de socket TCP hacia el backend. El WebSocket de
+        # Mattermost pasa la mayor parte del tiempo ocioso, esperando a que
+        # llegue un mensaje, y cualquier capa intermedia que expire
+        # conexiones inactivas (conntrack de NAT, el mirrored networking de
+        # WSL2 — moby/moby#48201) lo corta en silencio: la conexión sigue
+        # "abierta" para las dos puntas y no vuelve a llegar nada. El síntoma
+        # es que los mensajes nuevos solo aparecen al recargar con F5.
+        # Sin esto, nginx no manda tráfico por una conexión ociosa y no hay
+        # forma de que ninguna de las dos puntas note la ruptura.
+        proxy_socket_keepalive on;
+    }
+}

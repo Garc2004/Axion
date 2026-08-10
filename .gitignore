@@ -1,0 +1,32 @@
+# Entorno y cachés de Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Salidas de build
+dist/
+build/work/
+
+# Estado y configuración local del wizard (nunca commitear secretos)
+.env
+wg.env
+.axion-wizard-state.json
+nginx/certs/
+axion-wizard.log
+
+# Copias de seguridad: llevan la base de datos entera y las claves de
+# WireGuard, o sea todo lo que protegen las líneas de arriba.
+backups/
+
+# Respaldos con marca de tiempo que escribe el propio wizard antes de
+# regenerar un archivo: los de `.env` y `wg.env` contienen los secretos.
+*.bak
+
+# `axion.toml` del modo desatendido: lleva el hash del panel de WireGuard y,
+# opcionalmente, la contraseña de PostgreSQL.
+axion.toml

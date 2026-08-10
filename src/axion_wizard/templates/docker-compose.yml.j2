@@ -1,0 +1,297 @@
+# Generado por axion-wizard. Las secciones de los servicios gestionados se
+# regeneran en cada `install`/`doctor --fix`; cualquier servicio añadido a
+# mano fuera de esta lista se conserva.
+# Variante WireGuard: {{ wireguard_variant }}
+
+# Sin esta clave, Compose deduce el nombre del proyecto del nombre de la
+# CARPETA que contiene este archivo, y con él prefija los volúmenes
+# (`<proyecto>_postgres_data`). Mover o renombrar el directorio del despliegue
+# equivalía entonces a estrenar volúmenes vacíos: la base de datos de
+# Mattermost, las claves de WireGuard y el modelo descargado seguían ahí, pero
+# el stack levantaba sin ellos y sin un solo error — parecía una instalación
+# nueva. Fijarlo aquí desacopla la identidad del proyecto de la ruta.
+name: {{ project_name }}
+
+services:
+  postgres:
+    image: {{ postgres_image }}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mattermost
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: mattermost
+    labels:
+      # Copiar el directorio de datos de un PostgreSQL en marcha produce un
+      # archivo que puede no restaurar: el servicio de copias para este
+      # contenedor mientras archiva y lo vuelve a arrancar. Ver el servicio
+      # `backup`.
+      docker-volume-backup.stop-during-backup: axion
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - edge_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mattermost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mattermost:
+    image: {{ mattermost_image }}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      MM_SQLSETTINGS_DRIVERNAME: postgres
+      MM_SQLSETTINGS_DATASOURCE: "postgres://mattermost:${POSTGRES_PASSWORD}@postgres:5432/mattermost?sslmode=disable&connect_timeout=10"
+      MM_SERVICESETTINGS_SITEURL: "https://{{ host }}"
+      # Orígenes permitidos para el WebSocket. Mattermost compara el header
+      # `Origin` con el SiteURL antes de aceptar el upgrade y devuelve 403 si
+      # no coinciden — sin CORS de por medio y sin nada en los logs.
+      #
+      # El fallo que esto evita es de los peores de diagnosticar: abriendo el
+      # stack desde el propio equipo con `https://localhost`, la página carga
+      # y funciona, pero el tiempo real está muerto. Los mensajes nuevos —la
+      # respuesta de la IA incluida— solo aparecen al recargar con F5, porque
+      # esa recarga los vuelve a pedir por HTTP normal, que sí está permitido.
+      #
+      # Se listan orígenes concretos, nunca `*`: eso abriría el WebSocket a
+      # cualquier página de internet que el navegador tuviera abierta.
+      MM_SERVICESETTINGS_ALLOWCORSFROM: "https://{{ host }} https://localhost https://127.0.0.1"
+      # Sin esto, la protección SSRF de Mattermost bloquea el webhook hacia
+      # fastapi:8000 en silencio: no aparece error en ningún log (spec §4.5).
+      # El valor sale de `s05_compose.SSRF_ENV_VALUE`, que es también contra lo
+      # que `assert_ssrf_env_present` comprueba el archivo generado. Escribirlo
+      # aquí a mano hacía que las dos copias divergieran en silencio.
+      MM_SERVICESETTINGS_ALLOWEDUNTRUSTEDINTERNALCONNECTIONS: "{{ ssrf_allowed_connections }}"
+      # Cuánto espera Mattermost a que el webhook saliente conteste. Por
+      # defecto son 30 s, y en CPU eso se agota enseguida: medido en el equipo
+      # de referencia (i3-10100F, sin GPU), qwen2.5:3b genera 4,6 tokens/s, así
+      # que una respuesta de 200 tokens tarda ~43 s. Pasado el plazo Mattermost
+      # abandona la petición y la respuesta se pierde **entera**: el usuario ve
+      # su pregunta sin contestar y no aparece error en ningún log.
+      #
+      # No sustituye al modo asíncrono (`axion-wizard set-bot-token`), que
+      # elimina la espera del todo; es lo que hace que un modelo lento sea
+      # utilizable mientras ese token no esté configurado.
+      MM_SERVICESETTINGS_OUTGOINGINTEGRATIONREQUESTSTIMEOUT: "{{ outgoing_webhook_timeout }}"
+    labels:
+      # Se para junto a PostgreSQL durante la copia: de poco sirve una base de
+      # datos coherente si los archivos subidos que referencia se archivaron
+      # en otro instante.
+      docker-volume-backup.stop-during-backup: axion
+    volumes:
+      - mattermost_data:/mattermost/data
+      - mattermost_logs:/mattermost/logs
+      - mattermost_config:/mattermost/config
+      - mattermost_plugins:/mattermost/plugins
+      - mattermost_client_plugins:/mattermost/client/plugins
+    networks:
+      - edge_net
+    healthcheck:
+      # curl, no wget: la imagen oficial de mattermost-team-edition no trae
+      # wget, así que ese healthcheck fallaba siempre con "executable file
+      # not found in $PATH" — Docker marcaba el contenedor "unhealthy" para
+      # siempre, aunque el servidor respondiera perfectamente por dentro.
+      test: ["CMD", "curl", "-fsS", "http://localhost:8065/api/v4/system/ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  ollama:
+    image: {{ ollama_image }}
+    restart: unless-stopped
+    # Publicado solo en loopback: permite que el wizard (corriendo en el
+    # host) consulte /api/tags y /api/pull directamente, sin exponerlo a la LAN.
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - edge_net
+{%- if gpu_acceleration == "nvidia" %}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+{%- elif gpu_acceleration == "rocm" %}
+    # AMD no pasa por el runtime de NVIDIA: la GPU se entrega como dos
+    # dispositivos del kernel. `/dev/kfd` es el driver de cómputo y `/dev/dri`
+    # el nodo de render; hacen falta los dos.
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    # Sin pertenecer a estos grupos, el proceso de dentro del contenedor abre
+    # los dispositivos y recibe "permission denied" — Ollama no falla, se cae
+    # a CPU en silencio, que es exactamente lo que esto viene a evitar.
+    group_add:
+      - video
+      - render
+{%- endif %}
+
+  fastapi:
+    build:
+      context: ./fastapi
+    restart: unless-stopped
+    environment:
+      OLLAMA_HOST: "http://ollama:11434"
+      OLLAMA_MODEL: ${OLLAMA_MODEL}
+      # Instrucciones permanentes de la IA (tono, idioma, qué debe y qué no).
+      # Vacío = el modelo responde según su propio entrenamiento. Se edita con
+      # `axion-wizard model prompt "<texto>"`.
+      OLLAMA_SYSTEM_PROMPT: ${OLLAMA_SYSTEM_PROMPT:-}
+      # Vacío por defecto: Mattermost solo genera este token al crear el
+      # webhook saliente, después del despliegue (ver .env). Con él vacío el
+      # puente no valida nada — mismo comportamiento que antes de este campo.
+      MM_WEBHOOK_TOKEN: ${MM_WEBHOOK_TOKEN:-}
+      # Con un token de bot, el puente contesta al webhook al instante y
+      # publica la respuesta por la API cuando el modelo termina. Sin él cae
+      # al modo síncrono, donde Mattermost abandona a los ~30s y la respuesta
+      # de un modelo lento se pierde entera (ver fastapi/main.py).
+      MM_BOT_TOKEN: ${MM_BOT_TOKEN:-}
+      MM_URL: "http://mattermost:8065"
+    depends_on:
+      - ollama
+    networks:
+      - edge_net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  nginx:
+    image: {{ nginx_image }}
+    restart: unless-stopped
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./nginx/nginx-mattermost.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      - mattermost
+    networks:
+      - edge_net
+
+{% if wireguard_variant == "host" -%}
+  # Linux nativo: `network_mode: host` hace que 10.8.0.1 sea un IP real del
+  # host y alcance a nginx directamente. Los sysctls van en el host
+  # (/etc/sysctl.d/99-wireguard.conf), no aquí (§6.1).
+  wireguard:
+    image: {{ wireguard_image }}
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    env_file:
+      - wg.env
+    volumes:
+      - wireguard_data:/etc/wireguard
+{%- else -%}
+  # Windows / Docker Desktop: `network_mode: host` apuntaría a la VM interna
+  # de Docker Desktop, no al WSL ni a Windows — por eso se publican los
+  # puertos explícitamente y el acceso a Mattermost va por el IP LAN del
+  # host, no por 10.8.0.1 (§6.1).
+  wireguard:
+    image: {{ wireguard_image }}
+    restart: unless-stopped
+    ports:
+      - "51820:51820/udp"
+      - "51821:51821/tcp"
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      net.ipv4.conf.all.src_valid_mark: 1
+    env_file:
+      - wg.env
+    volumes:
+      - wireguard_data:/etc/wireguard
+    networks:
+      - edge_net
+{%- endif %}
+
+  backup:
+    image: {{ backup_image }}
+    restart: unless-stopped
+    environment:
+      BACKUP_CRON_EXPRESSION: ${BACKUP_CRON_EXPRESSION}
+      # `%Y%m%dT%H%M%S` lo expande el propio servicio (strftime), no Compose.
+      BACKUP_FILENAME: axion-%Y%m%dT%H%M%S.tar.gz
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS}
+      # Sin prefijo, el borrado por antigüedad alcanzaría a cualquier archivo
+      # que hubiera en el destino, incluido lo que no puso este servicio.
+      BACKUP_PRUNING_PREFIX: axion-
+      # Valor propio en vez del `true` por defecto: así solo se paran los
+      # contenedores de AXION y no cualquier otro contenedor del equipo que
+      # llevara la etiqueta.
+      BACKUP_STOP_DURING_BACKUP_LABEL: axion
+    volumes:
+      # Solo lectura: este servicio archiva, nunca escribe en los datos.
+      - postgres_data:/backup/postgres_data:ro
+      - mattermost_data:/backup/mattermost_data:ro
+      - mattermost_config:/backup/mattermost_config:ro
+      - mattermost_plugins:/backup/mattermost_plugins:ro
+      - mattermost_client_plugins:/backup/mattermost_client_plugins:ro
+      - wireguard_data:/backup/wireguard_data:ro
+{%- if with_n8n %}
+      # Los flujos de n8n y sus credenciales cifradas. Sin esto, una
+      # restauración devolvería el chat entero pero n8n vacío.
+      - n8n_data:/backup/n8n_data:ro
+{%- endif %}
+      # `ollama_data` queda fuera a propósito: son gigabytes de modelo que se
+      # vuelven a descargar con `axion-wizard model set`. `mattermost_logs`
+      # también: no hay nada que restaurar en un log.
+      - ./backups:/archive
+      # Necesario para parar y rearrancar los contenedores etiquetados.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - edge_net
+{% if with_n8n %}
+  n8n:
+    image: {{ n8n_image }}
+    restart: unless-stopped
+    environment:
+      # Si esta clave cambia, TODAS las credenciales que n8n tenga guardadas
+      # quedan ilegibles y no hay forma de recuperarlas. Por eso vive en el
+      # `.env` y está en PRESERVED_ENV_KEYS: se genera una vez y sobrevive a
+      # cualquier `install` posterior.
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      N8N_HOST: "{{ host }}"
+      N8N_PORT: 5678
+      # http y no https a propósito: n8n se publica en su propio puerto y no
+      # pasa por nginx, así que nadie termina TLS por él. Anunciarse como https
+      # haría que generase URLs de webhook que no responden. Es el mismo trato
+      # que el panel de WireGuard.
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: "http://{{ host }}:5678/"
+      GENERIC_TIMEZONE: ${N8N_TIMEZONE}
+    volumes:
+      - n8n_data:/home/node/.n8n
+    ports:
+      - "5678:5678"
+    networks:
+      - edge_net
+{% endif %}
+volumes:
+  postgres_data:
+  mattermost_data:
+  mattermost_logs:
+  mattermost_config:
+  mattermost_plugins:
+  mattermost_client_plugins:
+  ollama_data:
+  wireguard_data:
+{%- if with_n8n %}
+  n8n_data:
+{%- endif %}
+
+networks:
+  edge_net:
+    driver: bridge

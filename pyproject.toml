@@ -1,0 +1,85 @@
+[project]
+name = "axion-wizard"
+version = "0.1.0"
+description = "Instalador/orquestador del stack AXION (Mattermost + WireGuard + Ollama + FastAPI sobre Docker)"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Garc2004" }]
+requires-python = ">=3.11"
+dependencies = [
+    "typer>=0.15",
+    "rich>=13.9",
+    "questionary>=2.0",
+    "httpx>=0.28",
+    "ruamel.yaml>=0.18",
+    "python-dotenv>=1.0",
+    "cryptography>=44.0",
+    "psutil>=6.1",
+    "platformdirs>=4.3",
+    "tenacity>=9.0",
+    "pydantic>=2.10",
+    "pydantic-settings>=2.7",
+    "bcrypt>=4.2",
+    "jinja2>=3.1",
+    "segno>=1.6",
+    # Interfaz a pantalla completa opcional (`install --tui`). La §1.3 de la
+    # spec descarta Textual para el flujo lineal, y esa decisión se mantiene:
+    # el camino por defecto sigue siendo questionary. Esto es una alternativa
+    # aditiva, pedida expresamente, no un reemplazo.
+    "textual>=1.0",
+]
+
+[project.scripts]
+axion-wizard = "axion_wizard.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "pytest-mock>=3.14",
+    # El plugin de pytest para los tests async de la TUI lo trae `anyio`
+    # mismo (`anyio.pytest_plugin`). Se declara aquí porque los tests
+    # dependen de él, aunque httpx ya lo arrastre de forma transitiva.
+    # Ojo: existe un paquete `pytest-anyio` en PyPI publicado en 0.0.0 que no
+    # es esto y no hace nada — no instalarlo.
+    "anyio>=4.0",
+    "ruff>=0.9",
+    "mypy>=1.14",
+    "pyinstaller>=6.11",
+    # El puente FastAPI (`templates/fastapi/main.py`) es código que enviamos y
+    # que solo corre dentro del contenedor, así que no es dependencia del
+    # wizard — pero sí de sus tests: sin esto su lógica (validación del token,
+    # modo asíncrono, manejo de errores de Ollama) no la cubriría nada.
+    # `python-multipart` lo exige Starlette para parsear el form-urlencoded
+    # que manda el webhook saliente de Mattermost.
+    "fastapi>=0.115",
+    "python-multipart>=0.0.9",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/axion_wizard"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["typer.Argument", "typer.Option"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["src/axion_wizard"]
