@@ -199,6 +199,30 @@ Los 8 volúmenes `dist_*` de la migración ya se borraron; quedan solo los
 
 ---
 
+## 6.c Publicado en GitHub (10/08)
+
+`https://github.com/Garc2004/Axion`, licencia Apache-2.0, con
+`THIRD-PARTY-LICENSES.txt` (avisos de copyright de las dependencias
+empaquetadas en el `.exe`: MIT, BSD-3-Clause, Apache-2.0 — ninguna copyleft) y
+`assets/logo.png` (recortada la marca de agua de Gemini).
+
+`dist/` está en `.gitignore` — el código fuente no lleva binarios. Si en
+algún momento se publica un release con el `.exe`/binario de Linux, **adjuntar
+siempre `checksums.txt`** (lo genera `build.ps1`/`build.sh`). Ojo: el SHA-256
+prueba integridad, no evita que Smart App Control o un antivirus marquen el
+binario — eso depende de firma y reputación, no del hash (ver §10).
+
+Nota para quien siga desde otro chat: al rebasar sobre el `Initial commit`
+automático de GitHub (que traía su propio LICENSE/README), `git checkout
+--ours` tomó el lado equivocado — en un rebase "ours" es la rama sobre la que
+se rebasa, no el commit que se está aplicando, al revés que en un merge
+normal. Se corrigió recuperando los archivos del commit original vía
+`git reflog` antes de hacer push. Si hay que rebasar de nuevo, usar
+`--theirs` para quedarse con el propio trabajo, o mejor: verificar con
+`git diff` antes de confiar en cuál lado es cuál.
+
+---
+
 ## 7. Pendientes
 
 1. **Crear un bot en Mattermost y aplicar `set-bot-token`** (§4). Es lo de más
