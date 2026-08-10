@@ -1,15 +1,14 @@
-"""Orquestación del flujo de instalación (§4).
+"""Orchestration of the install flow (§4).
 
-Ejecuta los diez pasos en orden, persistiendo el progreso tras cada uno
-para que una ejecución interrumpida se reanude desde el último completado
-(§4, §12).
+Runs the ten steps in order, persisting progress after each one so an
+interrupted run resumes from the last completed step (§4, §12).
 
-La reanudación tiene un matiz que condiciona todo el diseño: el estado
-persistido guarda **solo qué pasos terminaron**, nunca sus valores — ahí
-viajarían la contraseña de PostgreSQL y el hash del panel, y §9 no lo
-permite. Por eso saltarse un paso ya hecho no es simplemente no ejecutarlo:
-hay que llamar a su `restore()` para que repueble el contexto leyendo los
-artefactos que dejó en disco (`.env`, `wg.env`, `docker-compose.yml`).
+Resuming carries one nuance that shapes the whole design: the persisted state
+records **only which steps finished**, never their values — the PostgreSQL
+password and the panel credentials would travel there, and §9 does not allow
+it. That is why skipping an already-done step is not simply not running it:
+its `restore()` has to be called so it repopulates the context by reading the
+artifacts it left on disk (`.env`, `wg.env`, `docker-compose.yml`).
 """
 
 from __future__ import annotations
@@ -31,11 +30,11 @@ if TYPE_CHECKING:
 
 
 def build_steps(state: GlobalState, context: InstallContext) -> list[Step]:
-    """Los diez pasos, en el orden de §4.
+    """The ten steps, in §4's order.
 
-    Los imports van dentro a propósito: cada módulo de paso arrastra sus
-    servicios (httpx, cryptography, questionary…), y cargarlos todos al
-    importar `cli` haría que hasta `--version` pagase ese arranque.
+    The imports live inside on purpose: each step module drags in its services
+    (httpx, cryptography, questionary…), and loading them all when `cli` is
+    imported would make even `--version` pay that startup cost.
     """
     from axion_wizard.steps.s01_environment import EnvironmentStep
     from axion_wizard.steps.s02_network import NetworkStep
@@ -68,17 +67,17 @@ def ordered_step_names(steps: list[Step]) -> list[str]:
 
 
 class StepReporter(Protocol):
-    """Cómo se le cuenta al usuario lo que va pasando en cada paso.
+    """How the user is told what is happening at each step.
 
-    Existe para que la TUI pueda usar `run_steps` tal cual. Antes tenía su
-    propio bucle de pasos copiado de aquí, y esa copia se quedó sin lo único
-    que no se ve al leerla: la persistencia del progreso. Resultado, una
-    instalación `--tui` interrumpida no se reanudaba —el README promete que
-    sí— y nunca llamaba a `restore()`.
+    It exists so the TUI can use `run_steps` as-is. The TUI used to have its
+    own step loop copied from here, and that copy was missing the one thing
+    you cannot see by reading it: progress persistence. The result was that an
+    interrupted `--tui` install did not resume — the README promises it does —
+    and never called `restore()`.
 
-    Separar *qué se hace* de *cómo se cuenta* es lo que permite que las dos
-    interfaces compartan el mismo bucle sin que la lógica sepa nada de Rich
-    ni de Textual.
+    Separating *what is done* from *how it is narrated* is what lets both
+    interfaces share the same loop without the logic knowing anything about
+    Rich or Textual.
     """
 
     def on_step_resumed(self, index: int, total: int, step: Step) -> None: ...
@@ -95,7 +94,7 @@ class StepReporter(Protocol):
 
 
 class ConsoleStepReporter:
-    """El reporter por defecto: exactamente la salida Rich de siempre."""
+    """The default reporter: exactly the Rich output as it always was."""
 
     @staticmethod
     def _label(index: int, total: int, step: Step) -> str:
@@ -103,18 +102,18 @@ class ConsoleStepReporter:
 
     def on_step_resumed(self, index: int, total: int, step: Step) -> None:
         label = self._label(index, total, step)
-        console.print(f"[axion.dim]{ui.GLYPH_SKIPPED} {label} — ya completado, se reanuda[/]")
+        console.print(f"[axion.dim]{ui.GLYPH_SKIPPED} {label} — already done, resuming[/]")
 
     def on_step_invalidated(self, index: int, total: int, step: Step, reason: str) -> None:
         label = self._label(index, total, step)
         console.print(
-            f"[axion.warn]{ui.GLYPH_WARN} {label} — figuraba como hecho pero ya no lo está "
-            f"({reason}). Se rehace este paso y todos los siguientes.[/]"
+            f"[axion.warn]{ui.GLYPH_WARN} {label} — was recorded as done but no longer is "
+            f"({reason}). This step and every one after it will be redone.[/]"
         )
 
     def on_step_skipped(self, index: int, total: int, step: Step, reason: str) -> None:
         label = self._label(index, total, step)
-        console.print(f"[axion.dim]{ui.GLYPH_SKIPPED} {label} — omitido: {reason}[/]")
+        console.print(f"[axion.dim]{ui.GLYPH_SKIPPED} {label} — skipped: {reason}[/]")
 
     def on_step_started(self, index: int, total: int, step: Step) -> None:
         console.print(f"\n[axion.title] {ui.GLYPH_RUNNING} {self._label(index, total, step)} [/]")
@@ -133,11 +132,11 @@ def run_steps(
     steps: list[Step],
     reporter: StepReporter | None = None,
 ) -> bool:
-    """Ejecuta los pasos pendientes y devuelve si todo terminó bien.
+    """Run the pending steps and return whether everything finished cleanly.
 
-    Con `--dry-run` no se toca el archivo de estado: una simulación no debe
-    dejar marcado como hecho algo que no se hizo, o la siguiente ejecución
-    real se saltaría pasos que nunca llegaron a aplicarse.
+    Under `--dry-run` the state file is not touched: a simulation must not
+    leave something marked as done that was not done, or the next real run
+    would skip steps that were never applied.
     """
     reporter = reporter if reporter is not None else ConsoleStepReporter()
     persist = not state.dry_run
@@ -158,10 +157,10 @@ def run_steps(
             if stale_reason is None:
                 continue
 
-            # El paso ya no está aplicado de verdad. Todo lo que venía
-            # detrás se construyó sobre él, así que también deja de contar:
-            # `reset_from` descarta desde aquí hasta el final y la ejecución
-            # cae al camino normal, rehaciendo este paso ahora mismo.
+            # The step is no longer genuinely applied. Everything that came
+            # after was built on top of it, so it stops counting too:
+            # `reset_from` discards from here to the end and the run falls
+            # through to the normal path, redoing this step right now.
             reporter.on_step_invalidated(index, total, step, stale_reason)
             wizard_state.reset_from(step.name, ordered_names)
             if persist:
@@ -188,8 +187,8 @@ def run_steps(
             if persist:
                 wizard_state.mark_failed(step.name, result.message)
                 state_store.save_state(context.project_dir, wizard_state)
-            # Solo el paso final puede fallar sin abortar: su cometido es
-            # informar del estado, y la tabla ya se imprimió.
+            # Only the final step may fail without aborting: its job is to
+            # report the state, and the table has already been printed.
             if step is not steps[-1]:
                 break
             continue
@@ -202,15 +201,14 @@ def run_steps(
 
 
 def _stale_reason(step: Step) -> str | None:
-    """Por qué un paso marcado como hecho ya no lo está, o `None` si sigue bien.
+    """Why a step marked as done no longer is, or `None` if it still holds.
 
-    El archivo de estado cuenta lo que pasó la última vez, no lo que hay
-    ahora. Sin esta comprobación, un usuario que desinstala Docker o borra
-    los contenedores se encuentra con que `install` se salta el despliegue
-    —porque "ya se hizo"— y va directo al paso 9 a fallar todas las
-    verificaciones, sin ninguna pista de que el problema está siete pasos
-    antes. Es exactamente el caso que motivó esto: el estado decía
-    "6 servicios operativos" y no quedaba ni uno.
+    The state file says what happened last time, not what is true now.
+    Without this check, a user who uninstalls Docker or deletes the containers
+    finds that `install` skips the deployment — because "it was already done"
+    — and goes straight to step 9 to fail every check, with no hint that the
+    problem is seven steps earlier. That is exactly the case that motivated
+    this: the state said "6 services operational" and not one was left.
     """
     if not step.revalidate_on_resume:
         return None
@@ -220,7 +218,7 @@ def _stale_reason(step: Step) -> str | None:
         return str(exc)
     if result.ok:
         return None
-    return result.message or "la comprobación de este paso no pasó"
+    return result.message or "this step's check did not pass"
 
 
 def _restore_or_fail(
@@ -231,42 +229,42 @@ def _restore_or_fail(
     reporter: StepReporter,
     ordered_names: list[str],
 ) -> None:
-    """Repuebla el contexto de un paso ya completado.
+    """Repopulate the context of an already-completed step.
 
-    Si los artefactos que necesitaba ya no están —alguien borró `.env`, o el
-    proyecto se movió—, el paso deja de contar como completado y se vuelve a
-    ejecutar en la siguiente pasada, que es preferible a seguir con un
-    contexto a medias y reventar tres pasos más allá.
+    If the artifacts it needed are gone — somebody deleted `.env`, or the
+    project moved — the step stops counting as completed and runs again on the
+    next pass, which beats carrying on with a half-built context and blowing
+    up three steps later.
 
-    Y con él deja de contar todo lo que venía detrás, por el mismo motivo
-    que en `_stale_reason`: se construyó sobre este paso. Sin eso, la
-    siguiente ejecución rehacía solo este y volvía a dar por buenos los
-    demás, que es cómo se llega a un estado que dice "6 servicios
-    operativos" sin que exista ninguno.
+    And everything that came after it stops counting too, for the same reason
+    as in `_stale_reason`: it was built on top of this step. Without that, the
+    next run redid only this one and went on trusting the rest, which is how
+    you end up with a state that says "6 services operational" when none
+    exists.
     """
     try:
         step.restore()
     except AxionError as exc:
         reporter.on_note(
-            f"No se pudo reanudar `{step.name}` ({exc}); se rehará este paso y los "
-            "siguientes en la próxima ejecución."
+            f"Could not resume `{step.name}` ({exc}); this step and the ones after "
+            "it will be redone on the next run."
         )
         wizard_state.reset_from(step.name, ordered_names)
-        wizard_state.mark_failed(step.name, f"no reanudable: {exc}")
+        wizard_state.mark_failed(step.name, f"not resumable: {exc}")
         if persist:
             state_store.save_state(context.project_dir, wizard_state)
         raise
 
 
 def render_resume_overview(steps: list[Step], wizard_state: state_store.WizardState) -> Panel:
-    """Los diez pasos y en cuál está cada uno, antes de ejecutar nada.
+    """The ten steps and where each one stands, before anything runs.
 
-    Existe por una confusión concreta y razonable: al reanudar, el wizard
-    imprimía ocho líneas grises de "ya completado" y se plantaba en el paso
-    9, sin que en ningún momento se viera el conjunto ni por qué empezaba
-    ahí. Con el mapa delante, "voy por el 9" deja de ser una sorpresa y se
-    convierte en información — y si no es lo que el usuario quiere, el pie
-    del panel le dice cómo empezar de cero.
+    This exists because of one specific and entirely reasonable confusion: on
+    resume, the wizard printed eight grey "already done" lines and planted
+    itself at step 9, without ever showing the whole picture or why it started
+    there. With the map in front of you, "I am on 9" stops being a surprise
+    and becomes information — and if that is not what the user wants, the
+    panel's footer says how to start over.
     """
     grid = Table.grid(padding=(0, 2))
     grid.add_column(justify="right", style="axion.dim", width=4)
@@ -288,9 +286,9 @@ def render_resume_overview(steps: list[Step], wizard_state: state_store.WizardSt
             mark = f"[axion.error]{ui.GLYPH_FAIL}[/]"
             detail = f"[axion.error]{record.message}[/]" if record.message else ""
         elif not pending_shown:
-            # El primero sin hacer es donde va a arrancar la ejecución.
+            # The first undone step is where the run will begin.
             mark = f"[axion.info]{ui.GLYPH_RUNNING}[/]"
-            detail = "[axion.info]empieza aquí[/]"
+            detail = "[axion.info]starts here[/]"
             pending_shown = True
         else:
             mark = f"[axion.dim]{ui.GLYPH_PENDING}[/]"
@@ -302,14 +300,14 @@ def render_resume_overview(steps: list[Step], wizard_state: state_store.WizardSt
     grid.add_row(
         "",
         "",
-        "[axion.dim]Los pasos marcados se comprueban antes de darlos por buenos; "
-        "si ya no se sostienen, se rehacen.\n"
-        "Para empezar de cero: [/][axion.label]axion-wizard reset[/]",
+        "[axion.dim]Ticked steps are checked before being taken as good; if they "
+        "no longer hold, they are redone.\n"
+        "To start from scratch: [/][axion.label]axion-wizard reset[/]",
     )
 
     return Panel(
         grid,
-        title="[axion.heading]Progreso guardado de una ejecución anterior[/]",
+        title="[axion.heading]Saved progress from a previous run[/]",
         title_align="left",
         border_style="axion.border",
         padding=(1, 2),
@@ -317,14 +315,14 @@ def render_resume_overview(steps: list[Step], wizard_state: state_store.WizardSt
 
 
 def render_closing_summary(context: InstallContext, all_ok: bool) -> Panel | None:
-    """Panel de cierre: dónde entrar y qué quedó pendiente.
+    """The closing panel: where to log in and what is still outstanding.
 
-    Mismo lenguaje visual que `s03_config.render_summary` —la confirmación
-    previa al despliegue— a propósito: son los dos puntos del flujo donde el
-    usuario necesita una foto completa del estado, uno antes de escribir
-    nada y otro después de terminar. Que se vean como la misma familia de
-    panel es lo que hace que el flujo se sienta como una sola pieza y no
-    como texto suelto entre tablas.
+    The same visual language as `s03_config.render_summary` — the
+    pre-deployment confirmation — on purpose: they are the two points in the
+    flow where the user needs a complete picture of the state, one before
+    anything is written and one after it finishes. Looking like the same
+    family of panel is what makes the flow feel like one piece rather than
+    loose text between tables.
     """
     config = context.config
     if config is None:
@@ -335,23 +333,23 @@ def render_closing_summary(context: InstallContext, all_ok: bool) -> Panel | Non
     grid.add_column(overflow="fold")
     grid.add_row("Mattermost", f"[axion.info]https://{config.host}[/]")
     grid.add_row(
-        "Panel WireGuard",
-        f"[axion.info]http://{config.host}:51821[/]  [axion.dim](http, no https)[/]",
+        "WireGuard panel",
+        f"[axion.info]http://{config.host}:51821[/]  [axion.dim](http, not https)[/]",
     )
-    grid.add_row("Modelo de IA", config.ollama_model)
+    grid.add_row("AI model", config.ollama_model)
 
     if context.warnings:
         grid.add_row("", "")
         for warning in context.warnings:
-            grid.add_row(ui.warn("Aviso"), warning)
+            grid.add_row(ui.warn("Warning"), warning)
 
     grid.add_row("", "")
-    grid.add_row("", "[axion.dim]Re-validar en cualquier momento con: axion-wizard doctor[/]")
+    grid.add_row("", "[axion.dim]Re-validate at any time with: axion-wizard doctor[/]")
 
     if all_ok:
-        title = f"[axion.ok]{ui.GLYPH_OK} Instalación completada[/]"
+        title = f"[axion.ok]{ui.GLYPH_OK} Install complete[/]"
     else:
-        title = f"[axion.warn]{ui.GLYPH_WARN} Instalación terminada con comprobaciones en rojo[/]"
+        title = f"[axion.warn]{ui.GLYPH_WARN} Install finished with checks in red[/]"
 
     return Panel(
         grid,
@@ -370,20 +368,21 @@ def summarize(context: InstallContext, all_ok: bool) -> None:
 
 
 def install(state: GlobalState) -> bool:
-    """Punto de entrada del flujo completo. Devuelve si terminó todo bien."""
+    """Entry point of the complete flow. Returns whether all went well."""
     context = InstallContext(project_dir=state.project_dir)
     steps = build_steps(state, context)
 
     console.print(
-        f"[axion.title] AXION Wizard — instalación en {state.project_dir} [/]"
+        f"[axion.title] AXION Wizard — installing into {state.project_dir} [/]"
     )
     if state.dry_run:
         console.print(
-            "[axion.info]--dry-run:[/] se mostrará todo lo que se haría, sin tocar el sistema."
+            "[axion.info]--dry-run:[/] everything that would be done is shown, "
+            "without touching the system."
         )
 
-    # El mapa completo antes de nada: si hay progreso guardado, saber en qué
-    # punto se retoma y por qué es lo primero que el usuario necesita.
+    # The full map before anything else: if there is saved progress, knowing
+    # where it picks up and why is the first thing the user needs.
     previous = state_store.load_state(context.project_dir)
     if previous.completed_steps and not state.quiet:
         console.print()

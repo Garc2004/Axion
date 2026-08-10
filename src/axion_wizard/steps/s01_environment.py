@@ -1,12 +1,12 @@
-"""Paso 1 — Detección de entorno (§4.1).
+"""Step 1 — Environment detection (§4.1).
 
-Produce `wireguard_variant`, la salida decisiva de la que depende todo el
-resto del flujo: `host` en Linux nativo con Docker Engine, `ports` en
-Windows o bajo cualquier contexto de Docker Desktop.
+Produces `wireguard_variant`, the decisive output the whole rest of the flow
+depends on: `host` on native Linux with Docker Engine, `ports` on Windows or
+under any Docker Desktop context.
 
-Este paso no escribe nada; solo mira y decide. Por eso falla temprano y con
-un mensaje accionable ante lo que haría inviable el despliegue —Docker
-ausente, Compose v1— en vez de dejar que reviente ocho pasos más adelante.
+This step writes nothing; it only looks and decides. Hence it fails early and
+with an actionable message on anything that would make deployment unviable —
+Docker missing, Compose v1 — rather than letting it blow up eight steps later.
 """
 
 from __future__ import annotations
@@ -23,14 +23,14 @@ from axion_wizard.render.console import console
 from axion_wizard.steps.base import Step, StepResult
 from axion_wizard.steps.context import EnvironmentFacts
 
-#: Prefijo del filesystem de Windows montado dentro de WSL. Un `project_dir`
-#: aquí funciona, pero con I/O cruzado lento y sin permisos POSIX (§6.2).
+#: Prefix of the Windows filesystem mounted inside WSL. A `project_dir` here
+#: works, but with slow crossed I/O and no POSIX permissions (§6.2).
 WINDOWS_MOUNT_PREFIX = "/mnt/"
 
 
 class EnvironmentStep(Step):
     name = "environment"
-    title = "Detección de entorno"
+    title = "Environment detection"
 
     def run(self) -> StepResult:
         os_info = detect_platform.get_os_info()
@@ -65,29 +65,28 @@ class EnvironmentStep(Step):
             name=self.name,
             ok=True,
             data={"wireguard_variant": variant},
-            message=f"{os_info.name} {os_info.release}, variante WireGuard `{variant}`",
+            message=f"{os_info.name} {os_info.release}, WireGuard variant `{variant}`",
         )
 
     def verify(self) -> StepResult:
-        """Re-detecta y confirma que el entorno sigue sirviendo.
+        """Re-detect and confirm the environment still works.
 
-        No es paranoia: entre una ejecución y la siguiente el usuario puede
-        haber cambiado el contexto de Docker (`docker context use`) —y el
-        compose ya renderizado dejaría de corresponder a la plataforma— o
-        haber desinstalado Docker por completo, en cuyo caso *nada* de lo
-        que viene después puede funcionar y seguir adelante solo retrasa el
-        error hasta un paso que no tiene la culpa.
+        Not paranoia: between one run and the next the user may have changed
+        the Docker context (`docker context use`) — leaving the already
+        rendered compose file no longer matching the platform — or uninstalled
+        Docker entirely, in which case *nothing* that follows can work and
+        carrying on only delays the error until a step that is not at fault.
         """
         docker = detect_docker.gather_docker_info()
         os_info = detect_platform.get_os_info()
 
         if not docker.installed:
             return StepResult(
-                name=self.name, ok=False, message="Docker ya no está disponible en este sistema"
+                name=self.name, ok=False, message="Docker is no longer available on this system"
             )
         if not docker.compose_is_v2:
             return StepResult(
-                name=self.name, ok=False, message="Docker Compose v2 ya no está disponible"
+                name=self.name, ok=False, message="Docker Compose v2 is no longer available"
             )
 
         variant = detect_platform.decide_wireguard_variant(
@@ -98,60 +97,60 @@ class EnvironmentStep(Step):
             return StepResult(
                 name=self.name,
                 ok=False,
-                message=f"la variante cambió de `{expected}` a `{variant}`",
+                message=f"the variant changed from `{expected}` to `{variant}`",
             )
-        return StepResult(name=self.name, ok=True, message=f"variante `{variant}`")
+        return StepResult(name=self.name, ok=True, message=f"variant `{variant}`")
 
     def restore(self) -> None:
-        """Al reanudar hay que volver a detectar: nada de esto se persiste, y
-        re-detectar es barato y no toca el sistema."""
+        """Resuming means detecting again: none of this is persisted, and
+        re-detecting is cheap and touches nothing."""
         self.run()
 
-    # --- comprobaciones de viabilidad -------------------------------------------
+    # --- viability checks -------------------------------------------------------
 
     def _assert_docker_is_usable(self, docker: detect_docker.DockerInfo) -> None:
         if not docker.installed:
             raise PlatformError(
-                what="No se encontró Docker en este sistema",
+                what="Docker was not found on this system",
                 why=(
-                    "Todo el stack AXION corre en contenedores; sin el motor de "
-                    "Docker no hay nada que desplegar."
+                    "The entire AXION stack runs in containers; without the Docker "
+                    "engine there is nothing to deploy."
                 ),
                 steps=[
-                    "Windows: instalar Docker Desktop y arrancarlo "
+                    "Windows: install Docker Desktop and start it "
                     "(https://docs.docker.com/desktop/install/windows-install/).",
-                    "Linux: instalar Docker Engine "
+                    "Linux: install Docker Engine "
                     "(https://docs.docker.com/engine/install/).",
-                    "Comprobar que responde: docker --version",
+                    "Check it answers: docker --version",
                 ],
             )
         if not docker.compose_is_v2:
-            detected = docker.compose_version or "no detectada"
+            detected = docker.compose_version or "not detected"
             raise PlatformError(
-                what=f"Se necesita Docker Compose v2 y se encontró: {detected}",
+                what=f"Docker Compose v2 is required and this was found: {detected}",
                 why=(
-                    "El compose que genera el wizard usa sintaxis de Compose v2 "
-                    "(`docker compose`, sin guion). Con v1 (`docker-compose`) el "
-                    "despliegue falla con errores de esquema difíciles de leer."
+                    "The compose file the wizard generates uses Compose v2 syntax "
+                    "(`docker compose`, no hyphen). Under v1 (`docker-compose`) the "
+                    "deployment fails with schema errors that are hard to read."
                 ),
                 steps=[
-                    "Actualizar Docker Desktop a una versión reciente (trae Compose v2).",
-                    "Linux: instalar el plugin `docker-compose-plugin` de la distro.",
-                    "Comprobar: docker compose version",
+                    "Update Docker Desktop to a recent version (it ships Compose v2).",
+                    "Linux: install your distribution's `docker-compose-plugin`.",
+                    "Check: docker compose version",
                 ],
             )
 
     def _check_gpu_passthrough(self, hardware: HardwareInfo) -> str:
-        """Decide cómo se le entrega la GPU a Ollama, probándolo de verdad.
+        """Decide how the GPU is handed to Ollama, by actually testing it.
 
-        Cada fabricante se entrega por un mecanismo distinto y hay que probar
-        el que corresponde: NVIDIA por el runtime (`--gpus`), AMD por los
-        dispositivos del kernel (`/dev/kfd`, `/dev/dri`). Probar el de NVIDIA
-        en un equipo AMD da negativo siempre, y la GPU se quedaba sin usar sin
-        que nada lo explicara.
+        Each vendor hands it over by a different mechanism and the matching
+        one has to be tested: NVIDIA through the runtime (`--gpus`), AMD
+        through the kernel devices (`/dev/kfd`, `/dev/dri`). Testing NVIDIA's
+        on an AMD machine always comes back negative, and the GPU went unused
+        with nothing to explain why.
 
-        Sin GPU detectada no hay nada que probar — y probar igual costaría una
-        descarga de imagen innecesaria en la mayoría de instalaciones.
+        With no GPU detected there is nothing to test — and testing anyway
+        would cost an unnecessary image pull on most installs.
         """
         if not hardware.has_gpu:
             return detect_docker.GPU_ACCELERATION_NONE
@@ -168,55 +167,55 @@ class EnvironmentStep(Step):
         return detect_docker.GPU_ACCELERATION_NONE
 
     def _warn_gpu_unusable(self, gpu_label: str, vendors: set[str]) -> None:
-        """Explica *por qué* no se va a usar la GPU, que es distinto en cada
-        caso. Un aviso genérico mandaba a revisar el controlador de NVIDIA a
-        quien tenía una Intel, donde no hay nada que revisar."""
+        """Explain *why* the GPU will not be used, which differs case by case.
+        A generic warning sent people with an Intel GPU off to check their
+        NVIDIA driver, where there is nothing to check."""
         if vendors == {"intel"}:
             why = (
-                "Ollama no publica ninguna imagen para GPUs Intel, así que no hay "
-                "forma de aprovecharla desde este stack."
+                "Ollama publishes no image for Intel GPUs, so there is no way to make "
+                "use of it from this stack."
             )
         elif "amd" in vendors:
             why = (
-                "Docker no pudo abrir /dev/kfd y /dev/dri. Causas habituales: el "
-                "kernel no trae el módulo `amdgpu`, no está instalado ROCm, o el "
-                "usuario no pertenece a los grupos `video` y `render`."
+                "Docker could not open /dev/kfd and /dev/dri. Usual causes: the kernel "
+                "does not carry the `amdgpu` module, ROCm is not installed, or the "
+                "user is not in the `video` and `render` groups."
             )
         else:
             why = (
-                "Causas habituales: GPU sin soporte de passthrough bajo WSL2, "
-                "controlador NVIDIA desactualizado, o falta "
-                "`nvidia-container-toolkit`."
+                "Usual causes: a GPU with no passthrough support under WSL2, an "
+                "out-of-date NVIDIA driver, or a missing `nvidia-container-toolkit`."
             )
 
         message = (
-            f"Se detectó GPU ({gpu_label}) pero no se puede usar para la IA en este "
-            f"equipo — el modelo correrá en CPU. {why}"
+            f"A GPU was detected ({gpu_label}) but it cannot be used for the AI on "
+            f"this machine — the model will run on CPU. {why}"
         )
         self.context.warn(message)
         console.print(f"[axion.warn]{message}[/]")
 
-    # --- advertencias no fatales ---------------------------------------------------
+    # --- non-fatal warnings --------------------------------------------------------
 
     def _warn_about_crossed_filesystem(self, wsl: detect_platform.WslInfo) -> None:
-        """§6.2: un `project_dir` en `/mnt/c/...` desde WSL funciona, pero el
-        I/O cruzado es lento y los permisos POSIX no se preservan — justo los
-        que `.env` y la clave del certificado necesitan."""
+        """§6.2: a `project_dir` under `/mnt/c/...` from WSL works, but the
+        crossed I/O is slow and POSIX permissions are not preserved — exactly
+        the ones `.env` and the certificate key need."""
         if not wsl.inside_wsl:
             return
         if not str(self.context.project_dir).replace("\\", "/").startswith(WINDOWS_MOUNT_PREFIX):
             return
         message = (
-            f"El proyecto está en {self.context.project_dir}, dentro del filesystem de "
-            "Windows montado en WSL: el I/O es lento y los permisos POSIX de `.env` y "
-            "`cert.key` no se preservan. Conviene moverlo al filesystem del WSL (~/)."
+            f"The project is at {self.context.project_dir}, inside the Windows "
+            "filesystem mounted in WSL: I/O is slow and the POSIX permissions on "
+            "`.env` and `cert.key` are not preserved. Better to move it onto the WSL "
+            "filesystem (~/)."
         )
         self.context.warn(message)
         console.print(f"[axion.warn]{message}[/]")
 
     def _warn_about_broken_mirrored(self, wsl: detect_platform.WslInfo) -> None:
-        """Mirrored configurado pero con `eth0` de vuelta en `172.16/12`
-        significa que no se aplicó: el stack no será visible en la LAN."""
+        """Mirrored configured but with `eth0` back in `172.16/12` means it was
+        not applied: the stack will not be visible on the LAN."""
         if not (wsl.inside_wsl and wsl.mirrored_configured):
             return
         from axion_wizard.detect import network as detect_network
@@ -225,9 +224,9 @@ class EnvironmentStep(Step):
         if iface is None or not detect_platform.is_eth0_in_forbidden_range(iface.ip):
             return
         message = (
-            f"`.wslconfig` pide networkingMode=mirrored, pero la interfaz da {iface.ip} "
-            "(rango interno de Docker Desktop): mirrored no está activo. El stack no "
-            "será accesible desde la LAN sin `netsh portproxy`."
+            f"`.wslconfig` asks for networkingMode=mirrored, but the interface reports "
+            f"{iface.ip} (Docker Desktop's internal range): mirrored is not active. "
+            "The stack will not be reachable from the LAN without `netsh portproxy`."
         )
         self.context.warn(message)
         console.print(f"[axion.warn]{message}[/]")
@@ -239,17 +238,17 @@ class EnvironmentStep(Step):
         docker: detect_docker.DockerInfo,
         variant: str,
     ) -> None:
-        """El acceso LAN bajo Docker Desktop en Windows no es automático, y
-        `axion-wizard.exe` casi siempre corre nativo en Windows (no dentro
-        de WSL) — así que `_warn_about_broken_mirrored`, que exige
-        `wsl.inside_wsl`, nunca llega a evaluarse en el caso más común.
+        """LAN access under Docker Desktop on Windows is not automatic, and
+        `axion-wizard.exe` almost always runs natively on Windows (not inside
+        WSL) — so `_warn_about_broken_mirrored`, which requires
+        `wsl.inside_wsl`, never gets evaluated in the commonest case.
 
-        Se descubrió en vivo: un despliegue con Docker publicando los
-        puertos correctamente y el firewall bien configurado seguía sin
-        responder desde la LAN porque (a) mirrored networking no estaba
-        realmente activo, o (b) la interfaz estaba categorizada "Public" en
-        Windows, que aplica `BlockInbound` por defecto — ninguno de los dos
-        aparece en ningún log de Docker ni de la propia app.
+        Discovered live: a deployment with Docker publishing the ports
+        correctly and the firewall configured properly still did not answer
+        from the LAN, because either (a) mirrored networking was not really
+        active, or (b) the interface was categorised "Public" on Windows,
+        which applies `BlockInbound` by default — neither of which appears in
+        any log, Docker's or the app's own.
         """
         if wsl.inside_wsl or os_info.name != "Windows" or not docker.context.is_desktop:
             return
@@ -261,16 +260,16 @@ class EnvironmentStep(Step):
 
         if not mirrored_configured:
             message = (
-                "Docker Desktop en Windows no expone sus puertos a la LAN por defecto: "
-                "solo a `localhost`. Sin `networkingMode=mirrored` en "
-                r"%UserProfile%\.wslconfig, es probable que Mattermost y el panel de "
-                "WireGuard no respondan desde otros dispositivos de la red, aunque "
-                "funcionen perfectamente en este equipo."
+                "Docker Desktop on Windows does not expose its ports to the LAN by "
+                "default: only to `localhost`. Without `networkingMode=mirrored` in "
+                r"%UserProfile%\.wslconfig, Mattermost and the WireGuard panel will "
+                "probably not answer from other devices on the network, even though "
+                "they work perfectly on this machine."
             )
             steps_hint = (
-                "activar mirrored networking (recomendado) o configurar "
-                "`netsh interface portproxy` + una regla de firewall apuntando a la IP "
-                "de la LAN"
+                "enable mirrored networking (recommended) or configure "
+                "`netsh interface portproxy` plus a firewall rule pointing at the LAN "
+                "address"
             )
         else:
             from axion_wizard.detect import network as detect_network
@@ -280,93 +279,95 @@ class EnvironmentStep(Step):
                 iface.name if iface else None
             )
             if category != "Public":
-                # Mirrored activo y red no-Public: la configuración de Windows
-                # parece correcta. El aislamiento de clientes en el router es
-                # harina de otro costal — se avisa igual, porque desde aquí
-                # no hay forma de comprobarlo.
+                # Mirrored active and the network not Public: the Windows side
+                # looks right. Client isolation on the router is another matter
+                # entirely — it is warned about anyway, because from here there
+                # is no way to check it.
                 self.context.warn(
-                    "El acceso LAN depende también de que el router no aísle "
-                    "clientes entre sí (AP/client isolation). Si Mattermost no carga "
-                    "desde otro dispositivo pese a la configuración de Windows, "
-                    "revisar esa opción en el panel del router."
+                    "LAN access also depends on the router not isolating clients from "
+                    "each other (AP/client isolation). If Mattermost will not load "
+                    "from another device despite the Windows configuration, check that "
+                    "option in the router's admin panel."
                 )
                 self._warn_about_mirrored_tcp_stalls()
                 return
             message = (
-                f"La red de este equipo está categorizada \"Public\" en Windows "
-                f"({iface.name if iface else 'interfaz principal'}), que bloquea el "
-                "tráfico entrante por defecto — incluido el de mirrored networking, "
-                "aunque esté activo. Mattermost y el panel de WireGuard probablemente "
-                "no respondan desde otros dispositivos de la LAN."
+                f'This machine\'s network is categorised "Public" on Windows '
+                f"({iface.name if iface else 'primary interface'}), which blocks "
+                "inbound traffic by default — including mirrored networking's, even "
+                "when that is active. Mattermost and the WireGuard panel will probably "
+                "not answer from other devices on the LAN."
             )
             steps_hint = (
-                'reclasificar la red como "Privada": '
+                'reclassify the network as "Private": '
                 "Set-NetConnectionProfile -NetworkCategory Private"
             )
 
         self.context.warn(message)
         console.print(f"[axion.warn]{message}[/]")
-        console.print(f"[axion.dim]Antes de desplegar: {steps_hint}.[/]")
+        console.print(f"[axion.dim]Before deploying: {steps_hint}.[/]")
 
     def _warn_about_mirrored_tcp_stalls(self) -> None:
-        """Mirrored networking arregla el acceso LAN y rompe otra cosa.
+        """Mirrored networking fixes LAN access and breaks something else.
 
-        `networkingMode=mirrored` es lo que hace que el stack sea alcanzable
-        desde el móvil, pero arrastra un bug conocido y todavía abierto de
-        Docker/WSL2 (moby/moby#48201): las conexiones TCP de larga vida se
-        quedan colgadas. El WebSocket de Mattermost es exactamente eso —una
-        conexión ociosa esperando a que llegue un mensaje— así que el
-        síntoma no es un error, es que los mensajes nuevos (incluida la
-        respuesta de la IA) solo aparecen al recargar la página.
+        `networkingMode=mirrored` is what makes the stack reachable from a
+        phone, but it drags in a known and still-open Docker/WSL2 bug
+        (moby/moby#48201): long-lived TCP connections stall. Mattermost's
+        WebSocket is exactly that — an idle connection waiting for a message
+        to arrive — so the symptom is not an error; it is that new messages
+        (the AI's answer included) only appear on reloading the page.
 
-        Se avisa aquí porque es indistinguible de "la IA no funciona" desde
-        fuera, y porque el diagnóstico correcto está a un comando:
-        `axion-wizard doctor` ahora hace el handshake WebSocket de verdad.
+        It is warned about here because from the outside it is
+        indistinguishable from "the AI does not work", and because the correct
+        diagnosis is one command away: `axion-wizard doctor` now performs the
+        WebSocket handshake for real.
         """
         message = (
-            "Mirrored networking está activo (es lo que da acceso desde la LAN), pero "
-            "arrastra un bug abierto de WSL2/Docker con las conexiones TCP largas "
-            "(moby/moby#48201). Si los mensajes —incluida la respuesta de la IA— solo "
-            "aparecen al recargar con F5, es esto: el WebSocket de Mattermost se queda "
-            "colgado. La alternativa es volver a NAT + `netsh portproxy`."
+            "Mirrored networking is active (it is what gives LAN access), but it drags "
+            "in an open WSL2/Docker bug affecting long TCP connections "
+            "(moby/moby#48201). If messages — the AI's answer included — only appear "
+            "after pressing F5, this is why: Mattermost's WebSocket stalls. The "
+            "alternative is going back to NAT plus `netsh portproxy`."
         )
         self.context.warn(message)
         console.print(f"[axion.dim]{message}[/]")
         console.print(
-            "[axion.dim]Para confirmarlo sin tocar nada: `axion-wizard doctor` — "
-            "la fila `WebSocket Mattermost` lo distingue de un problema de "
-            "configuración.[/]"
+            "[axion.dim]To confirm it without changing anything: `axion-wizard doctor` "
+            "— the `Mattermost WebSocket` row tells it apart from a configuration "
+            "problem.[/]"
         )
 
-    # --- presentación -----------------------------------------------------------------
+    # --- presentation -----------------------------------------------------------------
 
     @staticmethod
     def _render_table(facts: EnvironmentFacts) -> Table:
-        table = ui.make_table("Entorno detectado")
-        table.add_column("Elemento", style="axion.label")
-        table.add_column("Valor", overflow="fold")
+        table = ui.make_table("Detected environment")
+        table.add_column("Item", style="axion.label")
+        table.add_column("Value", overflow="fold")
 
-        table.add_row("Sistema operativo", f"{facts.os_info.name} {facts.os_info.release}")
+        table.add_row("Operating system", f"{facts.os_info.name} {facts.os_info.release}")
         if facts.wsl.inside_wsl:
             distro = facts.wsl.distro_name or "?"
             version = facts.wsl.version or "?"
             table.add_row("WSL", f"{distro} (WSL{version})")
-            mirrored = "[axion.ok]sí[/]" if facts.wsl.mirrored_configured else "[axion.dim]no[/]"
+            mirrored = "[axion.ok]yes[/]" if facts.wsl.mirrored_configured else "[axion.dim]no[/]"
             table.add_row("Mirrored networking", mirrored)
-        table.add_row("Docker", facts.docker.docker_version or "[axion.error]no detectado[/]")
-        table.add_row("Compose", facts.docker.compose_version or "[axion.error]no detectado[/]")
-        table.add_row("Contexto Docker", facts.docker.context.active_context or "por defecto")
+        table.add_row("Docker", facts.docker.docker_version or "[axion.error]not detected[/]")
+        table.add_row("Compose", facts.docker.compose_version or "[axion.error]not detected[/]")
+        table.add_row("Docker context", facts.docker.context.active_context or "default")
         table.add_row("RAM", f"{facts.hardware.ram_total_gb:.1f} GB")
-        table.add_row("CPU", f"{facts.hardware.cpu_logical} núcleos lógicos")
+        table.add_row("CPU", f"{facts.hardware.cpu_logical} logical cores")
         gpus = ", ".join(g.name or g.vendor for g in facts.hardware.gpus)
         if not gpus:
-            gpu_value = "[axion.dim]sin GPU dedicada[/]"
+            gpu_value = "[axion.dim]no dedicated GPU[/]"
         elif facts.gpu_acceleration == detect_docker.GPU_ACCELERATION_NVIDIA:
-            gpu_value = f"{gpus} [axion.ok]({ui.GLYPH_OK} CUDA vía Docker)[/]"
+            gpu_value = f"{gpus} [axion.ok]({ui.GLYPH_OK} CUDA via Docker)[/]"
         elif facts.gpu_acceleration == detect_docker.GPU_ACCELERATION_ROCM:
-            gpu_value = f"{gpus} [axion.ok]({ui.GLYPH_OK} ROCm vía Docker)[/]"
+            gpu_value = f"{gpus} [axion.ok]({ui.GLYPH_OK} ROCm via Docker)[/]"
         else:
-            gpu_value = f"{gpus} [axion.warn]({ui.GLYPH_WARN} sin passthrough, Ollama usará CPU)[/]"
+            gpu_value = (
+                f"{gpus} [axion.warn]({ui.GLYPH_WARN} no passthrough, Ollama will use CPU)[/]"
+            )
         table.add_row("GPU", gpu_value)
-        table.add_row("Variante WireGuard", f"[axion.info]{facts.wireguard_variant}[/]")
+        table.add_row("WireGuard variant", f"[axion.info]{facts.wireguard_variant}[/]")
         return table

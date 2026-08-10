@@ -588,7 +588,7 @@ def test_resume_overview_marks_done_failed_and_where_it_restarts(tmp_path: Path)
 
     assert "1/3" in text and "3/3" in text
     assert "reventó" in text
-    assert "empieza aquí" in text
+    assert "starts here" in text
     # y cómo salir de ahí si no es lo que se quería
     assert "axion-wizard reset" in text
 

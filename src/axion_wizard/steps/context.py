@@ -1,12 +1,13 @@
-"""Datos que los pasos del flujo de instalación se pasan entre sí (§4).
+"""Data the install steps hand to each other (§4).
 
-Vive aparte de `base.py` para que los pasos puedan importar el contexto sin
-arrastrar la clase `Step`, y para no crear un ciclo con `cli.GlobalState`.
+It lives apart from `base.py` so steps can import the context without
+dragging in the `Step` class, and to avoid a cycle with `cli.GlobalState`.
 
-Nada de esto se persiste: `.axion-wizard-state.json` guarda solo qué pasos
-terminaron (§4, y ver `utils.state`), nunca los valores — aquí dentro viaja
-la contraseña de PostgreSQL en claro. Al reanudar, cada paso repuebla lo
-suyo con `Step.restore()` leyendo los artefactos que ya escribió en disco.
+None of this is persisted: `.axion-wizard-state.json` records only which
+steps finished (§4, and see `utils.state`), never the values — the PostgreSQL
+password travels through here in the clear. On resume, each step repopulates
+its own part with `Step.restore()` by reading the artifacts it already wrote
+to disk.
 """
 
 from __future__ import annotations
@@ -15,9 +16,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-# En tiempo de ejecución, no solo para tipos: `gpu_acceleration` necesita su
-# valor por defecto. `detect.docker` solo depende de `utils`, así que no cierra
-# ningún ciclo de importación.
+# At runtime, not just for typing: `gpu_acceleration` needs its default
+# value. `detect.docker` depends only on `utils`, so this closes no import
+# cycle.
 from axion_wizard.detect import docker as detect_docker
 
 if TYPE_CHECKING:
@@ -29,21 +30,21 @@ if TYPE_CHECKING:
 
 @dataclass
 class EnvironmentFacts:
-    """Lo que produce el paso 1 y de lo que depende todo lo demás (§4.1)."""
+    """What step 1 produces and everything else depends on (§4.1)."""
 
     os_info: OsInfo
     wsl: WslInfo
     docker: DockerInfo
     hardware: HardwareInfo
-    #: `host` (Linux nativo) o `ports` (Docker Desktop/Windows). La salida
-    #: decisiva de §4.1: el resto del flujo se ramifica sobre esto.
+    #: `host` (native Linux) or `ports` (Docker Desktop/Windows). §4.1's
+    #: decisive output: the rest of the flow branches on it.
     wireguard_variant: str
-    #: Cómo se le entrega la GPU a Ollama: `none`, `nvidia` o `rocm`. Distinto
-    #: de "hay una GPU": el valor solo deja de ser `none` si Docker de verdad
-    #: pudo pasarla a un contenedor de prueba, porque reservarla sin
-    #: comprobarlo deja el contenedor parado en `created` para siempre en GPUs
-    #: sin soporte de passthrough bajo WSL2 (§7, incidente real). Cada modo
-    #: implica además una imagen de Ollama distinta.
+    #: How the GPU is handed to Ollama: `none`, `nvidia` or `rocm`. Distinct
+    #: from "there is a GPU": the value only stops being `none` if Docker
+    #: genuinely managed to pass one to a test container, because reserving it
+    #: without checking leaves the container stuck in `created` forever on
+    #: GPUs with no passthrough support under WSL2 (§7, a real incident). Each
+    #: mode also implies a different Ollama image.
     gpu_acceleration: str = detect_docker.GPU_ACCELERATION_NONE
 
     @property
@@ -53,13 +54,13 @@ class EnvironmentFacts:
 
 @dataclass
 class NetworkFacts:
-    """Lo que produce el paso 2 (§4.2)."""
+    """What step 2 produces (§4.2)."""
 
     lan_ip: str | None = None
     interface_name: str | None = None
     public_ip: str | None = None
-    #: `True` si el IP público no coincide con el WAN del router: el port
-    #: forwarding no llegará nunca y solo queda el acceso por LAN.
+    #: `True` if the public IP does not match the router's WAN address: port
+    #: forwarding will never arrive and only LAN access remains.
     cgnat: bool = False
     busy_ports: list[str] = field(default_factory=list)
     unreachable_targets: list[str] = field(default_factory=list)
@@ -67,28 +68,28 @@ class NetworkFacts:
 
 @dataclass
 class InstallContext:
-    """Estado en memoria de una ejecución de `install`."""
+    """In-memory state of one `install` run."""
 
     project_dir: Path
     environment: EnvironmentFacts | None = None
     network: NetworkFacts | None = None
     config: AxionConfig | None = None
-    #: Rellenado por el paso 4; el paso 9 lo vuelve a leer de disco.
+    #: Filled in by step 4; step 9 reads it back off disk.
     cert_path: Path | None = None
-    #: Advertencias no fatales acumuladas, para el resumen final.
+    #: Accumulated non-fatal warnings, for the closing summary.
     warnings: list[str] = field(default_factory=list)
 
     def warn(self, message: str) -> None:
         self.warnings.append(message)
 
     def require_environment(self) -> EnvironmentFacts:
-        """Acceso comprobado, para que un paso mal ordenado falle aquí y no
-        con un `AttributeError` sobre `None` tres llamadas más abajo."""
+        """Checked access, so a misordered step fails here rather than with an
+        `AttributeError` on `None` three calls further down."""
         if self.environment is None:
-            raise RuntimeError("el paso 1 (entorno) no se ha ejecutado todavía")
+            raise RuntimeError("step 1 (environment) has not run yet")
         return self.environment
 
     def require_config(self) -> AxionConfig:
         if self.config is None:
-            raise RuntimeError("el paso 3 (configuración) no se ha ejecutado todavía")
+            raise RuntimeError("step 3 (configuration) has not run yet")
         return self.config

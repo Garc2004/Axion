@@ -504,7 +504,7 @@ def test_environment_step_warns_about_a_project_on_the_windows_mount(
     context = InstallContext(Path("/mnt/c/Users/alguien/axion"))
     EnvironmentStep(GlobalState(project_dir=context.project_dir, quiet=True), context).run()
 
-    assert any("filesystem de Windows" in w for w in context.warnings)
+    assert any("Windows filesystem" in w for w in context.warnings)
 
 
 # --- paso 4: certificado --------------------------------------------------------------

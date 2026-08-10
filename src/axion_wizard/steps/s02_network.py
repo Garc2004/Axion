@@ -1,13 +1,13 @@
-"""Paso 2 — Verificaciones de red (§4.2).
+"""Step 2 — Network checks (§4.2).
 
-Cuatro comprobaciones en el orden que exige la spec: IP LAN, CGNAT, puertos
-libres y conectividad saliente. Ninguna aborta el flujo por sí sola —salvo
-que el usuario decida parar—: son diagnósticos que el usuario necesita
-*antes* de escribir nada al disco, no requisitos absolutos.
+Four checks in the order the spec requires: LAN IP, CGNAT, free ports and
+outbound connectivity. None aborts the flow on its own — unless the user
+decides to stop: they are diagnostics the user needs *before* anything is
+written to disk, not absolute requirements.
 
-El CGNAT no se puede detectar solo: hace falta el IP WAN que el router
-muestra en su panel, y no hay forma fiable de leerlo. Se le pide al usuario
-y se compara (§4.2.2).
+CGNAT cannot be detected unaided: it needs the WAN address the router shows
+in its admin panel, and there is no reliable way to read it. The user is
+asked and the two are compared (§4.2.2).
 """
 
 from __future__ import annotations
@@ -24,14 +24,14 @@ from axion_wizard.steps.base import Step, StepResult
 from axion_wizard.steps.context import NetworkFacts
 from axion_wizard.steps.prompts import interactive_input_available
 
-#: Puertos que el stack necesita publicar. Ocupados no es fatal aquí —puede
-#: ser el propio stack de una corrida anterior— pero sí hay que avisar.
+#: Ports the stack needs to publish. Busy is not fatal here — it may be the
+#: stack itself from a previous run — but it does warrant a warning.
 CHECKED_PORTS = detect_network.REQUIRED_PORTS
 
 
 class NetworkStep(Step):
     name = "network"
-    title = "Verificaciones de red"
+    title = "Network checks"
 
     def run(self) -> StepResult:
         facts = NetworkFacts()
@@ -48,10 +48,10 @@ class NetworkStep(Step):
 
         if facts.unreachable_targets:
             self._confirm_or_abort(
-                "Sin conectividad con "
-                f"{', '.join(facts.unreachable_targets)}: el pull de imágenes y del "
-                "modelo fallará más adelante.",
-                question="¿Continuar de todos modos?",
+                "No connectivity to "
+                f"{', '.join(facts.unreachable_targets)}: pulling the images and the "
+                "model will fail later on.",
+                question="Continue anyway?",
             )
 
         return StepResult(
@@ -59,33 +59,34 @@ class NetworkStep(Step):
             ok=True,
             data={"lan_ip": facts.lan_ip or "", "cgnat": facts.cgnat},
             message=(
-                f"IP LAN {facts.lan_ip or 'desconocida'}, "
-                f"CGNAT: {'sí' if facts.cgnat else 'no'}"
+                f"LAN IP {facts.lan_ip or 'unknown'}, "
+                f"CGNAT: {'yes' if facts.cgnat else 'no'}"
             ),
         )
 
     def verify(self) -> StepResult:
-        """Los puertos que el stack ya usa no cuentan como conflicto, así que
-        verificar aquí solo confirma que seguimos teniendo IP de LAN."""
+        """Ports the stack itself already uses do not count as a conflict, so
+        verifying here only confirms we still have a LAN address."""
         iface = detect_network.get_primary_interface()
         if iface is None or not iface.ip:
-            return StepResult(name=self.name, ok=False, message="sin interfaz con IP de LAN")
-        return StepResult(name=self.name, ok=True, message=f"IP LAN {iface.ip}")
+            return StepResult(name=self.name, ok=False, message="no interface with a LAN IP")
+        return StepResult(name=self.name, ok=True, message=f"LAN IP {iface.ip}")
 
-    # --- comprobaciones individuales ------------------------------------------------
+    # --- individual checks ----------------------------------------------------------
 
     def _check_primary_interface(self, facts: NetworkFacts) -> None:
         iface = detect_network.get_primary_interface()
         if iface is None:
-            self.context.warn("No se encontró ninguna interfaz con IP de LAN.")
+            self.context.warn("No interface with a LAN address was found.")
             return
         facts.lan_ip = iface.ip
         facts.interface_name = iface.name
 
     def _check_ports(self, facts: NetworkFacts) -> None:
-        """Nota crítica de §4.2: bajo Docker Desktop los contenedores publican
-        sus puertos en otra VM, invisible para `psutil`. Se complementa con
-        `docker ps` para no dar por libre un puerto que sí está tomado."""
+        """Critical note from §4.2: under Docker Desktop, containers publish
+        their ports in another VM, invisible to `psutil`. It is supplemented
+        with `docker ps` so a port that is genuinely taken is not called
+        free."""
         statuses = detect_network.check_ports_psutil(CHECKED_PORTS)
         statuses = detect_network.merge_docker_published_ports(statuses, _docker_ps_json())
         facts.busy_ports = [
@@ -100,20 +101,20 @@ class NetworkStep(Step):
         facts.unreachable_targets = [name for name, ok in reachable.items() if not ok]
 
     def _check_cgnat(self, facts: NetworkFacts) -> None:
-        """§4.2.2: comparar el IP público saliente con el WAN del router.
+        """§4.2.2: compare the outbound public IP with the router's WAN address.
 
-        Si difieren, la operadora hace Carrier-Grade NAT y ningún port
-        forwarding alcanzará este host desde internet. No es motivo para
-        abortar: el acceso por LAN y por VPN sigue funcionando.
+        If they differ, the ISP is doing Carrier-Grade NAT and no port
+        forwarding will reach this host from the internet. Not a reason to
+        abort: LAN and VPN access still work.
         """
         if facts.public_ip is None:
             self.context.warn(
-                "No se pudo determinar el IP público; no se comprobó el CGNAT."
+                "The public IP could not be determined; CGNAT was not checked."
             )
             return
         if self.state.yes or self.state.unattended or not interactive_input_available():
-            # Sin interacción no hay con qué comparar: se deja sin determinar
-            # en vez de inventarse un veredicto.
+            # With no interaction there is nothing to compare against: it is
+            # left undetermined rather than inventing a verdict.
             return
 
         router_wan_ip = self._ask_router_wan_ip(facts.public_ip)
@@ -125,84 +126,85 @@ class NetworkStep(Step):
             return
 
         console.print(
-            f"[axion.warn]CGNAT detectado.[/] Tu IP pública ({facts.public_ip}) no coincide "
-            f"con la WAN del router ({router_wan_ip}): la operadora usa Carrier-Grade NAT, "
-            "así que el port forwarding nunca alcanzará este host desde internet."
+            f"[axion.warn]CGNAT detected.[/] Your public IP ({facts.public_ip}) does not "
+            f"match the router's WAN address ({router_wan_ip}): the ISP uses "
+            "Carrier-Grade NAT, so port forwarding will never reach this host from the "
+            "internet."
         )
         self.context.warn(
-            f"CGNAT detectado ({facts.public_ip} != {router_wan_ip}): solo acceso LAN/VPN."
+            f"CGNAT detected ({facts.public_ip} != {router_wan_ip}): LAN/VPN access only."
         )
         self._confirm_or_abort(
-            "El acceso desde fuera de la LAN no funcionará sin un relay WireGuard en un VPS.",
-            question="¿Continuar solo con acceso LAN?",
+            "Access from outside the LAN will not work without a WireGuard relay on a VPS.",
+            question="Continue with LAN access only?",
         )
 
     def _ask_router_wan_ip(self, public_ip: str) -> str | None:
         import questionary
 
         console.print(
-            f"[axion.info]IP pública detectada:[/] {public_ip}\n"
-            "[axion.dim]Para descartar CGNAT hace falta la IP WAN que muestra el panel "
-            "del router. Déjalo vacío para omitir esta comprobación.[/]"
+            f"[axion.info]Public IP detected:[/] {public_ip}\n"
+            "[axion.dim]Ruling out CGNAT needs the WAN address shown in the router's "
+            "admin panel. Leave it empty to skip this check.[/]"
         )
-        answer = questionary.text("IP WAN del router (opcional):").ask()
+        answer = questionary.text("Router WAN address (optional):").ask()
         return (answer or "").strip() or None
 
     def _confirm_or_abort(self, explanation: str, question: str) -> None:
         console.print(f"[axion.warn]{explanation}[/]")
         if self.state.yes or self.state.unattended or not interactive_input_available():
-            # Sin nadie a quien preguntar se continúa: el aviso ya está en
-            # pantalla y abortar una instalación desatendida por un puerto
-            # ocupado sería peor que seguir e informar al final.
+            # With nobody to ask, carry on: the warning is already on screen,
+            # and aborting an unattended install over a busy port would be
+            # worse than continuing and reporting at the end.
             return
 
         import questionary
 
         if not questionary.confirm(question, default=True).ask():
             raise NetworkError(
-                what="Instalación cancelada en las verificaciones de red",
+                what="Install cancelled at the network checks",
                 why=explanation,
                 steps=[
-                    "Corregir el problema de red y volver a ejecutar `axion-wizard install`.",
-                    "El progreso hecho hasta aquí queda guardado y se reanuda solo.",
+                    "Fix the network problem and run `axion-wizard install` again.",
+                    "The progress made so far is saved and resumes on its own.",
                 ],
             )
 
-    # --- presentación -------------------------------------------------------------------
+    # --- presentation -------------------------------------------------------------------
 
     @staticmethod
     def _render_table(facts: NetworkFacts) -> Table:
-        table = ui.make_table("Verificaciones de red")
-        table.add_column("Comprobación", style="axion.label")
-        table.add_column("Resultado")
-        table.add_column("Detalle", overflow="fold")
+        table = ui.make_table("Network checks")
+        table.add_column("Check", style="axion.label")
+        table.add_column("Result")
+        table.add_column("Detail", overflow="fold")
 
         if facts.lan_ip:
             table.add_row(
-                "Interfaz principal", ui.ok(), f"{facts.interface_name} — {facts.lan_ip}"
+                "Primary interface", ui.ok(), f"{facts.interface_name} — {facts.lan_ip}"
             )
         else:
-            table.add_row("Interfaz principal", ui.fail(), "sin IP de LAN")
+            table.add_row("Primary interface", ui.fail(), "no LAN address")
 
         table.add_row(
-            "IP pública (IPv4)",
-            ui.status(bool(facts.public_ip), fail_label="DESCONOCIDA"),
-            facts.public_ip or "no se pudo determinar",
+            "Public IP (IPv4)",
+            ui.status(bool(facts.public_ip), fail_label="UNKNOWN"),
+            facts.public_ip or "could not be determined",
         )
-        # Semántica invertida a propósito: aquí "SÍ" es el resultado
-        # preocupante y "NO" el bueno — al revés que en el resto de filas.
+        # Inverted semantics on purpose: here "YES" is the worrying result and
+        # "NO" the good one — the other way round from every other row.
         table.add_row(
             "CGNAT",
-            ui.warn("SÍ") if facts.cgnat else ui.ok("NO"),
-            "solo acceso LAN/VPN" if facts.cgnat else "",
+            ui.warn("YES") if facts.cgnat else ui.ok("NO"),
+            "LAN/VPN access only" if facts.cgnat else "",
         )
         table.add_row(
-            "Puertos requeridos",
-            ui.warn("OCUPADOS") if facts.busy_ports else ui.ok("LIBRES"),
+            "Required ports",
+            ui.warn("IN USE") if facts.busy_ports else ui.ok("FREE"),
             ", ".join(facts.busy_ports),
         )
         table.add_row(
-            "Conectividad saliente",
+            "Outbound connectivity",
             ui.status(not facts.unreachable_targets),
             ", ".join(facts.unreachable_targets),
         )
@@ -210,16 +212,16 @@ class NetworkStep(Step):
 
 
 def _docker_ps_json() -> list[dict]:
-    """`docker ps --format json`, o lista vacía si Docker no responde.
+    """`docker ps --format json`, or an empty list if Docker does not answer.
 
-    Los puertos que publican los contenedores son un complemento al chequeo
-    de `psutil`, no un requisito: si Docker no está listo todavía, el paso
-    sigue siendo útil con lo que ve el host.
+    The ports containers publish are a supplement to the `psutil` check, not a
+    requirement: if Docker is not ready yet, the step is still useful with
+    what the host can see.
 
-    El parseo va por `utils.jsonio` y no a mano: esta copia solo entendía el
-    formato "un objeto por línea", así que con una CLI que emitiera un array
-    JSON —lo que hacen algunas versiones— la comprobación de puertos
-    ocupados bajo Docker Desktop devolvía "ningún contenedor" en silencio.
+    Parsing goes through `utils.jsonio` rather than by hand: this copy only
+    understood the "one object per line" format, so against a CLI that emitted
+    a JSON array — which some versions do — the busy-port check under Docker
+    Desktop silently returned "no containers".
     """
     from axion_wizard.utils.jsonio import parse_json_lines_or_array
     from axion_wizard.utils.shell import CommandNotFoundError, CommandTimeoutError, run
