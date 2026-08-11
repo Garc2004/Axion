@@ -51,10 +51,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - **Container images.** postgres 15.13 → 15.18-alpine, nginx 1.27 →
-  1.31-alpine, ollama 0.6.5 → 0.32.6 (and `0.32.6-rocm`). Mattermost stays on
-  10.5.1 and PostgreSQL on the 15 line deliberately: a major bump on either
-  triggers migrations that do not come back, which is not something an
-  installer should apply on its own.
+  1.31-alpine, ollama 0.6.5 → 0.32.6 (and `0.32.6-rocm`), mattermost 10.5.1 →
+  10.5.14. Mattermost stays on the 10 line and PostgreSQL on 15 deliberately: a
+  major bump on either triggers migrations that do not come back, which is not
+  something an installer should apply on its own.
+
+  **Mattermost 10 is nonetheless a dead end**, and the patch bump only papers
+  over it: 10.5 is an ESR whose support ended on 2025-11-15, so nothing found
+  since has been backported. 10.11 ESR ends 2026-08-15. The supported
+  destination is 11.7 ESR (to 2027-05-15) — a deliberate migration, not a pin
+  change.
 - **Architecture.** `steps/runner.py` (805 lines, eighteen entry points, only
   one of them about steps) is split into a `commands/` package by what the user
   is trying to do. The loose root modules are grouped into `domain/` (what the

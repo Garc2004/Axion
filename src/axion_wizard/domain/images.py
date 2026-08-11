@@ -19,7 +19,14 @@ WIREGUARD_IMAGE = "ghcr.io/wg-easy/wg-easy:15.3.0"
 #: schema migrations against the database that do not come back: not an
 #: upgrade an installer should apply on its own to a deployment with a message
 #: history inside it.
-MATTERMOST_IMAGE = "mattermost/mattermost-team-edition:10.5.1"
+#:
+#: Current on its own line — 10.5.14 is the last patch 10.5 received — but be
+#: clear about what that is worth: **10.5 is an ESR whose support ended on
+#: 2025-11-15**, so nothing found after that date has been backported to it.
+#: 10.11 ESR ends 2026-08-15, which buys nothing either. The supported
+#: destination is 11.7 ESR (to 2027-05-15), and getting there is a deliberate
+#: migration someone has to decide to run, not a pin change.
+MATTERMOST_IMAGE = "mattermost/mattermost-team-edition:10.5.14"
 #: Pinned to the 15 line for the same reason, and more so: changing major in
 #: PostgreSQL requires `pg_upgrade` or a dump and restore, and the container
 #: flatly refuses to start on a data directory from another version. Within
