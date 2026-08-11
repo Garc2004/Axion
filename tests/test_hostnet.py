@@ -1,11 +1,11 @@
-"""Reenvío IP del host para la variante `host` de WireGuard (§6.1).
+"""Host IP forwarding for WireGuard's `host` variant (§6.1).
 
-Contexto de por qué existe este módulo y estos tests: el wizard pedía
-privilegios de root citando "aplicar `sysctl` de reenvío IP para WireGuard",
-y el compose remitía a `/etc/sysctl.d/99-wireguard.conf`, pero nada en el
-código escribía ese archivo. Con el reenvío apagado el fallo es mudo: el
-túnel se establece, el handshake funciona, el panel muestra el cliente
-conectado — y no pasa un solo paquete, sin error en ningún log.
+Context for why this module and these tests exist: the wizard asked for root
+privileges citing "apply the IP forwarding `sysctl` for WireGuard", and the
+compose file pointed at `/etc/sysctl.d/99-wireguard.conf`, but nothing in the
+code wrote that file. With forwarding off the failure is silent: the tunnel
+establishes, the handshake works, the panel shows the client connected — and
+not one packet gets through, with no error in any log.
 """
 
 from pathlib import Path
@@ -17,7 +17,7 @@ from axion_wizard.services import hostnet
 
 
 def _proc_root(tmp_path: Path, ipv4: str = "1", ipv6: str | None = "1") -> Path:
-    """Simula `/proc/sys` para no depender del kernel de quien corre los tests."""
+    """Fake `/proc/sys` so the tests do not depend on the runner's kernel."""
     root = tmp_path / "proc"
     ipv4_path = root / "net" / "ipv4"
     ipv4_path.mkdir(parents=True)
@@ -29,7 +29,7 @@ def _proc_root(tmp_path: Path, ipv4: str = "1", ipv6: str | None = "1") -> Path:
     return root
 
 
-# --- cuándo aplica ------------------------------------------------------------------
+# --- when it applies ----------------------------------------------------------------
 
 
 def test_applies_only_to_linux_host_variant() -> None:
@@ -47,11 +47,11 @@ def test_applies_only_to_linux_host_variant() -> None:
 )
 def test_does_not_apply_elsewhere(os_name: str, variant: str) -> None:
     """En `ports` encamina Docker con su NAT, y en Windows/macOS el kernel
-    que importa es el de la VM de Docker Desktop, no el del host."""
+    the kernel that matters is Docker Desktop's VM, not the host's."""
     assert hostnet.is_applicable(os_name, variant) is False
 
 
-# --- lectura del estado real --------------------------------------------------------
+# --- reading the real state ---------------------------------------------------------
 
 
 def test_forwarding_is_active_when_both_sysctls_are_on(tmp_path: Path) -> None:
@@ -63,8 +63,8 @@ def test_forwarding_is_inactive_when_ipv4_is_off(tmp_path: Path) -> None:
 
 
 def test_a_kernel_without_ipv6_still_counts_as_active(tmp_path: Path) -> None:
-    """En un kernel sin IPv6 compilado ese sysctl no existe; exigirlo daría
-    un falso negativo permanente."""
+    """On a kernel built without IPv6 that sysctl does not exist; requiring it
+    would give a permanent false negative."""
     assert hostnet.forwarding_is_active(proc_root=_proc_root(tmp_path, ipv6=None)) is True
 
 
@@ -72,7 +72,7 @@ def test_missing_ipv4_sysctl_is_not_active(tmp_path: Path) -> None:
     assert hostnet.forwarding_is_active(proc_root=tmp_path / "no-existe") is False
 
 
-# --- escritura y aplicación ----------------------------------------------------------
+# --- writing and applying ------------------------------------------------------------
 
 
 def test_writes_the_conf_and_reports_active(tmp_path: Path, mocker) -> None:
@@ -88,9 +88,9 @@ def test_writes_the_conf_and_reports_active(tmp_path: Path, mocker) -> None:
 
 
 def test_persists_across_reboots_by_writing_to_sysctl_d(tmp_path: Path, mocker) -> None:
-    """`sysctl -w` a secas no sobrevive a un reinicio, y el stack sí
-    (`restart: unless-stopped`): sin el archivo la VPN dejaría de encaminar
-    en el primer reboot."""
+    """A bare `sysctl -w` does not survive a reboot, and the stack does
+    (`restart: unless-stopped`): without the file the VPN would stop routing at
+    the first reboot."""
     conf = tmp_path / "99-wireguard.conf"
     mocker.patch("axion_wizard.services.hostnet._apply_with_sysctl", return_value=(True, "sysctl"))
 
@@ -112,11 +112,11 @@ def test_is_idempotent_when_already_active(tmp_path: Path, mocker) -> None:
 
 
 def test_reports_missing_privileges_instead_of_raising(tmp_path: Path, mocker) -> None:
-    """Sin root no se puede escribir en `/etc/sysctl.d`. Eso deja la VPN sin
-    encaminar, pero Mattermost y la IA funcionan igual: abortar la
-    instalación entera sería peor que terminarla avisando."""
-    # El `/proc` simulado se construye ANTES de romper `write_text`, o lo
-    # rompería también a él.
+    """Without root, `/etc/sysctl.d` cannot be written. That leaves the VPN
+    unable to route, but Mattermost and the AI work regardless: aborting the
+    whole install would be worse than finishing it with a warning."""
+    # The fake `/proc` is built BEFORE breaking `write_text`, or that
+    # would break it too.
     proc_root = _proc_root(tmp_path, ipv4="0")
     mocker.patch.object(Path, "write_text", side_effect=PermissionError("denegado"))
 
@@ -144,7 +144,7 @@ def test_reports_when_sysctl_did_not_take_effect(tmp_path: Path, mocker) -> None
 
 
 def test_active_kernel_wins_even_if_sysctl_command_failed(tmp_path: Path, mocker) -> None:
-    """Si el valor está bien, da igual cómo llegó ahí."""
+    """If the value is right, how it got there is moot."""
     conf = tmp_path / "99-wireguard.conf"
     mocker.patch("axion_wizard.services.hostnet._apply_with_sysctl", return_value=(False, "err"))
 
@@ -169,13 +169,13 @@ def test_manual_fix_mentions_the_conf_and_the_command() -> None:
     assert "net.ipv4.ip_forward" in joined
 
 
-# --- integración con el paso 6 -------------------------------------------------------
+# --- integration with step 6 ---------------------------------------------------------
 
 
 def _context_with_environment(tmp_path: Path, os_name: str, variant: str):
     """Contexto con hechos reales, no mocks: `Mock(name=...)` no fija el
     atributo `name` —lo usa para nombrar el propio mock— y `OsInfo.name` es
-    justo lo que decide si el reenvío aplica."""
+    exactly what decides whether forwarding applies."""
     from axion_wizard.detect.docker import DockerContextInfo, DockerInfo
     from axion_wizard.detect.hardware import HardwareInfo
     from axion_wizard.detect.platform import OsInfo, WslInfo

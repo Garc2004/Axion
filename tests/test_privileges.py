@@ -25,8 +25,9 @@ def test_is_elevated_false_on_windows_when_api_says_so(mocker) -> None:
 
 
 def test_is_elevated_conservative_when_windows_api_unavailable(mocker) -> None:
-    """Si no se puede determinar, asumir 'sin elevar' — como mucho se ofrece
-    elevar de más, nunca se da por elevado un proceso que no lo está."""
+    """If it cannot be determined, assume 'not elevated' — at worst elevation
+    is offered unnecessarily, never is an unelevated process taken as
+    elevated."""
     mocker.patch("axion_wizard.privileges.is_windows", return_value=True)
     fake_windll = mocker.patch("axion_wizard.privileges.ctypes.windll", create=True)
     type(fake_windll).shell32 = mocker.PropertyMock(side_effect=OSError("no shell32"))
@@ -62,7 +63,7 @@ def test_current_invocation_in_dev_mode_reinvokes_the_module(mocker) -> None:
 
 def test_current_invocation_when_frozen_reinvokes_the_binary(mocker) -> None:
     """En un bundle, sys.executable ya es el propio axion-wizard.exe: volver a
-    pasarle `-m axion_wizard` lo rompería."""
+    passing it `-m axion_wizard` would break it."""
     mocker.patch("axion_wizard.privileges.running_as_frozen_binary", return_value=True)
     mocker.patch.object(sys, "argv", ["axion-wizard.exe", "doctor"])
     executable, args = priv.current_invocation()
@@ -92,13 +93,14 @@ def test_explain_elevation_reason_lists_concrete_reasons() -> None:
         ("", '""'),
         (r"C:\Program Files\axion", r'"C:\Program Files\axion"'),
         ('has"quote', r'"has\"quote"'),
-        # Una ruta acabada en barra: sin duplicarla, la barra escaparía la
-        # comilla de cierre y se comería el resto de la línea de comandos.
+        # A path ending in a backslash: without doubling it, the backslash
+        # would escape the closing quote and swallow the rest of the command
+        # line.
         ("C:\\mis proyectos\\axion\\", '"C:\\mis proyectos\\axion\\\\"'),
-        # Sin espacios ni comillas no hace falta comillar nada.
+        # With no spaces or quotes there is nothing to quote.
         ("C:\\axion\\", "C:\\axion\\"),
-        # Barras que no preceden a una comilla se dejan tal cual.
-        ('C:\\con espacio\\a\\b"c', '"C:\\con espacio\\a\\b\\"c"'),
+        # Backslashes not preceding a quote are left alone.
+        ('C:\\with space\\a\\b"c', '"C:\\with space\\a\\b\\"c"'),
     ],
 )
 def test_quote_windows_arg(arg: str, expected: str) -> None:
@@ -116,7 +118,7 @@ def _fake_elevation(mocker, *, handle=1234, exit_code=0):
 
 def test_relaunch_elevated_windows_waits_and_propagates_exit_code(mocker) -> None:
     """El padre no puede terminar en cuanto dispara UAC: el trabajo real
-    ocurre en el proceso elevado, y su resultado es el único que importa."""
+    happens in the elevated process, and its result is the only one that counts."""
     mocker.patch(
         "axion_wizard.privileges.current_invocation",
         return_value=("axion-wizard.exe", ["install"]),
@@ -133,8 +135,8 @@ def test_relaunch_elevated_windows_waits_and_propagates_exit_code(mocker) -> Non
 
 
 def test_relaunch_elevated_windows_prepends_leading_args(mocker) -> None:
-    """`--project-dir` es una opción del grupo raíz: detrás del subcomando,
-    Click la rechazaría con 'No such option'."""
+    """`--project-dir` is a root-group option: after the subcommand, Click
+    would reject it with 'No such option'."""
     mocker.patch("axion_wizard.privileges.running_as_frozen_binary", return_value=True)
     mocker.patch.object(sys, "argv", ["axion-wizard.exe", "install", "--unattended"])
     start, _ = _fake_elevation(mocker)
@@ -173,9 +175,9 @@ def test_relaunch_elevated_windows_propagates_elevation_error(mocker) -> None:
     )
     mocker.patch(
         "axion_wizard.privileges._start_elevated_process",
-        side_effect=priv.ElevationError("el usuario canceló el diálogo de UAC"),
+        side_effect=priv.ElevationError("the user cancelled the UAC prompt"),
     )
-    with pytest.raises(priv.ElevationError, match="canceló"):
+    with pytest.raises(priv.ElevationError, match="cancelled"):
         priv.relaunch_elevated_windows()
 
 
@@ -220,8 +222,8 @@ def test_relaunch_elevated_posix_prepends_leading_args_and_sets_cwd(mocker) -> N
         leading_args=["--project-dir", "/srv/axion"], working_dir="/srv/axion"
     )
     command = run_mock.call_args[0][0]
-    # `--project-dir` va detrás de `-m axion_wizard`: delante lo interpretaría
-    # Python como argumento suyo, no del wizard.
+    # `--project-dir` goes after `-m axion_wizard`: in front, Python would
+    # interpret it as its own argument, not the wizard's.
     assert command == [
         "sudo",
         "-E",
@@ -269,13 +271,13 @@ def test_relaunch_elevated_dispatches_by_platform(mocker) -> None:
     posix.assert_called_once()
 
 
-# --- opciones duplicadas al relanzar elevado -------------------------------------
+# --- duplicated options when relaunching elevated --------------------------------
 #
-# Regresión: `ensure_elevated` antepone `--project-dir <absoluto>` a los
-# argumentos originales, que ya podían traer un `--project-dir` del usuario.
-# Click se queda con la ÚLTIMA aparición de una opción no repetible, así que
-# ganaba la del usuario — y si era relativa, el hijo la resolvía contra su
-# propio directorio de trabajo y desplegaba el stack en el sitio equivocado.
+# Regression: `ensure_elevated` prepends `--project-dir <absolute>` to the
+# original arguments, which could already carry a `--project-dir` from the
+# user. Click keeps the LAST occurrence of a non-repeatable option, so the
+# user's won — and if it was relative, the child resolved it against its own
+# working directory and deployed the stack in the wrong place.
 
 
 def test_strip_overridden_options_removes_the_option_and_its_value() -> None:

@@ -39,8 +39,8 @@ def test_parse_docker_ports_field_ignores_unparseable_port() -> None:
 
 
 def test_get_primary_interface_prefers_named_interface(mocker) -> None:
-    """`prefer_name` gana incluso a la ruta por defecto: es una elección
-    explícita de quien llama, más fuerte que cualquier heurística."""
+    """`prefer_name` beats even the default route: it is an explicit choice by
+    the caller, stronger than any heuristic."""
     fake_interfaces = [
         net.InterfaceInfo(name="lo", ip="127.0.0.1", mac=None),
         net.InterfaceInfo(name="eth0", ip="192.168.1.50", mac="aa:bb:cc:dd:ee:ff"),
@@ -54,12 +54,12 @@ def test_get_primary_interface_prefers_named_interface(mocker) -> None:
 def test_get_primary_interface_picks_the_default_route_interface_over_the_first_listed(
     mocker,
 ) -> None:
-    """Regresión real: en una máquina con Docker Desktop/WSL2, psutil lista
-    el vSwitch de Hyper-V (`vEthernet (Default Switch)`, 172.21.48.1) ANTES
-    que la tarjeta de red real (`Ethernet`, 192.168.1.65). Elegir "el primero
-    con IP" daba una dirección solo alcanzable desde el propio host — nunca
-    desde el móvil ni otro equipo de la LAN, que es justo quien necesita
-    llegar al panel de WireGuard o a Mattermost."""
+    """A real regression: on a machine with Docker Desktop/WSL2, psutil lists
+    the Hyper-V vSwitch (`vEthernet (Default Switch)`, 172.21.48.1) BEFORE the
+    real network card (`Ethernet`, 192.168.1.65). Choosing "the first one with
+    an IP" gave an address reachable only from the host itself — never from a
+    phone or another machine on the LAN, which is precisely who needs to reach
+    the WireGuard panel or Mattermost."""
     fake_interfaces = [
         net.InterfaceInfo(name="vEthernet (Default Switch)", ip="172.21.48.1", mac=None),
         net.InterfaceInfo(name="Ethernet", ip="192.168.1.65", mac="aa:bb:cc:dd:ee:ff"),
@@ -78,8 +78,9 @@ def test_get_primary_interface_picks_the_default_route_interface_over_the_first_
 
 
 def test_get_primary_interface_falls_back_when_default_route_is_unresolvable(mocker) -> None:
-    """Sin red (sandbox aislado, VM sin salida), `get_default_route_ip`
-    devuelve `None`: cae al comportamiento anterior como último recurso."""
+    """With no network (an isolated sandbox, a VM with no route out),
+    `get_default_route_ip` returns `None`: it falls back to the previous
+    behaviour as a last resort."""
     fake_interfaces = [
         net.InterfaceInfo(name="lo", ip="127.0.0.1", mac=None),
         net.InterfaceInfo(name="wlan0", ip="192.168.1.50", mac="aa:bb:cc:dd:ee:ff"),
@@ -94,9 +95,9 @@ def test_get_primary_interface_falls_back_when_default_route_is_unresolvable(moc
 
 
 def test_get_primary_interface_falls_back_when_default_route_matches_nothing(mocker) -> None:
-    """La IP de ruta por defecto no tiene por qué coincidir exactamente con
-    ninguna de `list_interfaces` (adaptadores enumerados de forma distinta
-    por cada API); en ese caso, igual se cae al primero no-loopback."""
+    """The default-route IP need not match any of `list_interfaces` exactly
+    (adapters enumerated differently by each API); in that case it still falls
+    back to the first non-loopback one."""
     fake_interfaces = [
         net.InterfaceInfo(name="lo", ip="127.0.0.1", mac=None),
         net.InterfaceInfo(name="wlan0", ip="192.168.1.50", mac="aa:bb:cc:dd:ee:ff"),
@@ -123,9 +124,9 @@ def test_get_primary_interface_none_when_only_loopback(mocker) -> None:
 
 
 def test_get_default_route_ip_reads_the_connected_sockets_local_address(mocker) -> None:
-    """No debe enviar tráfico real: se sustituye el socket por un doble que
-    solo expone `getsockname()`, para comprobar que se lee de ahí y no de
-    ninguna otra fuente."""
+    """It must send no real traffic: the socket is replaced by a double that
+    only exposes `getsockname()`, to confirm the value is read from there and
+    from no other source."""
     fake_socket = mocker.Mock()
     fake_socket.getsockname.return_value = ("192.168.1.65", 54321)
     fake_socket.__enter__ = mocker.Mock(return_value=fake_socket)
@@ -147,9 +148,10 @@ def test_get_default_route_ip_returns_none_without_a_route(mocker) -> None:
 
 
 def test_get_default_route_ip_never_sends_real_traffic() -> None:
-    """Contra la pila de red real: debe devolver algo (o None) al instante,
-    sin bloquear ni depender de que 8.8.8.8 responda — UDP `connect()` solo
-    resuelve la ruta local, nunca transmite un paquete."""
+    """Against the real network stack: it must return something (or None)
+    instantly, without blocking and without depending on 8.8.8.8 answering —
+    a UDP `connect()` only resolves the local route, it never transmits a
+    packet."""
     result = net.get_default_route_ip(timeout=1.0)
     assert result is None or isinstance(result, str)
 
@@ -166,23 +168,23 @@ def test_check_ports_psutil_handles_access_denied(mocker) -> None:
 
 
 def _free_port(kind: int) -> int:
-    """Reserva y libera un puerto para obtener uno que sabemos que está libre."""
+    """Bind and release a port to obtain one we know is free."""
     with closing(socket.socket(socket.AF_INET, kind)) as probe:
         probe.bind(("127.0.0.1", 0))
         return probe.getsockname()[1]
 
 
 def test_check_ports_psutil_detects_a_really_bound_udp_port() -> None:
-    """Regresión: un socket UDP no tiene estado LISTEN (psutil lo reporta como
-    NONE), así que filtrar por CONN_LISTEN dejaba invisible el 51820/udp de
-    WireGuard — el chequeo de conflictos de §4.2 nunca lo detectaba y
-    `doctor` lo daba siempre por ausente en la variante `host`."""
+    """Regression: a UDP socket has no LISTEN state (psutil reports it as
+    NONE), so filtering on CONN_LISTEN left WireGuard's 51820/udp invisible —
+    §4.2's conflict check never detected it and `doctor` always reported it
+    missing in the `host` variant."""
     port = _free_port(socket.SOCK_DGRAM)
     with closing(socket.socket(socket.AF_INET, socket.SOCK_DGRAM)) as sock:
         sock.bind(("127.0.0.1", port))
         statuses = net.check_ports_psutil([(port, "udp")])
 
-    assert statuses[0].in_use is True, "un puerto UDP realmente enlazado debe verse ocupado"
+    assert statuses[0].in_use is True, "a genuinely bound UDP port must show as in use"
 
 
 def test_check_ports_psutil_detects_a_really_bound_tcp_port() -> None:
@@ -196,13 +198,13 @@ def test_check_ports_psutil_detects_a_really_bound_tcp_port() -> None:
 
 
 def test_check_ports_psutil_reports_unbound_port_as_free(mocker) -> None:
-    """Sin sockets enlazados, todo puerto consultado sale libre.
+    """With no bound sockets, every port queried comes back free.
 
-    La lista de conexiones va mockeada a propósito. La versión anterior pedía
-    un puerto efímero al kernel, lo soltaba y daba por hecho que seguiría
-    libre al comprobarlo; en Linux, con el rango efímero muy usado, ese mismo
-    número podía estar ya ocupado por otro proceso y el test fallaba por el
-    entorno, no por el código.
+    The connection list is mocked on purpose. The previous version asked the
+    kernel for an ephemeral port, released it, and assumed it would still be
+    free when checked; on Linux, with the ephemeral range heavily used, that
+    same number could already be taken by another process and the test failed
+    because of the environment, not the code.
     """
     mocker.patch("axion_wizard.detect.network.psutil.net_connections", return_value=[])
     statuses = net.check_ports_psutil([(51820, "udp"), (443, "tcp")])
@@ -210,7 +212,7 @@ def test_check_ports_psutil_reports_unbound_port_as_free(mocker) -> None:
 
 
 def test_check_ports_psutil_does_not_confuse_protocols() -> None:
-    """Un puerto ocupado en UDP no debe reportarse como ocupado en TCP."""
+    """A port in use over UDP must not be reported as in use over TCP."""
     port = _free_port(socket.SOCK_DGRAM)
     with closing(socket.socket(socket.AF_INET, socket.SOCK_DGRAM)) as sock:
         sock.bind(("127.0.0.1", port))
@@ -322,12 +324,12 @@ def test_check_connectivity_mixed_results(mocker) -> None:
 
 def test_parse_network_category_single_value() -> None:
     """`Get-NetConnectionProfile | Select-Object -ExpandProperty NetworkCategory`
-    imprime el valor solo, sin cabecera de tabla."""
+    prints the value alone, with no table header."""
     assert net.parse_network_category("Private\n") == "Private"
 
 
 def test_parse_network_category_skips_table_header() -> None:
-    """Formato alternativo (sin -ExpandProperty), por si acaso."""
+    """The alternative format (without -ExpandProperty), just in case."""
     output = "NetworkCategory\n---------------\nPublic\n"
     assert net.parse_network_category(output) == "Public"
 
@@ -376,11 +378,11 @@ def test_get_windows_network_category_none_when_command_errors(mocker) -> None:
     assert net.get_windows_network_category() is None
 
 
-# --- enumerar sockets es una operación privilegiada -------------------------------
+# --- enumerating sockets is a privileged operation --------------------------------
 #
-# Regresión: `AccessDenied` (Linux/macOS sin root) se tragaba y se devolvían
-# conjuntos vacíos, indistinguibles de "no hay nada escuchando". `doctor` no
-# eleva, así que un stack sano se reportaba con todos los puertos en rojo.
+# Regression: `AccessDenied` (Linux/macOS without root) was swallowed and
+# empty sets returned, indistinguishable from "nothing is listening". `doctor`
+# does not elevate, so a healthy stack was reported with every port in red.
 
 
 def test_scan_reports_when_it_could_not_inspect(mocker) -> None:
@@ -403,12 +405,12 @@ def test_check_ports_propagates_the_inspectable_flag(mocker) -> None:
     mocker.patch("psutil.net_connections", side_effect=psutil.AccessDenied())
     statuses = net.check_ports_psutil([(443, "tcp")])
     assert statuses[0].inspectable is False
-    # `in_use=False` aquí no es una observación, es la ausencia de una.
+    # `in_use=False` here is not an observation, it is the absence of one.
     assert statuses[0].in_use is False
 
 
 def test_docker_published_ports_are_inspectable_even_without_privileges(mocker) -> None:
-    """Docker sí nos lo contó, así que ese puerto concreto sí es un hallazgo."""
+    """Docker did tell us, so that particular port really is a finding."""
     import psutil
 
     mocker.patch("psutil.net_connections", side_effect=psutil.AccessDenied())

@@ -15,11 +15,11 @@ def test_version() -> None:
     assert __version__ in result.stdout
 
 
-# --- directorio de proyecto por defecto ---------------------------------------
+# --- default project directory ------------------------------------------------
 #
-# Sin --project-dir, ejecutar el binario tal cual se descargó (doble clic
-# desde ~/Descargas, por ejemplo) escribía docker-compose.yml, .env, nginx/…
-# sueltos ahí mismo. Incidente real, no hipotético.
+# Without --project-dir, running the binary exactly as downloaded (a double
+# click from ~/Downloads, say) wrote docker-compose.yml, .env, nginx/… loose in
+# there. A real incident, not a hypothetical one.
 
 
 def test_default_project_dir_is_a_subfolder_when_cwd_has_no_deployment(
@@ -34,9 +34,9 @@ def test_default_project_dir_is_a_subfolder_when_cwd_has_no_deployment(
 def test_default_project_dir_is_cwd_itself_when_a_deployment_already_exists(
     tmp_path, monkeypatch
 ) -> None:
-    """Quien siguió la recomendación del README —crear una carpeta dedicada,
-    poner el binario dentro, ejecutarlo ahí— no debe ver un nivel de anidado
-    de más."""
+    """Anyone who followed the README's advice — create a dedicated folder,
+    put the binary inside, run it there — must not get one extra level of
+    nesting."""
     (tmp_path / "docker-compose.yml").write_text("services: {}\n")
     monkeypatch.chdir(tmp_path)
 
@@ -107,7 +107,7 @@ def _stub_deployment(tmp_path) -> None:
 
 
 def test_doctor_does_not_request_elevation(tmp_path, mocker) -> None:
-    """`doctor` solo lee: pedir UAC/sudo para diagnosticar sería ruido."""
+    """`doctor` only reads: asking for UAC/sudo to diagnose would be noise."""
     _stub_deployment(tmp_path)
     mocker.patch("axion_wizard.cli.privileges.is_elevated", return_value=False)
     relaunch = mocker.patch("axion_wizard.cli.privileges.relaunch_elevated", return_value=0)
@@ -135,9 +135,9 @@ def test_doctor_does_not_request_elevation(tmp_path, mocker) -> None:
     ],
 )
 def test_commands_that_touch_nothing_privileged_do_not_elevate(argv, mocker) -> None:
-    """Regresión: con un denylist, cada subcomando nuevo heredaba la
-    elevación sin querer. `gen-cert` solo escribe un par de archivos y aun
-    así disparaba UAC."""
+    """Regression: with a denylist, every new subcommand inherited elevation
+    by accident. `gen-cert` only writes a couple of files and still triggered
+    UAC."""
     mocker.patch("axion_wizard.cli.privileges.is_elevated", return_value=False)
     relaunch = mocker.patch("axion_wizard.cli.privileges.relaunch_elevated", return_value=0)
 
@@ -192,7 +192,7 @@ def test_no_elevate_flag_skips_elevation(mocker) -> None:
 
 
 def test_dry_run_skips_elevation(mocker) -> None:
-    """`--dry-run` no toca el sistema, así que no necesita privilegios."""
+    """`--dry-run` touches nothing, so it needs no privileges."""
     mocker.patch("axion_wizard.cli.privileges.is_elevated", return_value=False)
     relaunch = mocker.patch("axion_wizard.cli.privileges.relaunch_elevated", return_value=0)
 
@@ -223,9 +223,10 @@ def test_elevation_propagates_child_exit_code(mocker) -> None:
 
 
 def test_elevation_pins_the_project_dir_for_the_child(tmp_path, mocker) -> None:
-    """Un proceso lanzado por UAC arranca en C:\\Windows\\System32, no en el
-    directorio del padre. Sin pasarle `--project-dir` explícitamente, el hijo
-    caería en su valor por defecto (`Path.cwd()`) y desplegaría el stack allí."""
+    """A process launched by UAC starts in C:\\Windows\\System32, not in the
+    parent's directory. Without being passed `--project-dir` explicitly, the
+    child would fall back to its default (`Path.cwd()`) and deploy the stack
+    in there."""
     mocker.patch("axion_wizard.cli.privileges.is_elevated", return_value=False)
     relaunch = mocker.patch("axion_wizard.cli.privileges.relaunch_elevated", return_value=0)
 
@@ -238,7 +239,7 @@ def test_elevation_pins_the_project_dir_for_the_child(tmp_path, mocker) -> None:
 
 
 def test_elevation_resolves_a_relative_project_dir(tmp_path, monkeypatch, mocker) -> None:
-    """Una ruta relativa se resolvería contra OTRO directorio en el hijo."""
+    """A relative path would resolve against a DIFFERENT directory in the child."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "axion").mkdir()
     mocker.patch("axion_wizard.cli.privileges.is_elevated", return_value=False)
@@ -255,9 +256,10 @@ def test_elevation_resolves_a_relative_project_dir(tmp_path, monkeypatch, mocker
     "argv", [["install", "--help"], ["up", "--help"], ["uninstall", "--help"]]
 )
 def test_asking_for_help_never_requests_elevation(argv, mocker) -> None:
-    """Click ejecuta el callback del grupo antes de procesar el `--help` del
-    subcomando: sin la guarda, leer la ayuda de `install` abría un diálogo de
-    UAC y —al esperar al proceso elevado— dejaba el comando bloqueado."""
+    """Click runs the group callback before processing a subcommand's
+    `--help`: without the guard, reading `install`'s help opened a UAC prompt
+    and — since it waits for the elevated process — left the command
+    blocked."""
     mocker.patch("axion_wizard.cli.privileges.is_elevated", return_value=False)
     relaunch = mocker.patch("axion_wizard.cli.privileges.relaunch_elevated", return_value=0)
 
@@ -269,8 +271,8 @@ def test_asking_for_help_never_requests_elevation(argv, mocker) -> None:
 
 
 def test_parent_does_not_also_pause_after_relaunching(mocker) -> None:
-    """El hijo elevado pausa en su propia ventana; si el padre pausara
-    también, una sola ejecución pediría Enter dos veces en dos ventanas."""
+    """The elevated child pauses in its own window; if the parent paused too,
+    a single run would ask for Enter twice in two windows."""
     mocker.patch("axion_wizard.cli.privileges.is_elevated", return_value=False)
     mocker.patch("axion_wizard.cli.privileges.relaunch_elevated", return_value=0)
     disable = mocker.patch("axion_wizard.cli.winconsole.disable_pause")
