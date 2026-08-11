@@ -39,10 +39,15 @@ chmod +x "$BINARY"
 # always left with just one — exactly what happens when compiling under WSL on a
 # repo where the Windows build was already done. Filtering by filename gets both
 # right.
+#
+# The character class is `[ *]`, not a plain space: `sha256sum` in binary mode —
+# the default under Git Bash on Windows — writes `<hash> *name`, so a filter
+# anchored on a space walks straight past its own earlier line and the duplicate
+# it exists to prevent comes back.
 NAME="$(basename "$BINARY")"
 TMP_SUMS="$(mktemp)"
 if [ -f dist/checksums.txt ]; then
-    grep -v " ${NAME}\$" dist/checksums.txt > "$TMP_SUMS" || true
+    grep -v "[ *]${NAME}\$" dist/checksums.txt > "$TMP_SUMS" || true
 fi
 (cd dist && sha256sum "$NAME") >> "$TMP_SUMS"
 sort -k2 "$TMP_SUMS" > dist/checksums.txt

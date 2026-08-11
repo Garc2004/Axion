@@ -64,7 +64,12 @@ $hash = (Get-FileHash -Algorithm SHA256 $exePath).Hash.ToLower()
 $checksumsPath = Join-Path (Get-Location) "dist\checksums.txt"
 $lines = @()
 if (Test-Path $checksumsPath) {
-    $lines = @(Get-Content $checksumsPath | Where-Object { $_ -and ($_ -notmatch '\saxion-wizard\.exe$') })
+    # `[\s*]`, not `\s`: `sha256sum` in binary mode — the default under Git
+    # Bash on Windows — writes `<hash> *name`, so the character before the name
+    # is an asterisk and a `\s`-anchored filter walks straight past its own
+    # earlier line. That is how a stale entry for this same file survived a
+    # rebuild and made `sha256sum -c` fail on a binary that was perfectly fine.
+    $lines = @(Get-Content $checksumsPath | Where-Object { $_ -and ($_ -notmatch '[\s*]axion-wizard\.exe$') })
 }
 $lines += "$hash  axion-wizard.exe"
 $noBomAscii = New-Object System.Text.UTF8Encoding($false)

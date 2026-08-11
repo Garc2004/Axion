@@ -94,6 +94,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   cause was worse: the file was read inside a `try` returning `None`, so the
   bot and webhook tokens simply went missing with no error at all. Both now
   read with `utf-8-sig`.
+- The build scripts' checksum dedupe never worked against `sha256sum`'s binary
+  mode. Both filtered on a space before the filename, but binary mode — the
+  default under Git Bash on Windows — writes `<hash> *name`, so each script
+  walked past its own earlier line and left a stale entry for the same binary.
+  `sha256sum -c dist/checksums.txt` then failed on a file that was perfectly
+  fine. This is precisely the duplicate the filtering was added to prevent.
 - `uv.lock` still declared `bcrypt` as a dependency after it was dropped from
   `pyproject.toml`, so `uv sync` — the reproducible path CI and the build
   scripts prefer — kept installing it. Regenerated; it also picked up
