@@ -87,6 +87,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   it used an `axion.*` style, because Textual draws its `RichLog` with a
   `Console` that does not know the theme. `render.console.render_to_ansi`
   resolves the theme where it is defined.
+- `axion.toml` saved with a byte-order mark — what Notepad's "UTF-8" and
+  PowerShell 5.1's `Out-File -Encoding utf8` both produce, so the obvious way
+  to create it on Windows — was rejected with `Invalid statement (at line 1,
+  column 1)`, pointing at a line that is perfectly correct. In step 8b the same
+  cause was worse: the file was read inside a `try` returning `None`, so the
+  bot and webhook tokens simply went missing with no error at all. Both now
+  read with `utf-8-sig`.
+- `uv.lock` still declared `bcrypt` as a dependency after it was dropped from
+  `pyproject.toml`, so `uv sync` — the reproducible path CI and the build
+  scripts prefer — kept installing it. Regenerated; it also picked up
+  `textual`, `fastapi` and `python-multipart`, which had never made it into the
+  lock.
 
 ## [0.2.2] — 2026-08-10
 
