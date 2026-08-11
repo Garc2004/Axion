@@ -271,7 +271,13 @@ def load_config_from_toml(
             steps=[f"Check the path given to --config: {path}"],
         )
     try:
-        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+        # `utf-8-sig`, not `utf-8`: on Windows the natural ways of creating this
+        # file (Notepad's "UTF-8", `Out-File -Encoding utf8` on PowerShell 5.1)
+        # all prepend a BOM, and tomllib then rejects the whole file with
+        # "Invalid statement (at line 1, column 1)" — which points at a line
+        # that is perfectly fine and says nothing about the real cause. The
+        # codec strips a BOM if present and decodes plain UTF-8 unchanged.
+        raw = tomllib.loads(path.read_text(encoding="utf-8-sig"))
     except (tomllib.TOMLDecodeError, OSError) as exc:
         raise ConfigError(
             what=f"Could not read {path}",

@@ -162,7 +162,10 @@ class BotSetupStep(Step):
         import tomllib
 
         try:
-            return tomllib.loads(path.read_text(encoding="utf-8"))
+            # `utf-8-sig` for the same reason as in `s03_config`: a BOM-prefixed
+            # axion.toml is what Windows editors produce by default, and here it
+            # would not even raise — the tokens would just silently go missing.
+            return tomllib.loads(path.read_text(encoding="utf-8-sig"))
         except (tomllib.TOMLDecodeError, OSError):
             return None
 

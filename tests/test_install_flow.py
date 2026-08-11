@@ -374,6 +374,26 @@ def test_toml_config_reads_a_plaintext_password(tmp_path: Path) -> None:
     assert not set(generated) & set("/+=")
 
 
+def test_toml_config_reads_a_file_saved_with_a_bom(tmp_path: Path) -> None:
+    """Notepad's "UTF-8" and `Out-File -Encoding utf8` on PowerShell 5.1 both
+    prepend a BOM, so it is what a Windows user gets by writing this file the
+    obvious way. Read as plain `utf-8` the BOM survives into the text and
+    tomllib rejects the whole file with "Invalid statement (at line 1, column
+    1)" — pointing at a line that is perfectly correct."""
+    from axion_wizard.steps.s03_config import load_config_from_toml
+
+    toml = tmp_path / "axion.toml"
+    toml.write_text(
+        'access_mode = "lan"\nhost = "192.168.1.50"\n'
+        'wireguard_admin_password = "long-and-secure-panel"\nollama_model = "qwen2.5:1.5b"\n',
+        encoding="utf-8-sig",
+    )
+
+    config = load_config_from_toml(toml, tmp_path, WireguardVariant.PORTS)
+
+    assert config.host == "192.168.1.50"
+
+
 def test_existing_postgres_password_reads_from_env(tmp_path: Path) -> None:
     """A direct unit test of the function the interactive and `--unattended`
     paths share: both have to stay consistent with what Postgres already has
