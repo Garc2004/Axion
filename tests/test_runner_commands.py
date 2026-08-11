@@ -87,10 +87,10 @@ def test_gen_cert_dry_run_writes_nothing(tmp_path: Path) -> None:
         app, ["--project-dir", str(tmp_path), "--dry-run", "gen-cert", "192.168.1.50"]
     )
     assert result.exit_code == 0
-    assert not (tmp_path / "nginx").exists(), "--dry-run no debe tocar el sistema"
+    assert not (tmp_path / "nginx").exists(), "--dry-run must not touch the system"
 
 
-# --- comandos que exigen un compose existente --------------------------------------
+# --- commands that require an existing compose file --------------------------------
 
 
 @pytest.mark.parametrize("argv", [["up"], ["down"], ["logs"], ["uninstall"]])
@@ -296,7 +296,7 @@ def test_models_pull_dry_run_downloads_nothing(mocker) -> None:
 
 def test_set_webhook_token_fails_cleanly_without_a_project(tmp_path: Path) -> None:
     result = runner.invoke(
-        app, ["--project-dir", str(tmp_path), "set-webhook-token", "token-de-ejemplo-no-real-000"]
+        app, ["--project-dir", str(tmp_path), "set-webhook-token", "example-token-not-real-000"]
     )
     assert result.exit_code == 1
     assert "docker-compose.yml" in result.stderr
@@ -326,7 +326,7 @@ def test_set_webhook_token_dry_run_does_not_write_or_deploy(tmp_path: Path, mock
             str(project),
             "--dry-run",
             "set-webhook-token",
-            "token-de-ejemplo-no-real-000",
+            "example-token-not-real-000",
         ],
     )
     assert result.exit_code == 0
@@ -341,17 +341,17 @@ def test_set_webhook_token_writes_env_and_recreates_fastapi(tmp_path: Path, mock
     mocker.patch("axion_wizard.services.compose.ps", return_value=[])
 
     result = runner.invoke(
-        app, ["--project-dir", str(project), "set-webhook-token", "token-de-ejemplo-no-real-000"]
+        app, ["--project-dir", str(project), "set-webhook-token", "example-token-not-real-000"]
     )
 
     assert result.exit_code == 0
-    assert "MM_WEBHOOK_TOKEN=token-de-ejemplo-no-real-000" in (project / ".env").read_text()
+    assert "MM_WEBHOOK_TOKEN=example-token-not-real-000" in (project / ".env").read_text()
     deploy.assert_called_once()
     assert deploy.call_args.kwargs["services"] == ["fastapi"]
     wait_for_healthy.assert_called_once()
     assert wait_for_healthy.call_args.kwargs["services"] == ["fastapi"]
     # the token must never appear in the terminal output (§9).
-    assert "token-de-ejemplo-no-real-000" not in result.stdout
+    assert "example-token-not-real-000" not in result.stdout
 
 
 def test_set_webhook_token_preserves_existing_env_lines(tmp_path: Path, mocker) -> None:
@@ -377,11 +377,11 @@ def test_set_webhook_token_strips_surrounding_whitespace(tmp_path: Path, mocker)
     mocker.patch("axion_wizard.services.compose.ps", return_value=[])
 
     result = runner.invoke(
-        app, ["--project-dir", str(project), "set-webhook-token", "  token-con-espacios  "]
+        app, ["--project-dir", str(project), "set-webhook-token", "  token-with-spaces  "]
     )
 
     assert result.exit_code == 0
-    assert "MM_WEBHOOK_TOKEN=token-con-espacios\n" in (project / ".env").read_text()
+    assert "MM_WEBHOOK_TOKEN=token-with-spaces\n" in (project / ".env").read_text()
 
 
 def test_network_check_renders_a_table(mocker) -> None:
@@ -528,16 +528,16 @@ def test_model_prompt_writes_the_system_prompt(tmp_path: Path, _fake_deploy) -> 
     project = _project_with_compose(tmp_path)
     result = runner.invoke(
         app,
-        ["--project-dir", str(project), "model", "prompt", "Eres el asistente de AXION."],
+        ["--project-dir", str(project), "model", "prompt", "You are the AXION assistant."],
     )
     assert result.exit_code == 0
-    assert "OLLAMA_SYSTEM_PROMPT=Eres el asistente de AXION." in (project / ".env").read_text()
+    assert "OLLAMA_SYSTEM_PROMPT=You are the AXION assistant." in (project / ".env").read_text()
     _fake_deploy["deploy"].assert_called_once()
 
 
 def test_model_prompt_accepts_an_empty_string_to_clear_it(tmp_path: Path, _fake_deploy) -> None:
     project = _project_with_compose(tmp_path)
-    (project / ".env").write_text("OLLAMA_SYSTEM_PROMPT=algo viejo\n")
+    (project / ".env").write_text("OLLAMA_SYSTEM_PROMPT=something old\n")
 
     result = runner.invoke(app, ["--project-dir", str(project), "model", "prompt", ""])
 
@@ -574,15 +574,15 @@ def test_set_bot_token_writes_env_and_recreates_fastapi(tmp_path: Path, mocker) 
     wait_for_healthy = mocker.patch("axion_wizard.steps.s06_deploy.wait_for_healthy")
 
     result = runner.invoke(
-        app, ["--project-dir", str(project), "set-bot-token", "bot-token-de-ejemplo"]
+        app, ["--project-dir", str(project), "set-bot-token", "example-bot-token"]
     )
 
     assert result.exit_code == 0
-    assert "MM_BOT_TOKEN=bot-token-de-ejemplo" in (project / ".env").read_text()
+    assert "MM_BOT_TOKEN=example-bot-token" in (project / ".env").read_text()
     assert deploy.call_args.kwargs["services"] == ["fastapi"]
     wait_for_healthy.assert_called_once()
     # The token must never appear in the terminal output (§9).
-    assert "bot-token-de-ejemplo" not in result.stdout
+    assert "example-bot-token" not in result.stdout
 
 
 def test_set_bot_token_explains_the_bot_must_be_in_the_channel(tmp_path: Path, mocker) -> None:

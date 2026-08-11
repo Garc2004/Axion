@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# Empaqueta el binario ELF de axion-wizard en Linux (§7). No hay
-# cross-compilation: este script solo se corre en un job `ubuntu-22.04`
-# (glibc más antigua, para compatibilidad hacia adelante — ver §7.2).
+# Packages the axion-wizard ELF binary on Linux (§7). There is no
+# cross-compilation: this script only runs in an `ubuntu-22.04` job (an older
+# glibc, for forward compatibility — see §7.2).
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-# El entorno lo monta siempre `bootstrap.sh`, que sabe hacerlo con uv o sin él.
-# Antes este script llamaba a `uv sync` directamente y moría con "command not
-# found" en cualquier máquina sin uv instalado.
+# The environment is always built by `bootstrap.sh`, which knows how to do it
+# with or without uv. This script used to call `uv sync` directly and died with
+# "command not found" on any machine without uv installed.
 ./scripts/bootstrap.sh --no-run
 
 VENV_PYTHON=".venv/bin/python"
 
-# PyInstaller es dependencia de desarrollo: con `uv sync --group dev` ya está,
-# pero por el camino de pip hay que pedirlo aparte.
+# PyInstaller is a development dependency: `uv sync --group dev` already brings
+# it, but on the pip path it has to be asked for separately.
 if ! "$VENV_PYTHON" -c "import PyInstaller" >/dev/null 2>&1; then
     "$VENV_PYTHON" -m pip install --quiet --disable-pip-version-check pyinstaller
 fi
@@ -24,21 +24,21 @@ fi
 
 BINARY="dist/axion-wizard-linux-x86_64"
 if [ ! -f "$BINARY" ]; then
-    echo "Build falló: no se generó $BINARY" >&2
+    echo "Build failed: $BINARY was not produced" >&2
     exit 1
 fi
 
 chmod +x "$BINARY"
 
-# Se reemplaza la línea de ESTE binario y se conservan las demás.
+# Only THIS binary's line is replaced; the rest are kept.
 #
-# Con `>>` a secas, cada build dejaba una línea más para el mismo archivo y
-# `sha256sum -c` acababa validando contra hashes de builds anteriores,
-# fallando en todos menos el último. Pero sobrescribir el archivo entero
-# tampoco vale: borraba el hash del .exe de Windows, así que quien
-# construyera los dos en la misma copia se quedaba siempre con uno solo
-# —justo lo que pasa al compilar en WSL sobre un repo donde ya se hizo el
-# build de Windows—. Filtrar por nombre de archivo hace las dos cosas bien.
+# With a bare `>>`, every build left one more line for the same file and
+# `sha256sum -c` ended up validating against hashes from earlier builds, failing
+# on all but the last. But overwriting the whole file is no good either: it
+# erased the Windows .exe's hash, so anyone building both in the same copy was
+# always left with just one — exactly what happens when compiling under WSL on a
+# repo where the Windows build was already done. Filtering by filename gets both
+# right.
 NAME="$(basename "$BINARY")"
 TMP_SUMS="$(mktemp)"
 if [ -f dist/checksums.txt ]; then
@@ -48,7 +48,7 @@ fi
 sort -k2 "$TMP_SUMS" > dist/checksums.txt
 rm -f "$TMP_SUMS"
 
-echo "Build completo: $BINARY"
+echo "Build complete: $BINARY"
 echo ""
-echo "Verificación post-build obligatoria (§7.2): ejecutar este binario en una"
-echo "máquina o contenedor sin Python instalado y correr 'axion-wizard doctor'."
+echo "Mandatory post-build verification (§7.2): run this binary on a machine or"
+echo "container with no Python installed and execute 'axion-wizard doctor'."

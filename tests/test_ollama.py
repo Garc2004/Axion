@@ -226,7 +226,7 @@ def test_model_with_unknown_requirements_is_never_recommended() -> None:
 
 
 def test_build_catalog_merges_remote_names_with_embedded_requirements(mocker) -> None:
-    """El remoto aporta frescura; el curado, los requisitos."""
+    """The remote tier brings freshness; the curated one, the requirements."""
     remote = [
         ollama.ModelInfo(name="qwen2.5:1.5b", size_bytes=0, min_ram_gb=0, needs_gpu=False),
         ollama.ModelInfo(name="brand-new:70b", size_bytes=0, min_ram_gb=0, needs_gpu=False),
@@ -242,7 +242,7 @@ def test_build_catalog_merges_remote_names_with_embedded_requirements(mocker) ->
     catalog = asyncio.run(ollama.build_catalog(ram_gb=16, has_gpu=False))
     by_name = {m.name: m for m in catalog}
 
-    # el conocido recupera sus requisitos curados
+    # the known one gets its curated requirements back
     assert by_name["qwen2.5:1.5b"].min_ram_gb > 0
     # and the curated ones the remote tier did not carry are still present
     assert "llama3.1:8b" in by_name
@@ -340,8 +340,9 @@ def test_mark_installed() -> None:
 
 
 def test_build_catalog_includes_remote_models_when_available(mocker) -> None:
-    """El remoto se suma al curado, no lo reemplaza: si lo reemplazara, se
-    would lose the hardware requirements only the curated tier knows."""
+    """The remote tier adds to the curated one rather than replacing it: if it
+    replaced it, the hardware requirements only the curated tier knows would be
+    lost."""
     remote_models = [
         ollama.ModelInfo(name="remote-model", size_bytes=1, min_ram_gb=4, needs_gpu=False)
     ]
@@ -513,7 +514,7 @@ def test_real_metadata_is_not_marked_as_estimated() -> None:
 
 
 def test_curated_catalog_overrides_a_name_based_estimate() -> None:
-    """`qwen2.5:0.5b` estimaba 0,4 GB (0,5 × 0,75) contra los 2,0 curados."""
+    """`qwen2.5:0.5b` estimated 0.4 GB (0.5 x 0.75) against the curated 2.0."""
     estimated = ollama._parse_remote_catalog_entry({"name": "qwen2.5:0.5b"})
     assert estimated is not None
     assert estimated.min_ram_gb < 1.0
@@ -536,7 +537,7 @@ def test_curated_catalog_does_not_override_real_api_metadata() -> None:
 
 
 def test_estimate_still_applies_to_models_outside_the_curated_catalog() -> None:
-    unknown = ollama._parse_remote_catalog_entry({"name": "algo-nuevo:70b"})
+    unknown = ollama._parse_remote_catalog_entry({"name": "something-new:70b"})
     assert unknown is not None
     ollama.enrich_from_embedded_catalog([unknown])
     assert unknown.min_ram_gb == pytest.approx(70 * ollama.GB_PER_BILLION_PARAMS)

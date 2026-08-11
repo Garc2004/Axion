@@ -1,8 +1,8 @@
 fastapi>=0.115
 uvicorn[standard]>=0.32
 httpx>=0.28
-# Starlette exige esto para parsear el form-urlencoded que manda el webhook
-# saliente de Mattermost (`request.form()` en main.py) — sin ella, cada
-# llamada al webhook falla con 500 y "AssertionError: The `python-multipart`
+# Starlette requires this to parse the form-urlencoded body Mattermost's
+# outgoing webhook sends (`request.form()` in main.py) — without it, every
+# webhook call fails with a 500 and "AssertionError: The `python-multipart`
 # library must be installed to use form parsing."
 python-multipart>=0.0.9

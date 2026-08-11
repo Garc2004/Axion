@@ -281,7 +281,7 @@ def test_verify_wg_easy_tag_accepts_safe_tag(mocker) -> None:
             image="ghcr.io/wg-easy/wg-easy:15.3.0",
         ),
     )
-    s06.verify_wg_easy_tag(Path("x"))  # no debe lanzar
+    s06.verify_wg_easy_tag(Path("x"))  # must not raise
 
 
 def test_verify_wg_easy_tag_raises_on_v14(mocker) -> None:
@@ -322,12 +322,12 @@ def test_verify_wg_easy_tag_handles_port_qualified_registry(mocker) -> None:
             image="localhost:5000/wg-easy:15.3.0",
         ),
     )
-    s06.verify_wg_easy_tag(Path("x"))  # no debe lanzar
+    s06.verify_wg_easy_tag(Path("x"))  # must not raise
 
 
 def test_verify_wg_easy_tag_noop_when_status_missing(mocker) -> None:
     mocker.patch("axion_wizard.steps.s06_deploy.compose.get_service_status", return_value=None)
-    s06.verify_wg_easy_tag(Path("x"))  # no debe lanzar
+    s06.verify_wg_easy_tag(Path("x"))  # must not raise
 
 
 def test_verify_wg_easy_tag_noop_when_image_missing(mocker) -> None:
@@ -335,7 +335,7 @@ def test_verify_wg_easy_tag_noop_when_image_missing(mocker) -> None:
         "axion_wizard.steps.s06_deploy.compose.get_service_status",
         return_value=ContainerStatus(service="wireguard", name="w", state="running", health=None),
     )
-    s06.verify_wg_easy_tag(Path("x"))  # no debe lanzar
+    s06.verify_wg_easy_tag(Path("x"))  # must not raise
 
 
 # --- the password has to reach the container intact --------------------------------
@@ -350,7 +350,7 @@ def test_panel_password_check_passes_when_it_arrives_intact(mocker) -> None:
     )
     s06.verify_panel_password_reached_the_container(
         Path("x"), expected="correct-horse-battery"
-    )  # no debe lanzar
+    )  # must not raise
 
 
 def test_panel_password_check_catches_a_mangled_value(mocker) -> None:
@@ -379,4 +379,4 @@ def test_panel_password_check_is_silent_when_it_cannot_ask(mocker) -> None:
     )
     s06.verify_panel_password_reached_the_container(
         Path("x"), expected="correct-horse-battery"
-    )  # no debe lanzar
+    )  # must not raise

@@ -6,7 +6,7 @@ from axion_wizard.utils import secrets as sec
 def test_generate_hex_secret_is_hex_and_correct_length() -> None:
     value = sec.generate_hex_secret(32)
     assert len(value) == 64
-    int(value, 16)  # no debe lanzar ValueError
+    int(value, 16)  # must not raise ValueError
 
 
 def test_generate_hex_secret_never_contains_url_breaking_chars() -> None:
@@ -32,7 +32,7 @@ def test_validate_wireguard_password_explains_why() -> None:
 
 
 def test_validate_wireguard_password_accepts_safe_password() -> None:
-    sec.validate_wireguard_password("correct-horse-battery-staple-42")  # no debe lanzar
+    sec.validate_wireguard_password("correct-horse-battery-staple-42")  # must not raise
 
 
 @pytest.mark.parametrize("char", ["$", "`", "!"])
@@ -48,16 +48,16 @@ def test_validate_env_value_uses_the_given_label() -> None:
 
 
 def test_validate_env_value_accepts_a_safe_value() -> None:
-    sec.validate_env_value("token-de-ejemplo-no-real-000", label="el token")  # no debe lanzar
+    sec.validate_env_value("example-token-not-real-000", label="the token")  # must not raise
 
 
 def test_weak_password_error_is_an_invalid_env_value_error() -> None:
-    """`WeakPasswordError` es un caso particular de `InvalidEnvValueError`:
-    anyone catching the generic one also catches WireGuard's."""
+    """`WeakPasswordError` is a special case of `InvalidEnvValueError`: anyone
+    catching the generic one also catches WireGuard's."""
     assert issubclass(sec.WeakPasswordError, sec.InvalidEnvValueError)
 
 
-# --- credenciales del panel: longitud minima (wg-easy v15) ------------------
+# --- panel credentials: minimum length (wg-easy v15) ------------------------
 #
 # The wizard no longer hashes anything: v15 receives the password in the clear
 # and hashes it itself. What is validated here is the length, because
@@ -71,14 +71,14 @@ def test_password_below_the_minimum_is_rejected() -> None:
 
 
 def test_password_at_the_minimum_is_accepted() -> None:
-    sec.validate_wireguard_password("a" * sec.MIN_PANEL_PASSWORD_LENGTH)  # no debe lanzar
+    sec.validate_wireguard_password("a" * sec.MIN_PANEL_PASSWORD_LENGTH)  # must not raise
 
 
 def test_forbidden_chars_are_checked_before_length() -> None:
     """A long password with a forbidden character still fails on the
     character, which is the actionable reason."""
     with pytest.raises(sec.WeakPasswordError):
-        sec.validate_wireguard_password("bad`password-pero-larga")
+        sec.validate_wireguard_password("bad`password-but-long-enough")
 
 
 def test_username_below_the_minimum_is_rejected() -> None:
@@ -87,11 +87,11 @@ def test_username_below_the_minimum_is_rejected() -> None:
 
 
 def test_username_at_the_minimum_is_accepted() -> None:
-    sec.validate_wireguard_username("a" * sec.MIN_PANEL_USERNAME_LENGTH)  # no debe lanzar
+    sec.validate_wireguard_username("a" * sec.MIN_PANEL_USERNAME_LENGTH)  # must not raise
 
 
 def test_short_credential_error_names_the_minimum() -> None:
-    """El mensaje llega al prompt tal cual; sin el numero no es accionable."""
+    """The message reaches the prompt verbatim; without the number it is not actionable."""
     with pytest.raises(sec.ShortCredentialError, match=str(sec.MIN_PANEL_PASSWORD_LENGTH)):
         sec.validate_wireguard_password("corta")
 

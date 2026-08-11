@@ -337,12 +337,12 @@ def test_project_name_prefers_env_over_the_legacy_compose_literal(tmp_path: Path
     (tmp_path / "docker-compose.yml").write_text(
         "name: axion\nservices: {}\n", encoding="utf-8"
     )
-    (tmp_path / ".env").write_text("COMPOSE_PROJECT_NAME=ya-migrado\n", encoding="utf-8")
-    assert s05.resolve_compose_project_name(tmp_path) == "ya-migrado"
+    (tmp_path / ".env").write_text("COMPOSE_PROJECT_NAME=already-migrated\n", encoding="utf-8")
+    assert s05.resolve_compose_project_name(tmp_path) == "already-migrated"
 
 
 def test_project_name_ignores_an_unparseable_legacy_compose(tmp_path: Path) -> None:
-    (tmp_path / "docker-compose.yml").write_text("esto: no es: yaml: valido:", encoding="utf-8")
+    (tmp_path / "docker-compose.yml").write_text("this: is not: valid: yaml:", encoding="utf-8")
     name = s05.resolve_compose_project_name(tmp_path)
     assert name.startswith(f"{s05.PROJECT_NAME_PREFIX}-")
 
@@ -472,7 +472,7 @@ def test_validate_compose_yaml_shape_rejects_missing_managed_service() -> None:
 
 
 def test_validate_compose_yaml_shape_accepts_rendered_output() -> None:
-    s05.validate_compose_yaml_shape(s05.render_compose(make_config()))  # no debe lanzar
+    s05.validate_compose_yaml_shape(s05.render_compose(make_config()))  # must not raise
 
 
 def test_assert_ssrf_env_present_raises_when_missing() -> None:
@@ -481,7 +481,7 @@ def test_assert_ssrf_env_present_raises_when_missing() -> None:
 
 
 def test_assert_ssrf_env_present_accepts_rendered_output() -> None:
-    s05.assert_ssrf_env_present(s05.render_compose(make_config()))  # no debe lanzar
+    s05.assert_ssrf_env_present(s05.render_compose(make_config()))  # must not raise
 
 
 def test_assert_no_unpinned_images_rejects_latest() -> None:
@@ -490,7 +490,7 @@ def test_assert_no_unpinned_images_rejects_latest() -> None:
 
 
 def test_assert_no_unpinned_images_accepts_rendered_output() -> None:
-    s05.assert_no_unpinned_images(s05.render_compose(make_config()))  # no debe lanzar
+    s05.assert_no_unpinned_images(s05.render_compose(make_config()))  # must not raise
 
 
 @functools.cache

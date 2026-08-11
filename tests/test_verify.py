@@ -98,11 +98,11 @@ def test_check_cert_has_san_invalid_cert(mocker, tmp_path: Path) -> None:
     cert_path.write_text("fake")
     mocker.patch(
         "axion_wizard.steps.s09_verify.certs.verify_certificate_has_san",
-        side_effect=ConfigError(what="sin SAN", why="y", steps=[]),
+        side_effect=ConfigError(what="no SAN", why="y", steps=[]),
     )
     result = verify.check_cert_has_san(cert_path)
     assert result.ok is False
-    assert result.detail == "sin SAN"
+    assert result.detail == "no SAN"
 
 
 # --- check_webhook_reachable ---------------------------------------------------------
@@ -447,8 +447,9 @@ def test_websocket_failure_points_at_siteurl_when_rejected(mocker) -> None:
 
 
 def test_websocket_failure_names_the_mirrored_stall_on_a_timeout(mocker) -> None:
-    """Un handshake que no llega a responder es la firma de moby/moby#48201,
-    y el arreglo (volver a NAT) es el opuesto al de un rechazo por config."""
+    """A handshake that never answers is the signature of moby/moby#48201, and
+    the fix (going back to NAT) is the opposite of the one for a rejection by
+    configuration."""
     mocker.patch(
         "axion_wizard.steps.s09_verify._websocket_handshake_status",
         return_value=(None, "TimeoutError: timed out"),

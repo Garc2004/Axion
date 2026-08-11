@@ -348,7 +348,7 @@ def test_rebuilding_config_fails_clearly_when_env_is_missing(tmp_path: Path) -> 
         load_config_from_artifacts(tmp_path)
 
 
-# --- carga desde TOML (--unattended) ---------------------------------------------------------
+# --- loading from TOML (--unattended) --------------------------------------------------------
 
 
 def test_toml_config_reads_a_plaintext_password(tmp_path: Path) -> None:
@@ -440,7 +440,7 @@ def test_toml_config_rejects_a_password_with_a_forbidden_character(tmp_path: Pat
 
     toml = tmp_path / "axion.toml"
     toml.write_text(
-        'host = "192.168.1.50"\nwireguard_admin_password = "tiene$dolar"\n'
+        'host = "192.168.1.50"\nwireguard_admin_password = "has$a-dollar"\n'
         'ollama_model = "qwen2.5:1.5b"\n',
         encoding="utf-8",
     )
@@ -497,7 +497,7 @@ def test_summary_masks_every_secret(tmp_path: Path) -> None:
 
 def test_reset_removes_the_progress_file(tmp_path: Path) -> None:
     previous = state_store.WizardState()
-    previous.mark_complete("deploy", "6 servicios operativos")
+    previous.mark_complete("deploy", "6 services operational")
     state_store.save_state(tmp_path, previous)
 
     from axion_wizard.commands import run_reset
@@ -511,7 +511,7 @@ def test_reset_removes_the_progress_file(tmp_path: Path) -> None:
 def test_reset_is_harmless_without_previous_progress(tmp_path: Path) -> None:
     from axion_wizard.commands import run_reset
 
-    run_reset(_state(tmp_path, yes=True))  # no debe lanzar
+    run_reset(_state(tmp_path, yes=True))  # must not raise
 
 
 def test_reset_does_not_touch_the_deployment_artifacts(tmp_path: Path) -> None:
@@ -540,9 +540,9 @@ def test_reset_dry_run_keeps_the_progress(tmp_path: Path) -> None:
 
 
 def test_install_restart_discards_the_previous_progress(tmp_path: Path, mocker) -> None:
-    """`--restart` es `reset` + `install` sin preguntar dos veces."""
+    """`--restart` is `reset` + `install` without asking twice."""
     previous = state_store.WizardState()
-    previous.mark_complete("deploy", "6 servicios operativos")
+    previous.mark_complete("deploy", "6 services operational")
     state_store.save_state(tmp_path, previous)
 
     install = mocker.patch("axion_wizard.steps.orchestrator.install", return_value=True)

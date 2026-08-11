@@ -1,4 +1,4 @@
-# Entorno y cachés de Python
+# Python environments and caches
 .venv/
 __pycache__/
 *.pyc
@@ -8,31 +8,30 @@ __pycache__/
 .coverage
 htmlcov/
 
-# Salidas de build
+# Build outputs
 dist/
 build/work/
 
-# Estado y configuración local del wizard (nunca commitear secretos)
+# Local wizard state and configuration (never commit secrets)
 .env
 wg.env
 .axion-wizard-state.json
 nginx/certs/
 axion-wizard.log
 
-# Copias de seguridad: llevan la base de datos entera y las claves de
-# WireGuard, o sea todo lo que protegen las líneas de arriba.
+# Backups: they carry the whole database and the WireGuard keys, which is to
+# say everything the lines above protect.
 backups/
 
-# Respaldos con marca de tiempo que escribe el propio wizard antes de
-# regenerar un archivo: los de `.env` y `wg.env` contienen los secretos.
+# Timestamped backups the wizard itself writes before regenerating a file:
+# the ones for `.env` and `wg.env` contain the secrets.
 *.bak
 
-# `axion.toml` del modo desatendido: lleva el hash del panel de WireGuard y,
-# opcionalmente, la contraseña de PostgreSQL.
+# `axion.toml` for unattended mode: it carries the WireGuard panel credentials
+# and, optionally, the PostgreSQL password.
 axion.toml
 
-# Notas de traspaso locales: llevan el estado de una maquina concreta (IP de
-# la LAN, rutas, hardware, `.wslconfig`) y un registro de trabajo fechado.
-# Nada de eso pertenece a un repositorio publico. Lo que si era duradero
-# vive ahora en docs/troubleshooting.md.
+# Local handover notes: they carry the state of one specific machine (LAN IP,
+# paths, hardware, `.wslconfig`) and a dated work log. None of that belongs in
+# a public repository. What was durable now lives in docs/troubleshooting.md.
 CONTEXTO.md

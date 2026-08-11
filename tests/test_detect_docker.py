@@ -187,8 +187,8 @@ def test_gpu_passthrough_true_when_container_runs(mocker) -> None:
 
 
 def test_gpu_passthrough_false_on_nvidia_container_cli_error(mocker) -> None:
-    """El caso real: nvidia-smi ve la GPU, pero el hook de
-    nvidia-container-cli falla al arrancar el contenedor bajo WSL2."""
+    """The real case: nvidia-smi sees the GPU, but the nvidia-container-cli
+    hook fails to start the container under WSL2."""
     mocker.patch(
         "axion_wizard.detect.docker.run",
         return_value=CommandResult(

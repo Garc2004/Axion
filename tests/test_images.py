@@ -5,7 +5,7 @@ from axion_wizard.domain import images
 
 def test_all_pinned_images_pass_assert_image_is_pinned() -> None:
     for image in images.ALL_PINNED_IMAGES:
-        images.assert_image_is_pinned(image)  # no debe lanzar
+        images.assert_image_is_pinned(image)  # must not raise
 
 
 def test_assert_image_is_pinned_rejects_latest() -> None:

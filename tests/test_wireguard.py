@@ -170,7 +170,7 @@ def _inner_client(mocker, **method_mocks):
 def test_login_success(mocker) -> None:
     post = mocker.AsyncMock(return_value=httpx.Response(200, json={"status": "success"}))
     panel = _client_with_mocked_httpx(mocker, _inner_client(mocker, post=post))
-    asyncio.run(panel.login("admin", "correct-password"))  # no debe lanzar
+    asyncio.run(panel.login("admin", "correct-password"))  # must not raise
 
 
 def test_login_sends_username_and_remember(mocker) -> None:
@@ -231,8 +231,8 @@ def test_login_connection_error_raises_network_error(mocker) -> None:
 
 
 def test_create_client_success(mocker) -> None:
-    """La v15 devuelve `clientId` en la respuesta al POST: ni se lista antes
-    ni se lista despues."""
+    """v15 returns `clientId` in the POST response: no listing before, no
+    listing after."""
     post = mocker.AsyncMock(
         return_value=httpx.Response(200, json={"success": True, "clientId": "abc"})
     )

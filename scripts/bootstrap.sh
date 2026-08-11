@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# Deja axion-wizard listo para usar en un solo comando (Linux / macOS / WSL).
+# Gets axion-wizard ready to use in a single command (Linux / macOS / WSL).
 #
-# Busca un Python >= 3.11, crea el entorno virtual, instala las dependencias y
-# arranca el wizard. Es idempotente: volver a ejecutarlo sobre un entorno ya
-# montado solo actualiza lo que haga falta.
+# Looks for a Python >= 3.11, creates the virtual environment, installs the
+# dependencies and starts the wizard. It is idempotent: running it again over an
+# environment that is already set up only updates what needs updating.
 #
-# Usa `uv` si está disponible (respeta uv.lock, así que el entorno es
-# reproducible) y cae a `venv` + `pip` si no lo está. No instala uv por su
-# cuenta: meter una herramienta global en la máquina de alguien sin pedirlo no
-# es cosa de un script de arranque.
+# Uses `uv` if available (it honours uv.lock, so the environment is
+# reproducible) and falls back to `venv` + `pip` if not. It does not install uv
+# on its own: putting a global tool on someone's machine unasked is not a
+# bootstrap script's business.
 #
-# Uso:
-#   ./scripts/bootstrap.sh                 # instala todo y abre el wizard
-#   ./scripts/bootstrap.sh --check         # instala + lint/tipos/tests
-#   ./scripts/bootstrap.sh --no-run        # solo preparar el entorno
-#   ./scripts/bootstrap.sh -- doctor       # instala y corre `axion-wizard doctor`
+# Usage:
+#   ./scripts/bootstrap.sh                 # install everything and open the wizard
+#   ./scripts/bootstrap.sh --check         # install + lint/types/tests
+#   ./scripts/bootstrap.sh --no-run        # only prepare the environment
+#   ./scripts/bootstrap.sh -- doctor       # install and run `axion-wizard doctor`
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -46,15 +46,15 @@ step() { printf "%b==> %s%b\n" "$C_CYAN" "$1" "$C_OFF"; }
 ok()   { printf "%b    %s%b\n" "$C_GREEN" "$1" "$C_OFF"; }
 warn() { printf "%b    %s%b\n" "$C_YELLOW" "$1" "$C_OFF"; }
 
-# Un fallo de arranque tiene que decir qué pasó y qué hacer, no solo reventar:
-# quien corre esto está montando el entorno por primera vez y no tiene contexto
-# para interpretar un stack trace.
+# A bootstrap failure has to say what happened and what to do, not just blow up:
+# whoever runs this is setting the environment up for the first time and has no
+# context with which to read a stack trace.
 die() {
     local what="$1" why="$2"; shift 2
     printf "\n%bERROR: %s%b\n" "$C_RED" "$what" "$C_OFF" >&2
     printf "%b%s%b\n" "$C_RED" "$why" "$C_OFF" >&2
     if [ $# -gt 0 ]; then
-        printf "\nQué hacer:\n" >&2
+        printf "\nWhat to do:\n" >&2
         local i=1
         for stepline in "$@"; do
             printf "  %d. %s\n" "$i" "$stepline" >&2
@@ -68,9 +68,9 @@ die() {
 run_checked() {
     local description="$1"; shift
     if ! "$@"; then
-        die "$description falló" \
-            "El entorno ha quedado a medias; el wizard no arrancaría correctamente." \
-            "Reintentar el comando a mano para ver el error completo: $*"
+        die "$description failed" \
+            "The environment is half-built; the wizard would not start correctly." \
+            "Retry the command by hand to see the full error: $*"
     fi
 }
 
@@ -90,92 +90,93 @@ find_python() {
     return 1
 }
 
-# --- 1. Intérprete --------------------------------------------------------------
+# --- 1. Interpreter -------------------------------------------------------------
 
-step "Buscando Python >= 3.$MIN_PYTHON_MINOR"
+step "Looking for Python >= 3.$MIN_PYTHON_MINOR"
 if ! PYTHON="$(find_python)"; then
-    die "No se encontró un Python 3.$MIN_PYTHON_MINOR o superior" \
-        "axion-wizard usa sintaxis y librerías que no existen en versiones anteriores." \
+    die "No Python 3.$MIN_PYTHON_MINOR or newer was found" \
+        "axion-wizard uses syntax and libraries that do not exist in earlier versions." \
         "Debian/Ubuntu: sudo apt install python3.12 python3.12-venv" \
         "Fedora: sudo dnf install python3.12" \
         "macOS: brew install python@3.12"
 fi
 ok "$PYTHON ($("$PYTHON" --version 2>&1))"
 
-# --- 2. Entorno y dependencias ----------------------------------------------------
+# --- 2. Environment and dependencies ----------------------------------------------
 
 if command -v uv >/dev/null 2>&1; then
-    step "Instalando dependencias con uv (respeta uv.lock)"
+    step "Installing dependencies with uv (honours uv.lock)"
     run_checked "uv sync" uv sync --group dev
 else
-    warn "uv no está instalado; usando venv + pip (más lento y sin lockfile)."
-    warn "Para builds reproducibles: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    warn "uv is not installed; using venv + pip (slower and without a lockfile)."
+    warn "For reproducible builds: curl -LsSf https://astral.sh/uv/install.sh | sh"
 
     if [ ! -x "$VENV_PYTHON" ]; then
-        step "Creando el entorno virtual en .venv"
+        step "Creating the virtual environment in .venv"
         if ! "$PYTHON" -m venv .venv; then
-            die "No se pudo crear el entorno virtual" \
-                "Sin él no hay dónde instalar las dependencias." \
-                "En Debian/Ubuntu falta el paquete del módulo venv: sudo apt install python3-venv" \
-                "Comprobar permisos de escritura en $PROJECT_ROOT"
+            die "The virtual environment could not be created" \
+                "Without it there is nowhere to install the dependencies." \
+                "On Debian/Ubuntu the venv module's package is missing: sudo apt install python3-venv" \
+                "Check write permissions on $PROJECT_ROOT"
         fi
     else
-        ok "El entorno virtual ya existe."
+        ok "The virtual environment already exists."
     fi
 
-    # Un .venv creado por uv no trae pip: uv instala paquetes él mismo y se lo
-    # ahorra. Si este script cae al camino de pip sobre un entorno así (uv
-    # instalado antes, ya no), `python -m pip` falla con "No module named pip"
-    # y el arranque muere sin motivo aparente. `ensurepip` lo repone.
+    # A .venv created by uv has no pip: uv installs packages itself and spares
+    # itself the trouble. If this script falls back to the pip path over such an
+    # environment (uv installed earlier, no longer), `python -m pip` fails with
+    # "No module named pip" and the bootstrap dies for no visible reason.
+    # `ensurepip` puts it back.
     if ! "$VENV_PYTHON" -m pip --version >/dev/null 2>&1; then
-        step "El entorno no tiene pip (lo creó uv); reponiéndolo con ensurepip"
+        step "The environment has no pip (uv created it); restoring it with ensurepip"
         if ! "$VENV_PYTHON" -m ensurepip --default-pip --upgrade >/dev/null 2>&1; then
-            die "No se pudo reponer pip en el entorno virtual" \
-                "Sin pip no hay forma de instalar las dependencias." \
-                "Borrar la carpeta .venv y volver a ejecutar este script para crearla limpia."
+            die "pip could not be restored in the virtual environment" \
+                "Without pip there is no way to install the dependencies." \
+                "Delete the .venv folder and run this script again to create it clean."
         fi
     fi
 
-    step "Instalando axion-wizard y sus dependencias"
+    step "Installing axion-wizard and its dependencies"
     run_checked "pip install -e ." "$VENV_PYTHON" -m pip install --quiet --disable-pip-version-check -e .
 
     if [ "$RUN_CHECKS" -eq 1 ]; then
-        # Las herramientas de desarrollo viven en [dependency-groups] (PEP 735),
-        # que pip solo entiende desde 25.1 — se instalan por nombre para no
-        # depender de la versión de pip que traiga el sistema.
-        # `fastapi` y `python-multipart` no son dependencias del wizard: el
-        # puente solo corre dentro del contenedor. Pero sus tests sí las
-        # necesitan y, sin ellas, se saltan en silencio — que es peor que
-        # fallar, porque `--check` diría "todo en verde" sin haber probado
-        # el código que se envía al usuario.
-        step "Instalando herramientas de desarrollo"
+        # The development tools live in [dependency-groups] (PEP 735), which pip
+        # only understands from 25.1 onwards — they are installed by name so as
+        # not to depend on whatever pip version the system ships.
+        # `fastapi` and `python-multipart` are not dependencies of the wizard:
+        # the bridge only runs inside the container. But its tests do need them
+        # and, without them, they are skipped silently — which is worse than
+        # failing, because `--check` would say "all green" without having tested
+        # the code that gets shipped to the user.
+        step "Installing development tools"
         run_checked "pip install (dev)" "$VENV_PYTHON" -m pip install --quiet --disable-pip-version-check \
             pytest pytest-cov pytest-mock ruff mypy fastapi python-multipart
     fi
 fi
 
-[ -x "$VENV_PYTHON" ] || die "El entorno virtual no quedó creado en .venv" \
-    "Sin él no hay dónde ejecutar el wizard." \
-    "Borrar la carpeta .venv y volver a ejecutar este script."
-ok "Entorno listo: $VENV_PYTHON"
+[ -x "$VENV_PYTHON" ] || die "The virtual environment was not created in .venv" \
+    "Without it there is nowhere to run the wizard." \
+    "Delete the .venv folder and run this script again."
+ok "Environment ready: $VENV_PYTHON"
 
-# --- 3. Verificación opcional -------------------------------------------------------
+# --- 3. Optional verification -------------------------------------------------------
 
 if [ "$RUN_CHECKS" -eq 1 ]; then
     step "Lint (ruff)"
     run_checked "ruff" "$VENV_PYTHON" -m ruff check .
-    step "Tipos (mypy)"
+    step "Types (mypy)"
     run_checked "mypy" "$VENV_PYTHON" -m mypy src
     step "Tests (pytest)"
     run_checked "pytest" "$VENV_PYTHON" -m pytest -q
-    ok "Lint, tipos y tests en verde."
+    ok "Lint, types and tests all green."
 fi
 
-# --- 4. Arranque ---------------------------------------------------------------------
+# --- 4. Start ---------------------------------------------------------------------
 
 if [ "$RUN_WIZARD" -eq 0 ]; then
     printf "\n"
-    ok "Entorno preparado. Arrancar con:"
+    ok "Environment prepared. Start it with:"
     printf "    .venv/bin/python -m axion_wizard --help\n"
     exit 0
 fi
@@ -184,6 +185,6 @@ if [ ${#WIZARD_ARGS[@]} -eq 0 ]; then
     WIZARD_ARGS=(--help)
 fi
 
-step "Arrancando axion-wizard ${WIZARD_ARGS[*]}"
+step "Starting axion-wizard ${WIZARD_ARGS[*]}"
 printf "\n"
 exec "$VENV_PYTHON" -m axion_wizard "${WIZARD_ARGS[@]}"

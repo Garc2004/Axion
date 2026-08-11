@@ -32,7 +32,7 @@ TestClient = pytest.importorskip(
 
 
 def _load_bridge(monkeypatch, **env: str):
-    """Importa `templates/fastapi/main.py` con un entorno concreto.
+    """Import `templates/fastapi/main.py` with a specific environment.
 
     The module's constants are read at import time (which is how it behaves
     inside the container), so the environment has to be set before importing it
@@ -73,7 +73,7 @@ def _webhook_form(**overrides: str) -> dict[str, str]:
     return form
 
 
-# --- modo y salud -------------------------------------------------------------------
+# --- mode and health ----------------------------------------------------------------
 
 
 def test_health_reports_sync_mode_without_a_bot_token(monkeypatch) -> None:
@@ -92,17 +92,17 @@ def test_health_reports_async_mode_with_a_bot_token(monkeypatch) -> None:
 
 
 def test_rejects_a_wrong_token(monkeypatch) -> None:
-    bridge = _load_bridge(monkeypatch, MM_WEBHOOK_TOKEN="el-bueno")
+    bridge = _load_bridge(monkeypatch, MM_WEBHOOK_TOKEN="the-good-one")
     with TestClient(bridge.app) as client:
-        response = client.post("/webhook/mattermost", data=_webhook_form(token="el-malo"))
+        response = client.post("/webhook/mattermost", data=_webhook_form(token="the-bad-one"))
     assert response.status_code == 403
 
 
 def test_accepts_the_right_token(monkeypatch, mocker) -> None:
-    bridge = _load_bridge(monkeypatch, MM_WEBHOOK_TOKEN="el-bueno")
+    bridge = _load_bridge(monkeypatch, MM_WEBHOOK_TOKEN="the-good-one")
     mocker.patch.object(bridge, "generate", mocker.AsyncMock(return_value="respuesta"))
     with TestClient(bridge.app) as client:
-        response = client.post("/webhook/mattermost", data=_webhook_form(token="el-bueno"))
+        response = client.post("/webhook/mattermost", data=_webhook_form(token="the-good-one"))
     assert response.status_code == 200
     assert response.json() == {"text": "respuesta"}
 
@@ -249,11 +249,11 @@ def test_an_unreachable_ollama_becomes_a_readable_message(monkeypatch, mocker) -
     assert "Ollama" in response.json()["text"]
 
 
-# --- el prompt de sistema llega a Ollama ------------------------------------------------
+# --- the system prompt reaches Ollama ---------------------------------------------------
 
 
 def test_the_system_prompt_is_sent_to_ollama(monkeypatch, mocker) -> None:
-    bridge = _load_bridge(monkeypatch, OLLAMA_SYSTEM_PROMPT="Responde en gallego.")
+    bridge = _load_bridge(monkeypatch, OLLAMA_SYSTEM_PROMPT="Answer in Galician.")
     post = mocker.patch.object(
         bridge.httpx.AsyncClient,
         "post",
@@ -269,7 +269,7 @@ def test_the_system_prompt_is_sent_to_ollama(monkeypatch, mocker) -> None:
     with TestClient(bridge.app) as client:
         client.post("/webhook/mattermost", data=_webhook_form())
 
-    assert post.await_args.kwargs["json"]["system"] == "Responde en gallego."
+    assert post.await_args.kwargs["json"]["system"] == "Answer in Galician."
 
 
 def test_no_system_key_is_sent_when_there_is_no_prompt(monkeypatch, mocker) -> None:

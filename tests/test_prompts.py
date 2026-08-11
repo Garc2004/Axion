@@ -66,7 +66,7 @@ def test_unavailable_when_isatty_raises(mocker) -> None:
 
 def test_require_passes_through_when_interactive(mocker) -> None:
     _streams(mocker, stdin=True, stdout=True)
-    require_interactive_input("Algo")  # no debe lanzar
+    require_interactive_input("Something")  # must not raise
 
 
 def test_require_raises_an_actionable_error(mocker) -> None:

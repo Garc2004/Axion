@@ -46,7 +46,7 @@ def test_applies_only_to_linux_host_variant() -> None:
     ],
 )
 def test_does_not_apply_elsewhere(os_name: str, variant: str) -> None:
-    """En `ports` encamina Docker con su NAT, y en Windows/macOS el kernel
+    """Under `ports` Docker routes it with its own NAT, and on Windows/macOS
     the kernel that matters is Docker Desktop's VM, not the host's."""
     assert hostnet.is_applicable(os_name, variant) is False
 
@@ -173,9 +173,9 @@ def test_manual_fix_mentions_the_conf_and_the_command() -> None:
 
 
 def _context_with_environment(tmp_path: Path, os_name: str, variant: str):
-    """Contexto con hechos reales, no mocks: `Mock(name=...)` no fija el
-    atributo `name` —lo usa para nombrar el propio mock— y `OsInfo.name` es
-    exactly what decides whether forwarding applies."""
+    """A context built from real facts, not mocks: `Mock(name=...)` does not
+    set the `name` attribute — it uses it to name the mock itself — and
+    `OsInfo.name` is exactly what decides whether forwarding applies."""
     from axion_wizard.detect.docker import DockerContextInfo, DockerInfo
     from axion_wizard.detect.hardware import HardwareInfo
     from axion_wizard.detect.platform import OsInfo, WslInfo
@@ -237,7 +237,7 @@ def test_deploy_step_warns_but_does_not_abort_when_forwarding_fails(
     mocker.patch(
         "axion_wizard.services.hostnet.ensure_ip_forwarding",
         return_value=hostnet.ForwardingResult(
-            applied=False, active=False, conf_written=False, detail="hace falta root"
+            applied=False, active=False, conf_written=False, detail="root is required"
         ),
     )
     context = _context_with_environment(tmp_path, "Linux", WireguardVariant.HOST.value)

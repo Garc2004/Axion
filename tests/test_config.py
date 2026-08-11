@@ -78,7 +78,7 @@ def test_postgres_password_accepts_hex() -> None:
 def test_panel_password_rejects_chars_that_break_env_interpolation(bad_char: str) -> None:
     with pytest.raises(ValidationError):
         AxionConfig(
-            **_valid_kwargs(wireguard_admin_password=f"larga-de-sobra{bad_char}ya")
+            **_valid_kwargs(wireguard_admin_password=f"long-enough-by-far{bad_char}yes")
         )
 
 

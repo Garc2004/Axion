@@ -66,7 +66,7 @@ __all__ = [
 ]
 
 
-# --- Comprobaciones individuales (tabla de §4.9) -------------------------------
+# --- Individual checks (the table in §4.9) -------------------------------------
 
 
 def check_containers_healthy(compose_path: Path) -> CheckResult:
@@ -263,25 +263,25 @@ def check_ip_forwarding(wireguard_variant: str) -> CheckResult:
 
     name = "IP forwarding (WireGuard)"
     if not hostnet.is_applicable(hostnet.current_os_name(), wireguard_variant):
-        return CheckResult(name, True, "no aplica: lo encamina Docker en esta variante")
+        return CheckResult(name, True, "not applicable: Docker routes it in this variant")
     if hostnet.forwarding_is_active():
         return CheckResult(name, True, "net.ipv4.ip_forward = 1")
     return CheckResult(
         name,
         False,
         "net.ipv4.ip_forward is 0: the tunnel will establish but will not route "
-        f"nada. Arreglar con: sudo sysctl -w net.ipv4.ip_forward=1 (persistente en "
-        f"{hostnet.SYSCTL_CONF_PATH})",
+        "anything. Fix it with: sudo sysctl -w net.ipv4.ip_forward=1 (made "
+        f"persistent in {hostnet.SYSCTL_CONF_PATH})",
     )
 
 
-# --- WebSocket de Mattermost ---------------------------------------------------
+# --- Mattermost's WebSocket -----------------------------------------------------
 #
 # Why this check exists: the symptom "the AI only answers when I press F5" is
 # not the AI failing to answer — it is the AI answering and the message never
 # reaching the browser. Mattermost pushes new messages over a WebSocket; on
 # reload, the page re-fetches them over ordinary HTTP and they all appear at
-# once. Es decir: HTTP sano + WebSocket roto.
+# once. In other words: healthy HTTP + broken WebSocket.
 #
 # `doctor` used to check `GET https://<host>` and pass it, which is exactly
 # the traffic that does work in that scenario. Diagnosing it took opening the

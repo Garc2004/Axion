@@ -61,8 +61,8 @@ def test_owns_console_when_this_process_is_the_only_one(mocker) -> None:
 
 
 def test_does_not_own_console_when_a_shell_is_also_attached(mocker) -> None:
-    """Lanzado desde cmd/PowerShell la consola sobrevive al proceso: pausar
-    pausing there would only get in the way."""
+    """Launched from cmd/PowerShell the console outlives the process: pausing
+    there would only get in the way."""
     _console_with(mocker, [100, 101, 200], {100: AXION_EXE, 101: AXION_EXE, 200: CMD_EXE})
     assert winconsole.owns_its_console() is False
 
@@ -104,7 +104,7 @@ def test_console_process_ids_returns_the_attached_pids(mocker) -> None:
 def test_console_process_ids_never_raises_when_api_is_missing(mocker) -> None:
     mocker.patch.object(sys, "platform", "win32")
     fake = mocker.patch("axion_wizard.utils.winconsole.ctypes.windll", create=True)
-    type(fake).kernel32 = mocker.PropertyMock(side_effect=OSError("sin kernel32"))
+    type(fake).kernel32 = mocker.PropertyMock(side_effect=OSError("no kernel32"))
     assert winconsole.console_process_ids() == []
 
 
@@ -157,7 +157,7 @@ def test_should_not_pause_when_stdin_is_none(mocker, monkeypatch) -> None:
 
 
 def test_pause_prompts_on_stderr_and_waits_for_a_line(mocker) -> None:
-    """El prompt va a stderr para no contaminar un stdout redirigido."""
+    """The prompt goes to stderr so as not to pollute a redirected stdout."""
     mocker.patch("axion_wizard.utils.winconsole.should_pause", return_value=True)
     stdin = _FakeStdin()
     stderr = io.StringIO()

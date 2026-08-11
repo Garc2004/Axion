@@ -312,7 +312,7 @@ class ProgressScreen(Screen):
         self.query_one("#log", RichLog).write(text)
 
     def log_renderable(self, renderable: RenderableType) -> None:
-        """Vuelca un renderable de Rich (un `Panel`, una `Table`) en el log.
+        """Dump a Rich renderable (a `Panel`, a `Table`) into the log.
 
         It is painted with the wizard's console first rather than handed
         straight to the `RichLog`: Textual would draw it with a `Console` of
@@ -579,11 +579,11 @@ class _TuiStepReporter:
         self._app.call_from_thread(self._screen.log_line, text)
 
     def on_step_resumed(self, index: int, total: int, step: object) -> None:
-        self._set(index, DONE, "ya completado, se reanuda")
+        self._set(index, DONE, "already done, resuming")
 
     def on_step_invalidated(self, index: int, total: int, step: object, reason: str) -> None:
-        self._set(index, PENDING, f"se rehace: {reason}")
-        self._log(f"[yellow]Se rehace el paso {index}:[/] {reason}")
+        self._set(index, PENDING, f"redoing: {reason}")
+        self._log(f"[yellow]Redoing step {index}:[/] {reason}")
 
     def on_step_skipped(self, index: int, total: int, step: object, reason: str) -> None:
         self._set(index, SKIPPED, reason)

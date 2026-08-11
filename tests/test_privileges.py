@@ -62,8 +62,8 @@ def test_current_invocation_in_dev_mode_reinvokes_the_module(mocker) -> None:
 
 
 def test_current_invocation_when_frozen_reinvokes_the_binary(mocker) -> None:
-    """En un bundle, sys.executable ya es el propio axion-wizard.exe: volver a
-    passing it `-m axion_wizard` would break it."""
+    """Inside a bundle, sys.executable is axion-wizard.exe itself: passing it
+    `-m axion_wizard` again would break it."""
     mocker.patch("axion_wizard.privileges.running_as_frozen_binary", return_value=True)
     mocker.patch.object(sys, "argv", ["axion-wizard.exe", "doctor"])
     executable, args = priv.current_invocation()
@@ -117,8 +117,8 @@ def _fake_elevation(mocker, *, handle=1234, exit_code=0):
 
 
 def test_relaunch_elevated_windows_waits_and_propagates_exit_code(mocker) -> None:
-    """El padre no puede terminar en cuanto dispara UAC: el trabajo real
-    happens in the elevated process, and its result is the only one that counts."""
+    """The parent cannot exit the moment it fires UAC: the real work happens in
+    the elevated process, and its result is the only one that counts."""
     mocker.patch(
         "axion_wizard.privileges.current_invocation",
         return_value=("axion-wizard.exe", ["install"]),
@@ -186,7 +186,7 @@ def test_relaunch_elevated_windows_wraps_ctypes_failure(mocker) -> None:
         "axion_wizard.privileges.current_invocation", return_value=("axion-wizard.exe", [])
     )
     mocker.patch(
-        "axion_wizard.privileges._start_elevated_process", side_effect=OSError("sin shell32")
+        "axion_wizard.privileges._start_elevated_process", side_effect=OSError("no shell32")
     )
     with pytest.raises(priv.ElevationError, match="ShellExecuteExW"):
         priv.relaunch_elevated_windows()

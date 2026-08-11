@@ -168,5 +168,5 @@ def test_env_value_empty_value_is_none(tmp_path: Path) -> None:
 def test_env_value_undecodable_file_is_none(tmp_path: Path) -> None:
     """A `.env` saved as ANSI by Notepad must not abort the whole install —
     `OLLAMA_SYSTEM_PROMPT` invites hand-editing."""
-    (tmp_path / ".env").write_bytes(b"OLLAMA_SYSTEM_PROMPT=s\xed muy bien\n")
+    (tmp_path / ".env").write_bytes(b"OLLAMA_SYSTEM_PROMPT=s\xed very good\n")
     assert env_value(tmp_path, "OLLAMA_SYSTEM_PROMPT") is None

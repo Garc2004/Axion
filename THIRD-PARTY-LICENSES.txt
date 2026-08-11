@@ -1,11 +1,11 @@
-axion-wizard se distribuye bajo la licencia Apache-2.0 (ver LICENSE) y
-empaqueta las siguientes dependencias de terceros, cada una bajo su propia
-licencia permisiva. Este archivo satisface la obligación de atribución que
-esas licencias exigen cuando el software se redistribuye en forma binaria
-(el .exe generado por PyInstaller).
+axion-wizard is distributed under the Apache-2.0 licence (see LICENSE) and
+bundles the following third-party dependencies, each under its own permissive
+licence. This file satisfies the attribution obligation those licences impose
+when the software is redistributed in binary form (the .exe produced by
+PyInstaller).
 
 ================================================================================
-Paquetes bajo licencia MIT
+Packages under the MIT licence
 ================================================================================
 
   - typer               https://github.com/fastapi/typer
@@ -17,8 +17,8 @@ Paquetes bajo licencia MIT
   - pydantic-settings   https://github.com/pydantic/pydantic-settings
   - textual             https://github.com/Textualize/textual
 
-Texto de la licencia MIT (aplica a cada paquete listado arriba, con su
-copyright holder correspondiente según el proyecto de origen):
+Text of the MIT licence (it applies to every package listed above, with the
+copyright holder of its originating project):
 
   Permission is hereby granted, free of charge, to any person obtaining a
   copy of this software and associated documentation files (the "Software"),
@@ -39,7 +39,7 @@ copyright holder correspondiente según el proyecto de origen):
   DEALINGS IN THE SOFTWARE.
 
 ================================================================================
-Paquetes bajo licencia BSD-3-Clause
+Packages under the BSD-3-Clause licence
 ================================================================================
 
   - httpx               Copyright (c) 2019, Encode OSS Ltd.
@@ -53,7 +53,7 @@ Paquetes bajo licencia BSD-3-Clause
   - segno               Copyright (c) 2016 - 2024, Lars Heuer
                          https://github.com/heuer/segno
 
-Texto de la licencia BSD-3-Clause:
+Text of the BSD-3-Clause licence:
 
   Redistribution and use in source and binary forms, with or without
   modification, are permitted provided that the following conditions are
@@ -83,7 +83,7 @@ Texto de la licencia BSD-3-Clause:
   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ================================================================================
-Paquetes bajo licencia Apache-2.0
+Packages under the Apache-2.0 licence
 ================================================================================
 
   - tenacity            Copyright 2016-2018 Julien Danjou
@@ -91,27 +91,23 @@ Paquetes bajo licencia Apache-2.0
                          Copyright 2016 Joshua Harlow
                          Copyright 2013-2014 Ray Holder
                          https://github.com/jd/tenacity
-  - bcrypt              Copyright (c) The Python Cryptographic Authority
-                         and individual contributors
-                         https://github.com/pyca/bcrypt
 
-Texto completo de la licencia Apache-2.0: ver LICENSE en la raíz de este
-repositorio (es la misma bajo la que se distribuye axion-wizard).
+Full text of the Apache-2.0 licence: see LICENSE at the root of this
+repository (it is the same one axion-wizard is distributed under).
 
 ================================================================================
-Paquetes con licencia dual (Apache-2.0 OR BSD-3-Clause)
+Dual-licensed packages (Apache-2.0 OR BSD-3-Clause)
 ================================================================================
 
   - cryptography        Copyright (c) The Python Cryptographic Authority
                          and individual contributors
                          https://github.com/pyca/cryptography
 
-  A elección de quien redistribuye: ver los dos textos completos más arriba
-  (Apache-2.0 y BSD-3-Clause).
+  At the redistributor's choice: see both full texts above (Apache-2.0 and
+  BSD-3-Clause).
 
 ================================================================================
 
-Los textos completos de cada licencia, con los avisos de copyright
-originales, también acompañan a cada paquete en su distribución de PyPI
-(carpeta *.dist-info/, archivo LICENSE o COPYING) y en los repositorios
-enlazados arriba.
+The full text of each licence, with its original copyright notices, also
+accompanies every package in its PyPI distribution (the *.dist-info/ folder,
+file LICENSE or COPYING) and in the repositories linked above.

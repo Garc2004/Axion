@@ -408,7 +408,7 @@ def test_config_validate_ok(mocker) -> None:
         "axion_wizard.services.compose.run",
         return_value=CommandResult(args=[], returncode=0, stdout="", stderr=""),
     )
-    compose.config_validate(Path("docker-compose.yml"))  # no debe lanzar
+    compose.config_validate(Path("docker-compose.yml"))  # must not raise
 
 
 def test_config_validate_docker_missing(mocker) -> None:

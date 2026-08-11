@@ -11,19 +11,19 @@ def test_configure_stdio_encoding_is_idempotent_and_safe() -> None:
 
 
 def test_configure_stdio_encoding_tolerates_streams_without_reconfigure(mocker) -> None:
-    """Bajo pytest (y en algunos entornos empaquetados) stdout no es un
-    TextIOWrapper y no expone `reconfigure`."""
+    """Under pytest (and in some bundled environments) stdout is not a
+    TextIOWrapper and does not expose `reconfigure`."""
     mocker.patch.object(sys, "stdout", io.StringIO())
     mocker.patch.object(sys, "stderr", io.StringIO())
-    console_module.configure_stdio_encoding()  # no debe lanzar
+    console_module.configure_stdio_encoding()  # must not raise
 
 
 def test_configure_stdio_encoding_tolerates_reconfigure_failure(mocker) -> None:
     stream = mocker.Mock()
-    stream.reconfigure.side_effect = OSError("no se puede reconfigurar")
+    stream.reconfigure.side_effect = OSError("cannot reconfigure")
     mocker.patch.object(sys, "stdout", stream)
     mocker.patch.object(sys, "stderr", stream)
-    console_module.configure_stdio_encoding()  # no debe lanzar
+    console_module.configure_stdio_encoding()  # must not raise
 
 
 def test_unicode_marks_used_by_the_ui_survive_encoding() -> None:

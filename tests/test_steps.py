@@ -483,7 +483,7 @@ def test_compose_step_uses_the_rocm_image_and_devices_for_amd(tmp_path: Path, mo
 def test_environment_step_warns_about_a_project_on_the_windows_mount(
     tmp_path: Path, mocker
 ) -> None:
-    """§6.2: en /mnt/c el I/O es lento y los permisos POSIX de .env se pierden."""
+    """§6.2: on /mnt/c the I/O is slow and .env's POSIX permissions are lost."""
     from axion_wizard.steps.s01_environment import EnvironmentStep
 
     mocker.patch(
@@ -528,7 +528,7 @@ def test_certificate_step_adds_the_vpn_ip_to_the_san_in_host_variant(tmp_path: P
 
 
 def test_certificate_step_omits_the_vpn_ip_in_ports_variant(tmp_path: Path) -> None:
-    """En Windows/Docker Desktop esa IP solo existe dentro de la VPN."""
+    """On Windows/Docker Desktop that IP only exists inside the VPN."""
     from axion_wizard.services import certs
     from axion_wizard.steps.s04_certificate import CertificateStep
 
@@ -889,7 +889,7 @@ def test_bot_setup_step_reads_thread_preference_from_the_toml_when_unattended(
     update_env, _deploy, _wait = _mock_apply_targets(mocker)
     config_path = tmp_path / "axion.toml"
     config_path.write_text(
-        'mm_bot_token = "bot-desde-toml"\nai_reply_in_thread = false\n', encoding="utf-8"
+        'mm_bot_token = "bot-from-toml"\nai_reply_in_thread = false\n', encoding="utf-8"
     )
 
     context = _context(tmp_path)

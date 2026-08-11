@@ -76,7 +76,7 @@ def test_load_state_missing_file_returns_empty(tmp_path: Path) -> None:
 def test_save_state_then_load_state_roundtrip(tmp_path: Path) -> None:
     original = st.WizardState()
     original.mark_complete("s01_environment", "Linux nativo, Docker Engine")
-    original.mark_complete("s02_network", "sin CGNAT")
+    original.mark_complete("s02_network", "no CGNAT")
 
     st.save_state(tmp_path, original)
     loaded = st.load_state(tmp_path)
@@ -139,7 +139,7 @@ def test_save_state_is_atomic_and_leaves_no_temp_files(tmp_path: Path) -> None:
     st.save_state(tmp_path, state)
 
     leftovers = [p.name for p in tmp_path.iterdir() if p.name != st.STATE_FILENAME]
-    assert leftovers == [], f"quedaron temporales sin limpiar: {leftovers}"
+    assert leftovers == [], f"temporary files were left behind: {leftovers}"
 
 
 def test_save_state_overwrite_keeps_file_valid(tmp_path: Path) -> None:

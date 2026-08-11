@@ -45,7 +45,7 @@ def _app(tmp_path: Path, mocker, *, environment_ready: bool = True):
     return app
 
 
-# --- guardas de `--tui` -----------------------------------------------------------
+# --- `--tui` guards ---------------------------------------------------------------
 
 
 def test_tui_rejects_unattended(tmp_path: Path) -> None:
@@ -100,8 +100,8 @@ async def test_form_rejects_a_forbidden_character(tmp_path: Path, mocker) -> Non
         screen = app.screen
         screen.query_one("#host", Input).value = "192.168.1.50"
         screen.query_one("#model", Input).value = "qwen2.5:1.5b"
-        screen.query_one("#panel_password", Input).value = "tiene$dolar"
-        screen.query_one("#panel_password_repeat", Input).value = "tiene$dolar"
+        screen.query_one("#panel_password", Input).value = "has$a-dollar"
+        screen.query_one("#panel_password_repeat", Input).value = "has$a-dollar"
         await pilot.click("#start")
         await pilot.pause()
 
@@ -244,7 +244,7 @@ async def test_config_screen_shows_the_detected_environment(tmp_path: Path, mock
         assert "host" in str(summary.content)
 
 
-# --- pantalla de progreso ------------------------------------------------------------
+# --- progress screen ------------------------------------------------------------------
 
 
 async def test_progress_screen_lists_every_step(tmp_path: Path, mocker) -> None:
@@ -312,7 +312,7 @@ def test_steps_run_quiet_and_unattended_under_the_tui(tmp_path: Path) -> None:
     assert quiet.quiet is True
     assert quiet.unattended is True
     assert quiet.project_dir == tmp_path
-    assert state.quiet is False, "el original no debe mutarse"
+    assert state.quiet is False, "the original must not be mutated"
 
 
 # --- the PostgreSQL password is not regenerated -------------------------------------
