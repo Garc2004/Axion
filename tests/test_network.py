@@ -211,12 +211,24 @@ def test_check_ports_psutil_reports_unbound_port_as_free(mocker) -> None:
     assert [s.free for s in statuses] == [True, True]
 
 
-def test_check_ports_psutil_does_not_confuse_protocols() -> None:
-    """A port in use over UDP must not be reported as in use over TCP."""
-    port = _free_port(socket.SOCK_DGRAM)
-    with closing(socket.socket(socket.AF_INET, socket.SOCK_DGRAM)) as sock:
-        sock.bind(("127.0.0.1", port))
-        statuses = {s.protocol: s for s in net.check_ports_psutil([(port, "udp"), (port, "tcp")])}
+def test_check_ports_psutil_does_not_confuse_protocols(mocker) -> None:
+    """A port in use over UDP must not be reported as in use over TCP.
+
+    The connection list is mocked for the same reason as in
+    `test_check_ports_psutil_reports_unbound_port_as_free`: binding a real UDP
+    socket says nothing about who holds that number over TCP, and on a busy
+    machine an unrelated process holding it made this fail on the environment
+    rather than on the code.
+    """
+    import psutil
+
+    port = 51820
+    conn = mocker.Mock(
+        laddr=mocker.Mock(port=port), type=socket.SOCK_DGRAM, status=psutil.CONN_NONE
+    )
+    mocker.patch("axion_wizard.detect.network.psutil.net_connections", return_value=[conn])
+
+    statuses = {s.protocol: s for s in net.check_ports_psutil([(port, "udp"), (port, "tcp")])}
 
     assert statuses["udp"].in_use is True
     assert statuses["tcp"].in_use is False

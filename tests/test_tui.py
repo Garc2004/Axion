@@ -1,8 +1,8 @@
-"""Tests de la interfaz Textual (`install --tui`).
+"""Tests for the Textual interface (`install --tui`).
 
-Se prueba con el `run_test()` de Textual, que arranca la app contra un
-driver headless: sin él haría falta una terminal real y no habría forma de
-cubrir esto en CI.
+Driven with Textual's `run_test()`, which starts the app against a headless
+driver: without it a real terminal would be required and there would be no
+way to cover this in CI.
 """
 
 from pathlib import Path
@@ -23,18 +23,18 @@ def anyio_backend():
     return "asyncio"
 
 
-#: Terminal holgada para los tests: con el tamaño por defecto, el botón
-#: "Instalar" cae fuera de la región visible y `pilot.click` lo rechaza con
-#: OutOfBounds — un artefacto del harness, no del formulario.
+#: A roomy terminal for the tests: at the default size the "Install" button
+#: falls outside the visible region and `pilot.click` rejects it with
+#: OutOfBounds — an artefact of the harness, not of the form.
 TERMINAL_SIZE = (120, 50)
 
 
 def _app(tmp_path: Path, mocker, *, environment_ready: bool = True):
-    """App con el paso 1 (detección) sustituido: arranca subprocess reales.
+    """The app with step 1 (detection) stubbed out: it starts real subprocesses.
 
-    `environment_ready` simula que esa detección ya terminó — es lo que el
-    worker real hace al acabar, y sin ello el formulario mantiene el envío
-    bloqueado a propósito (ver el botón `#start` de `ConfigScreen`).
+    `environment_ready` simulates that detection having finished — which is
+    what the real worker does on completion, and without it the form keeps
+    submission blocked on purpose (see `ConfigScreen`'s `#start` button).
     """
     from axion_wizard.tui.app import AxionInstallerApp
 
@@ -49,8 +49,9 @@ def _app(tmp_path: Path, mocker, *, environment_ready: bool = True):
 
 
 def test_tui_rejects_unattended(tmp_path: Path) -> None:
-    """Textual existe para rellenar un formulario a mano; sin nadie delante
-    se quedaría esperando teclas, que desde fuera parece un cuelgue."""
+    """Textual exists to fill in a form by hand; with nobody in front of it,
+    it would sit waiting for keystrokes, which from outside looks like a
+    hang."""
     from axion_wizard.commands.install import _assert_tui_is_usable
 
     with pytest.raises(ConfigError, match="unattended"):
@@ -89,8 +90,8 @@ async def test_form_reports_mismatched_passwords(tmp_path: Path, mocker) -> None
 
 
 async def test_form_rejects_a_forbidden_character(tmp_path: Path, mocker) -> None:
-    """Misma regla que el prompt de questionary: `$` se rechaza ANTES de
-    hashear, con el motivo a la vista."""
+    """The same rule as the questionary prompt: `$` is rejected up front, with
+    the reason in plain sight."""
     from textual.widgets import Input
 
     app = _app(tmp_path, mocker)
@@ -143,7 +144,7 @@ async def test_a_valid_form_builds_the_config_and_starts(tmp_path: Path, mocker)
     config = started.call_args[0][0]
     assert config.host == "192.168.1.50"
     assert config.ollama_model == "qwen2.5:1.5b"
-    # La contraseña nunca se guarda en claro: solo su hash bcrypt (§9).
+    # The password is masked in any output; the config keeps it as a SecretStr (§9).
     assert config.wireguard_admin_username == "admin"
     assert config.wireguard_admin_password.get_secret_value() == "contrasena-buena"
     assert config.postgres_password.get_secret_value() != "contrasena-buena"
@@ -161,12 +162,13 @@ async def test_the_form_never_renders_the_password(tmp_path: Path, mocker) -> No
         assert password_input.password is True
 
 
-# --- diseño: vocabulario compartido con la CLI y estructura del formulario -----------------
+# --- design: vocabulary shared with the CLI, and the form's structure ---------------------
 
 
 def test_app_uses_the_nord_theme(tmp_path: Path, mocker) -> None:
-    """Coherencia visual: una paleta ya diseñada, no colores hex inventados
-    a mano, y la misma para toda la app (no cambia entre pantallas)."""
+    """Visual coherence: a palette that was designed, not hex colours invented
+    by hand, and the same one across the whole app (it does not change between
+    screens)."""
     from axion_wizard.tui.app import APP_THEME
 
     app = _app(tmp_path, mocker)
@@ -174,8 +176,8 @@ def test_app_uses_the_nord_theme(tmp_path: Path, mocker) -> None:
 
 
 def test_step_status_glyphs_come_from_the_shared_ui_module(tmp_path: Path, mocker) -> None:
-    """Que un ✓ en `doctor` (CLI) y un ✓ en `install --tui` sean el mismo
-    carácter no es casualidad: ambos leen `axion_wizard.render.ui.GLYPH_*`."""
+    """A ✓ in `doctor` (CLI) and a ✓ in `install --tui` being the same
+    character is no accident: both read `axion_wizard.render.ui.GLYPH_*`."""
     from axion_wizard.render import ui
     from axion_wizard.tui.app import _STATUS_MARKS, DONE, FAILED, PENDING, RUNNING, SKIPPED
 
@@ -187,9 +189,9 @@ def test_step_status_glyphs_come_from_the_shared_ui_module(tmp_path: Path, mocke
 
 
 async def test_form_is_grouped_into_titled_sections(tmp_path: Path, mocker) -> None:
-    """Regresión de diseño: las tres secciones del formulario (Acceso,
-    Seguridad, Modelo) deben seguir presentes y en orden — es lo que hace
-    escaneable un formulario de cinco campos en vez de una lista plana."""
+    """Design regression: the form's three sections (Access, Security, Model)
+    must still be present and in order — it is what makes a five-field form
+    scannable rather than a flat list."""
     from textual.widgets import Static
 
     app = _app(tmp_path, mocker)
@@ -202,9 +204,9 @@ async def test_form_is_grouped_into_titled_sections(tmp_path: Path, mocker) -> N
 
 
 async def test_error_banner_is_hidden_until_there_is_an_error(tmp_path: Path, mocker) -> None:
-    """El banner de error es una caja bordeada, no una línea de texto suelta
-    — pero solo cuando hay algo que mostrar: reservar el hueco siempre
-    dejaría un vacío feo en un formulario ya apretado de espacio."""
+    """The error banner is a bordered box, not a loose line of text — but only
+    when there is something to show: always reserving the space would leave an
+    ugly gap in a form already tight for room."""
     from textual.widgets import Input, Static
 
     app = _app(tmp_path, mocker)
@@ -229,9 +231,9 @@ async def test_error_banner_is_hidden_until_there_is_an_error(tmp_path: Path, mo
 
 
 async def test_config_screen_shows_the_detected_environment(tmp_path: Path, mocker) -> None:
-    """Eco de lo que decidió el paso 1: la CLI lo muestra en una tabla
-    completa, la TUI en una línea — pero no debe dejar al usuario a ciegas
-    sobre qué detectó el wizard antes de rellenar el formulario."""
+    """An echo of what step 1 decided: the CLI shows it in a full table, the
+    TUI in one line — but it must not leave the user blind about what the
+    wizard detected before they fill in the form."""
     from axion_wizard.domain.config import WireguardVariant
 
     app = _app(tmp_path, mocker)
@@ -257,10 +259,10 @@ async def test_progress_screen_lists_every_step(tmp_path: Path, mocker) -> None:
 
 
 async def test_progress_screen_sections_have_titled_borders(tmp_path: Path, mocker) -> None:
-    """`border_title` es una propiedad del widget, no texto del contenido:
-    fácil de fijar sin querer sobre un widget que en el árbol real de la
-    app no tiene CSS con `border:` que lo dibuje — verificado aquí sobre la
-    app real (`AxionInstallerApp`), no una `App` genérica de prueba."""
+    """`border_title` is a widget property, not content text: easy to set by
+    accident on a widget that, in the app's real tree, has no CSS with
+    `border:` to draw it — verified here against the real app
+    (`AxionInstallerApp`), not a generic test `App`."""
     from axion_wizard.tui.app import ProgressScreen
 
     app = _app(tmp_path, mocker)
@@ -286,22 +288,22 @@ async def test_step_line_shows_its_status(tmp_path: Path, mocker) -> None:
         await app.push_screen(screen)
         await pilot.pause()
 
-        screen.set_step(0, DONE, "hecho")
-        screen.set_step(1, FAILED, "reventó")
+        screen.set_step(0, DONE, "done")
+        screen.set_step(1, FAILED, "blew up")
         await pilot.pause()
 
         lines = list(app.screen.query(StepLine))
-        assert "hecho" in lines[0].text
-        assert "reventó" in lines[1].text
+        assert "done" in lines[0].text
+        assert "blew up" in lines[1].text
 
 
-# --- estado silenciado ---------------------------------------------------------------
+# --- silenced state ------------------------------------------------------------------
 
 
 def test_steps_run_quiet_and_unattended_under_the_tui(tmp_path: Path) -> None:
-    """Los pasos imprimen con Rich sobre stdout; sin silenciarlos, sus tablas
-    se cuelan por encima de la interfaz. Y ninguno debe abrir un prompt de
-    questionary mientras Textual es dueño de la pantalla."""
+    """The steps print with Rich onto stdout; without silencing them, their
+    tables bleed over the interface. And none of them may open a questionary
+    prompt while Textual owns the screen."""
     from axion_wizard.tui.app import _quiet_copy
 
     state = GlobalState(project_dir=tmp_path, verbose=True)
@@ -313,13 +315,13 @@ def test_steps_run_quiet_and_unattended_under_the_tui(tmp_path: Path) -> None:
     assert state.quiet is False, "el original no debe mutarse"
 
 
-# --- la contraseña de PostgreSQL no se regenera -------------------------------------
+# --- the PostgreSQL password is not regenerated -------------------------------------
 #
-# Regresión: el formulario de la TUI generaba una contraseña nueva en cada
-# corrida. Postgres solo aplica POSTGRES_PASSWORD al inicializar su volumen y
-# la ignora después, así que sobre un proyecto ya desplegado Mattermost dejaba
-# de autenticarse sin ningún error que lo explicara. El camino de la CLI ya lo
-# evitaba (s03_config.existing_postgres_password documenta el incidente).
+# Regression: the TUI's form generated a new password on every run. Postgres
+# only applies POSTGRES_PASSWORD when initialising its volume and ignores it
+# afterwards, so on an already-deployed project Mattermost stopped
+# authenticating with no error to explain it. The CLI path already avoided this
+# (s03_config.existing_postgres_password documents the incident).
 
 
 async def test_tui_reuses_the_existing_postgres_password(tmp_path: Path, mocker) -> None:
@@ -367,11 +369,11 @@ async def test_tui_generates_a_password_when_there_is_no_previous_env(
     assert len(captured["c"].postgres_password.get_secret_value()) == 64
 
 
-# --- no se puede enviar el formulario antes de detectar el entorno -------------------
+# --- the form cannot be submitted before the environment is detected ----------------
 #
-# `on_mount` lanza la detección en un worker en hilo y muestra el formulario
-# sin esperarla. Quien rellenara y pulsara antes de que terminara se llevaba el
-# valor por defecto de la variante (`ports`) — en Linux nativo, la equivocada.
+# `on_mount` launches detection in a threaded worker and shows the form without
+# waiting for it. Anyone who filled it in and pressed before it finished got
+# the variant's default (`ports`) — on native Linux, the wrong one.
 
 
 async def test_install_is_blocked_until_the_environment_is_detected(
@@ -398,11 +400,11 @@ async def test_install_unblocks_once_detection_finishes(tmp_path: Path, mocker) 
         assert app.screen.query_one("#start", Button).disabled is False
 
 
-# --- paridad con la CLI: el progreso se persiste ------------------------------------
+# --- parity with the CLI: progress is persisted -------------------------------------
 #
-# El worker de la TUI tenía su propio bucle de pasos, copiado del orquestador
-# pero sin la persistencia: una instalación `--tui` interrumpida no se
-# reanudaba, pese a que el README lo promete para `install`.
+# The TUI's worker had its own step loop, copied from the orchestrator but
+# without the persistence: an interrupted `--tui` install did not resume, even
+# though the README promises it does for `install`.
 
 
 def test_tui_marks_the_steps_it_resolved_itself_as_complete(tmp_path: Path, mocker) -> None:
@@ -427,19 +429,20 @@ def test_tui_does_not_persist_anything_on_dry_run(tmp_path: Path) -> None:
     assert not state_store.state_path(tmp_path).exists()
 
 
-# --- panel de cierre: uno solo, compartido con la CLI --------------------------------
+# --- closing panel: one only, shared with the CLI ------------------------------------
 
 
 async def test_tui_closing_summary_comes_from_the_shared_renderer(
     tmp_path: Path, mocker
 ) -> None:
-    """El panel de cierre de la TUI es el mismo objeto que imprime la CLI.
+    """The TUI's closing panel is the same object the CLI prints.
 
-    Estuvo duplicado a mano: tres líneas reescritas con markup propio, sin
-    los avisos acumulados y solo cuando todo había ido bien. Una copia que
-    se queda atrás en silencio es peor que no tenerla, porque parece que
-    ambas interfaces dicen lo mismo. Se afirma la delegación, no el texto,
-    para que este test siga valiendo cuando el panel cambie de contenido.
+    It was duplicated by hand: three lines rewritten with their own markup,
+    without the accumulated warnings and only when everything had gone well. A
+    copy that silently falls behind is worse than no copy at all, because it
+    looks as though both interfaces say the same thing. The delegation is
+    asserted, not the text, so this test keeps its value when the panel's
+    content changes.
     """
     from axion_wizard.domain.config import AccessMode, AxionConfig, WireguardVariant
     from axion_wizard.tui.app import ProgressScreen
@@ -455,7 +458,7 @@ async def test_tui_closing_summary_comes_from_the_shared_renderer(
         ollama_model="qwen2.5:3b",
         project_dir=tmp_path,
     )
-    app._install_context.warn("algo quedó a medias")
+    app._install_context.warn("something was left half-done")
 
     render = mocker.patch(
         "axion_wizard.steps.orchestrator.render_closing_summary",

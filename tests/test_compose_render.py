@@ -35,17 +35,17 @@ def _load_yaml(text: str) -> dict:
     return YAML(typ="safe").load(text)
 
 
-#: Nombre de proyecto fijo para los tests: `render_env` lo exige sin valor
-#: por defecto a propósito (ver su docstring), así que hace falta pasar algo.
+#: A fixed project name for the tests: `render_env` demands one with no
+#: default on purpose (see its docstring), so something has to be passed.
 TEST_PROJECT_NAME = "axion-test"
 
 
 def render_env(config: AxionConfig, **kwargs) -> str:
-    """Atajo para `s05.render_env` con el nombre de proyecto ya puesto."""
+    """Shortcut for `s05.render_env` with the project name already supplied."""
     return s05.render_env(config, TEST_PROJECT_NAME, **kwargs)
 
 
-# --- render_compose: forma general -----------------------------------------
+# --- render_compose: general shape ------------------------------------------
 
 
 def test_render_compose_is_valid_yaml_with_managed_services() -> None:
@@ -65,12 +65,12 @@ def test_render_compose_uses_pinned_image_tags() -> None:
 
 
 def test_render_compose_raises_the_outgoing_webhook_timeout() -> None:
-    """Los 30 s por defecto de Mattermost no le llegan a un modelo en CPU: al
-    agotarse, la respuesta se pierde entera y no aparece error en ningún log."""
+    """Mattermost's default 30 s is not enough for a model on CPU: once it
+    expires the answer is lost whole and no error appears in any log."""
     mattermost = _load_yaml(s05.render_compose(make_config()))["services"]["mattermost"]
     timeout = mattermost["environment"]["MM_SERVICESETTINGS_OUTGOINGINTEGRATIONREQUESTSTIMEOUT"]
 
-    assert int(timeout) >= 120, "un margen menor deja fuera a los modelos de 3B en CPU"
+    assert int(timeout) >= 120, "any less rules out 3B models on CPU"
 
 
 def test_render_compose_passes_the_thread_preference_to_fastapi_with_a_default() -> None:
@@ -83,11 +83,11 @@ def test_render_compose_injects_ssrf_env_var() -> None:
     assert f'{s05.SSRF_ENV_KEY}: "{s05.SSRF_ENV_VALUE}"' in text
 
 
-# --- n8n (nativo, sin flag) ---------------------------------------------------
+# --- n8n (native, no flag) ----------------------------------------------------
 
 
 def test_n8n_is_included_natively() -> None:
-    """No hay flag: n8n va con el resto del stack en cualquier instalación."""
+    """There is no flag: n8n ships with the rest of the stack on every install."""
     assert "n8n" in MANAGED_SERVICES
 
 
@@ -102,8 +102,8 @@ def test_n8n_is_rendered_with_a_pinned_image_and_its_volume() -> None:
 
 
 def test_n8n_is_announced_over_http_because_nothing_terminates_tls_for_it() -> None:
-    """n8n se publica en su propio puerto, sin pasar por nginx. Anunciarse
-    como https haría que generase URLs de webhook que no responden."""
+    """n8n is published on its own port, not behind nginx. Announcing itself
+    as https would make it generate webhook URLs that do not answer."""
     n8n = _load_yaml(s05.render_compose(make_config()))["services"]["n8n"]
 
     assert n8n["environment"]["N8N_PROTOCOL"] == "http"
@@ -111,14 +111,14 @@ def test_n8n_is_announced_over_http_because_nothing_terminates_tls_for_it() -> N
 
 
 def test_mattermost_is_allowed_to_reach_n8n() -> None:
-    """La protección SSRF de Mattermost descarta el webhook saliente en
-    silencio: no dispara y no aparece error en ningún log."""
+    """Mattermost's SSRF protection drops the outgoing webhook silently: it
+    does not fire and no error appears in any log."""
     assert "n8n:5678" in s05.SSRF_ENV_VALUE
     assert s05.SSRF_ENV_VALUE in s05.render_compose(make_config())
 
 
 def test_backup_covers_n8n() -> None:
-    """Sin esto, una restauración devolvería el chat entero y n8n vacío."""
+    """Without this, a restore would bring back the whole chat and leave n8n empty."""
     services = _load_yaml(s05.render_compose(make_config()))["services"]
     sources = {entry.split(":")[0] for entry in services["backup"]["volumes"]}
 
@@ -126,8 +126,8 @@ def test_backup_covers_n8n() -> None:
 
 
 def test_n8n_encryption_key_is_generated_once_and_then_preserved() -> None:
-    """Si esa clave cambia, las credenciales guardadas en n8n quedan
-    ilegibles para siempre y nada avisa hasta que un flujo falla."""
+    """If that key changes, the credentials stored in n8n become unreadable
+    forever and nothing warns you until a workflow fails."""
     first = render_env(make_config())
     prefix = "N8N_ENCRYPTION_KEY="
     key = next(line[len(prefix) :] for line in first.splitlines() if line.startswith(prefix))
@@ -145,7 +145,7 @@ def test_merge_regenerates_n8n() -> None:
     assert "n8n" in merged["services"]
 
 
-# --- servicio de copias de seguridad ----------------------------------------
+# --- the backup service -----------------------------------------------------
 
 
 def test_backup_service_archives_the_volumes_that_matter_read_only() -> None:
@@ -158,14 +158,14 @@ def test_backup_service_archives_the_volumes_that_matter_read_only() -> None:
         "mattermost_config",
         "wireguard_data",
     ):
-        assert volume in mounted, f"{volume} no se está copiando"
-        assert mounted[volume].endswith(":ro"), f"{volume} debe montarse de solo lectura"
+        assert volume in mounted, f"{volume} is not being backed up"
+        assert mounted[volume].endswith(":ro"), f"{volume} must be mounted read-only"
 
 
 def test_backup_service_excludes_the_model_and_the_logs() -> None:
-    """`ollama_data` son gigabytes que se vuelven a descargar y los logs no se
-    restauran: incluirlos multiplicaría el tamaño de cada copia a cambio de
-    nada."""
+    """`ollama_data` is gigabytes that can be re-pulled and logs are not
+    restorable: including them would multiply each backup's size for
+    nothing."""
     backup = _load_yaml(s05.render_compose(make_config()))["services"]["backup"]
     sources = {entry.split(":")[0] for entry in backup["volumes"]}
 
@@ -174,9 +174,9 @@ def test_backup_service_excludes_the_model_and_the_logs() -> None:
 
 
 def test_backup_stops_postgres_and_mattermost_with_a_matching_label() -> None:
-    """La etiqueta de los contenedores y el valor que busca el servicio tienen
-    que coincidir exactamente: si no, no se para nada y la copia de PostgreSQL
-    se hace en caliente sin un solo aviso."""
+    """The containers' label and the value the service looks for have to match
+    exactly: otherwise nothing is stopped and PostgreSQL is backed up live,
+    without a single warning."""
     services = _load_yaml(s05.render_compose(make_config()))["services"]
     expected = services["backup"]["environment"]["BACKUP_STOP_DURING_BACKUP_LABEL"]
 
@@ -185,8 +185,8 @@ def test_backup_stops_postgres_and_mattermost_with_a_matching_label() -> None:
 
 
 def test_backup_prunes_only_its_own_archives() -> None:
-    """Sin prefijo, el borrado por antigüedad alcanzaría a cualquier archivo
-    del destino."""
+    """Without a prefix, age-based pruning would reach any file in the
+    destination."""
     backup = _load_yaml(s05.render_compose(make_config()))["services"]["backup"]
     prefix = backup["environment"]["BACKUP_PRUNING_PREFIX"]
 
@@ -206,9 +206,9 @@ def test_env_keeps_a_customised_backup_schedule() -> None:
 
 
 def test_env_falls_back_to_defaults_when_the_previous_value_is_empty() -> None:
-    """Un valor vacío se interpolaría tal cual y dejaría al servicio sin
-    horario ni retención — a diferencia de los tokens, aquí el vacío no es un
-    valor válido."""
+    """An empty value would be interpolated as-is and leave the service with
+    no schedule and no retention — unlike the tokens, empty is not a valid
+    value here."""
     text = render_env(
         make_config(), preserved={"BACKUP_CRON_EXPRESSION": "", "BACKUP_RETENTION_DAYS": ""}
     )
@@ -217,8 +217,8 @@ def test_env_falls_back_to_defaults_when_the_previous_value_is_empty() -> None:
 
 
 def test_env_defaults_to_threaded_replies_on_a_fresh_install() -> None:
-    """Preserva el comportamiento que ya estaba desplegado antes de que este
-    ajuste existiera: no cambiar nada para quien no elige nada."""
+    """It preserves the behaviour already deployed before this setting
+    existed: change nothing for anyone who chooses nothing."""
     text = render_env(make_config())
     assert f"AI_REPLY_IN_THREAD={s05.DEFAULT_AI_REPLY_IN_THREAD}" in text
 
@@ -267,8 +267,8 @@ def test_render_compose_no_gpu_omits_deploy_reservation() -> None:
 
 
 def test_render_compose_rocm_swaps_the_image_and_passes_kernel_devices() -> None:
-    """Los dos a la vez o no sirve de nada: la imagen por defecto ignora
-    `/dev/kfd`, y la de ROCm sin los dispositivos no tiene qué usar."""
+    """Both together or neither is any use: the default image ignores
+    `/dev/kfd`, and the ROCm one without the devices has nothing to use."""
     data = _load_yaml(s05.render_compose(make_config(), gpu_acceleration="rocm"))
     ollama = data["services"]["ollama"]
 
@@ -279,24 +279,23 @@ def test_render_compose_rocm_swaps_the_image_and_passes_kernel_devices() -> None
 
 
 def test_render_compose_has_no_project_name_of_its_own() -> None:
-    """El nombre de proyecto vive en `.env` (`COMPOSE_PROJECT_NAME`), no en el
-    compose: fijarlo aquí como texto literal era lo que hacía que *toda*
-    instalación de axion-wizard en el mismo host Docker compartiera el mismo
-    proyecto — mismos contenedores, mismos volúmenes — sin importar la
-    carpeta. Ver `resolve_compose_project_name`."""
+    """The project name lives in `.env` (`COMPOSE_PROJECT_NAME`), not in the
+    compose file: pinning it here as a literal was what made *every*
+    axion-wizard install on the same Docker host share one project — same
+    containers, same volumes — regardless of the folder. See
+    `resolve_compose_project_name`."""
     data = _load_yaml(s05.render_compose(make_config()))
     assert "name" not in data
 
 
 # --- resolve_compose_project_name --------------------------------------------
 #
-# El bug real que esta función existe para evitar: sin un nombre único por
-# despliegue, dos instalaciones de axion-wizard en el mismo host Docker
-# comparten el mismo proyecto de Compose — mismos contenedores, mismos
-# volúmenes — y cada `install` sobrescribe la configuración de la otra en
-# silencio. Pasó de verdad: una segunda instalación generó una contraseña de
-# PostgreSQL distinta y dejó a Mattermost sin poder autenticarse contra un
-# volumen ya inicializado con la vieja.
+# The real bug this function exists to prevent: without a unique name per
+# deployment, two axion-wizard installs on the same Docker host share one
+# Compose project — same containers, same volumes — and each `install`
+# silently overwrites the other's configuration. It really happened: a second
+# install generated a different PostgreSQL password and left Mattermost unable
+# to authenticate against a volume already initialised with the old one.
 
 
 def test_project_name_is_stable_across_renders_of_the_same_deployment(tmp_path: Path) -> None:
@@ -306,8 +305,8 @@ def test_project_name_is_stable_across_renders_of_the_same_deployment(tmp_path: 
 
 
 def test_two_fresh_deployments_never_get_the_same_project_name(tmp_path: Path) -> None:
-    """Es la propiedad que de verdad importa: sin ella, cualquier segunda
-    instalación reutiliza los contenedores y volúmenes de la primera."""
+    """This is the property that actually matters: without it, any second
+    install reuses the first one's containers and volumes."""
     a = tmp_path / "a"
     b = tmp_path / "b"
     a.mkdir()
@@ -323,11 +322,11 @@ def test_project_name_reads_from_existing_env_first(tmp_path: Path) -> None:
 def test_project_name_migrates_the_legacy_literal_name_from_an_old_compose(
     tmp_path: Path,
 ) -> None:
-    """Versiones del wizard anteriores a este fix escribían `name: axion`
-    literal, igual para todo el mundo, en `docker-compose.yml`. Sin migrar
-    ese valor a `.env`, el primer `install` tras actualizar generaría un
-    nombre nuevo y perdería el acceso a los contenedores/volúmenes que ya
-    existían bajo el nombre viejo."""
+    """Wizard versions before this fix wrote a literal `name: axion`, the same
+    for everybody, into `docker-compose.yml`. Without migrating that value into
+    `.env`, the first `install` after upgrading would generate a new name and
+    lose access to the containers and volumes that already existed under the
+    old one."""
     (tmp_path / "docker-compose.yml").write_text(
         "name: axion\nservices:\n  postgres:\n    image: postgres:15\n", encoding="utf-8"
     )
@@ -366,11 +365,11 @@ def test_render_env_contains_expected_values() -> None:
 
 
 def test_render_env_has_an_empty_webhook_token_placeholder() -> None:
-    """Mattermost genera este token al crear el webhook saliente, después
-    del despliegue — el wizard no puede rellenarlo de antemano. Debe existir
-    la clave (vacía) para que quien la lea sepa que se puede rellenar, y
-    para que `${MM_WEBHOOK_TOKEN:-}` en el compose no dependa de que la
-    clave falte por completo en vez de estar vacía."""
+    """Mattermost generates this token when the outgoing webhook is created,
+    after deployment — the wizard cannot fill it in beforehand. The key has to
+    exist (empty) so anyone reading it knows it can be filled in, and so that
+    `${MM_WEBHOOK_TOKEN:-}` in the compose file does not depend on the key
+    being absent entirely rather than empty."""
     text = render_env(make_config())
     assert "MM_WEBHOOK_TOKEN=" in text
 
@@ -386,24 +385,23 @@ def test_render_wg_env_contains_init_credentials_and_host() -> None:
     assert "INIT_HOST=axion.example.com" in text
     assert "INIT_USERNAME=admin" in text
     assert f"INIT_PASSWORD={config.wireguard_admin_password.get_secret_value()}" in text
-    # Sin `INIT_ENABLED` el resto de las INIT_* no se aplica y el panel
-    # arranca en su asistente web esperando a que alguien lo rellene.
+    # Without `INIT_ENABLED` the rest of the INIT_* variables do not apply
+    # and the panel comes up in its web wizard waiting to be filled in.
     assert "INIT_ENABLED=true" in text
 
 
 def test_render_wg_env_allows_plain_http() -> None:
-    """Sin `INSECURE=true`, wg-easy v15 se niega a servir por HTTP y el panel
-    no responde en absoluto — y su URL se construye siempre con http://."""
+    """Without `INSECURE=true`, wg-easy v15 refuses to serve over HTTP and the
+    panel does not answer at all — and its URL is always built with http://."""
     assert "INSECURE=true" in s05.render_wg_env(make_config())
 
 
 def test_render_wg_env_no_longer_writes_v14_keys() -> None:
-    """`WG_HOST` y `PASSWORD_HASH` son de la v14, que la v15 ignora en
-    silencio. Dejarlos asignados haría creer que configuran algo.
+    """`WG_HOST` and `PASSWORD_HASH` belong to v14, which v15 ignores
+    silently. Leaving them assigned would suggest they configure something.
 
-    Se miran solo las líneas de asignación: los comentarios de la plantilla
-    sí nombran las dos claves, precisamente para explicar por qué ya no
-    están.
+    Only assignment lines are inspected: the template's comments do name both
+    keys, precisely to explain why they are no longer there.
     """
     assignments = [
         line for line in s05.render_wg_env(make_config()).splitlines()
@@ -422,9 +420,9 @@ def test_render_nginx_conf_uses_host_as_server_name() -> None:
 
 
 def test_render_nginx_conf_only_upgrades_actual_websocket_requests() -> None:
-    """`Connection: upgrade` fijo para toda petición (no solo la que de
-    verdad pide WebSocket) le impedía a nginx reusar keepalive con el
-    backend en peticiones HTTP normales."""
+    """A `Connection: upgrade` pinned for every request (not just the one
+    genuinely asking for a WebSocket) stopped nginx reusing keepalive with the
+    backend on ordinary HTTP requests."""
     text = s05.render_nginx_conf(make_config())
     assert "map $http_upgrade $connection_upgrade" in text
     assert "proxy_set_header Connection $connection_upgrade;" in text
@@ -438,25 +436,25 @@ def test_render_nginx_conf_sets_symmetric_websocket_timeouts() -> None:
 
 
 def test_render_nginx_conf_re_resolves_the_backend_on_every_request() -> None:
-    """Con el nombre escrito literalmente en `proxy_pass`, nginx se queda con
-    la primera IP que resolvió: cuando el servicio de copias para y rearranca
-    Mattermost de madrugada, Docker le da otra y el stack entero amanece en
-    502 sin que ningún healthcheck lo note."""
+    """With the name written literally in `proxy_pass`, nginx keeps the first
+    IP it resolved: when the backup service stops and restarts Mattermost
+    overnight, Docker gives it a different one and the whole stack is on 502 by
+    morning without any healthcheck noticing."""
     text = s05.render_nginx_conf(make_config())
 
-    # El DNS interno de Docker; sin `resolver` nginx ni siquiera arranca con
-    # una variable en proxy_pass.
+    # Docker's internal DNS; without `resolver`, nginx will not even start
+    # with a variable in proxy_pass.
     assert "resolver 127.0.0.11" in text
     assert "set $mattermost_backend http://mattermost:8065;" in text
-    # La variable es lo que fuerza la re-resolución...
+    # The variable is what forces re-resolution…
     assert "proxy_pass $mattermost_backend$request_uri;" in text
-    # ...y `$request_uri` lo que evita perder la ruta por el camino.
+    # …and `$request_uri` is what stops the path being lost along the way.
     assert "proxy_pass http://mattermost" not in text
 
 
 def test_render_nginx_conf_has_no_static_upstream_block() -> None:
-    """Un bloque `upstream` con un nombre dentro resuelve una sola vez, al
-    cargar la configuración: es justo lo que había que quitar."""
+    """An `upstream` block with a name inside resolves exactly once, at
+    configuration load: that is precisely what had to go."""
     assert "upstream mattermost_backend" not in s05.render_nginx_conf(make_config())
 
 
@@ -497,13 +495,13 @@ def test_assert_no_unpinned_images_accepts_rendered_output() -> None:
 
 @functools.cache
 def _docker_compose_is_usable() -> bool:
-    """`True` solo si `docker compose` responde de verdad.
+    """`True` only if `docker compose` genuinely answers.
 
-    No basta con `shutil.which("docker")`, que es lo que había antes: en una
-    distro de WSL sin la integración de Docker Desktop activada existe un
-    shim `docker` en el PATH que siempre falla con "The command 'docker'
-    could not be found in this WSL 2 distro". El test se ejecutaba igual y
-    fallaba por el entorno, culpando al compose generado.
+    `shutil.which("docker")` is not enough, which is what was there before: in
+    a WSL distro without Docker Desktop's integration enabled there is a
+    `docker` shim on the PATH that always fails with "The command 'docker'
+    could not be found in this WSL 2 distro". The test ran anyway and failed
+    because of the environment, blaming the generated compose file.
     """
     if shutil.which("docker") is None:
         return False
@@ -521,13 +519,13 @@ def _docker_compose_is_usable() -> bool:
 
 @pytest.mark.skipif(
     not _docker_compose_is_usable(),
-    reason="`docker compose` no está disponible o no responde en esta máquina",
+    reason="`docker compose` is unavailable or does not answer on this machine",
 )
 @pytest.mark.parametrize("variant", [WireguardVariant.HOST, WireguardVariant.PORTS])
 def test_render_compose_passes_real_docker_compose_config(tmp_path: Path, variant) -> None:
-    """La validación de forma no ve los errores de sangría: un bloque mal
-    cerrado puede sacar un servicio fuera de `services:` y seguir siendo YAML
-    perfectamente válido. Solo Compose lo detecta."""
+    """Shape validation cannot see indentation errors: a badly closed block
+    can push a service out of `services:` and still be perfectly valid YAML.
+    Only Compose catches it."""
     config = make_config(wireguard_variant=variant)
     compose_path = tmp_path / "docker-compose.yml"
     compose_path.write_text(s05.render_compose(config), encoding="utf-8")
@@ -538,10 +536,10 @@ def test_render_compose_passes_real_docker_compose_config(tmp_path: Path, varian
     (tmp_path / "fastapi" / "Dockerfile").write_text("FROM python:3.12-slim\n")
     (tmp_path / "wg.env").write_text("WG_HOST=x\n")
 
-    compose_service.config_validate(compose_path)  # no debe lanzar
+    compose_service.config_validate(compose_path)  # must not raise
 
 
-# --- backup / merge sobre compose ya existente ------------------------------
+# --- backup / merge onto an already existing compose file -------------------
 
 
 def test_backup_existing_file_returns_none_when_absent(tmp_path: Path) -> None:
@@ -561,9 +559,9 @@ def test_backup_existing_file_copies_content_with_timestamp_suffix(tmp_path: Pat
 def test_backup_existing_file_does_not_clobber_a_backup_from_the_same_second(
     tmp_path: Path,
 ) -> None:
-    """Regresión: el timestamp tiene resolución de segundo, así que dos
-    backups seguidos colisionaban y el segundo pisaba al primero — la copia
-    que este mecanismo existe justamente para conservar."""
+    """Regression: the timestamp has one-second resolution, so two backups in
+    a row collided and the second overwrote the first — the very copy this
+    mechanism exists to keep."""
     target = tmp_path / "docker-compose.yml"
 
     target.write_text("version: ONE\n")
@@ -572,7 +570,7 @@ def test_backup_existing_file_does_not_clobber_a_backup_from_the_same_second(
     second = s05.backup_existing_file(target)
 
     assert first is not None and second is not None
-    assert first != second, "el segundo backup reutilizó el nombre del primero"
+    assert first != second, "the second backup reused the first one's name"
     assert first.read_text() == "version: ONE\n"
     assert second.read_text() == "version: TWO\n"
 
@@ -595,7 +593,7 @@ def test_merge_compose_preserves_user_added_service() -> None:
     existing = (
         "services:\n"
         "  postgres:\n"
-        "    image: postgres:13-alpine  # versión vieja del usuario\n"
+        "    image: postgres:13-alpine  # the user's old version\n"
         "  custom-tool:\n"
         "    image: myorg/custom-tool:1.0\n"
     )
@@ -607,19 +605,19 @@ def test_merge_compose_preserves_user_added_service() -> None:
 
 
 def test_merge_compose_does_not_touch_a_legacy_name_key() -> None:
-    """El merge ya no gestiona `name` — vive en `.env`. Un `docker-compose.yml`
-    de una versión anterior que lo traía como literal lo conserva intacto:
-    inofensivo (`COMPOSE_PROJECT_NAME` en `.env` manda sobre el `name:` del
-    propio compose), y es justo lo que permite migrarlo en el primer render
-    (ver `resolve_compose_project_name`)."""
+    """The merge no longer manages `name` — it lives in `.env`. A
+    `docker-compose.yml` from an earlier version that carried it as a literal
+    keeps it intact: harmless (`COMPOSE_PROJECT_NAME` in `.env` overrides the
+    compose file's own `name:`), and it is exactly what allows migrating it on
+    the first render (see `resolve_compose_project_name`)."""
     existing = "name: axion\nservices:\n  postgres:\n    image: postgres:13-alpine\n"
     merged = s05.merge_compose_preserving_user_edits(existing, s05.render_compose(make_config()))
     assert _load_yaml(merged)["name"] == "axion"
 
 
 def test_merge_compose_rejects_non_mapping_root_with_actionable_error() -> None:
-    """Regresión: un compose cuya raíz no es un mapping hacía reventar el
-    merge con un `TypeError` crudo en vez de un error accionable."""
+    """Regression: a compose file whose root is not a mapping blew the merge up
+    with a raw `TypeError` instead of an actionable error."""
     rendered = s05.render_compose(make_config())
     with pytest.raises(ConfigError, match="no mapping at its root"):
         s05.merge_compose_preserving_user_edits("- just\n- a\n- list\n", rendered)
@@ -654,10 +652,10 @@ def test_merge_compose_handles_services_key_of_wrong_type() -> None:
 
 
 def test_merge_compose_preserves_comments() -> None:
-    existing = "# comentario importante del usuario\nservices:\n  postgres:\n    image: old\n"
+    existing = "# an important comment from the user\nservices:\n  postgres:\n    image: old\n"
     rendered = s05.render_compose(make_config())
     merged = s05.merge_compose_preserving_user_edits(existing, rendered)
-    assert "# comentario importante del usuario" in merged
+    assert "# an important comment from the user" in merged
 
 
 def test_render_compose_to_disk_writes_new_file_without_backup(tmp_path: Path) -> None:
@@ -782,14 +780,14 @@ def test_ensure_gitignore_entries_appends_only_missing(tmp_path: Path) -> None:
     assert "wg.env" in lines
 
 
-# --- limpieza de Zone.Identifier ----------------------------------------------
+# --- Zone.Identifier cleanup --------------------------------------------------
 
 
 @pytest.mark.skipif(
     sys.platform == "win32",
-    reason="En NTFS 'archivo:Zone.Identifier' es un alternate data stream, no un "
-    "archivo listable — el caso real solo se da en WSL/Linux, donde ':' es un "
-    "carácter de nombre de archivo literal.",
+    reason="On NTFS 'file:Zone.Identifier' is an alternate data stream, not a "
+    "listable file — the real case only happens on WSL/Linux, where ':' is a "
+    "literal filename character.",
 )
 def test_clean_zone_identifier_files_removes_matches(tmp_path: Path) -> None:
     zone_file = tmp_path / "docker-compose.yml:Zone.Identifier"
@@ -813,21 +811,21 @@ def test_clean_zone_identifier_files_empty_when_none_present(tmp_path: Path) -> 
 def test_clean_zone_identifier_files_survives_an_unremovable_file(
     tmp_path: Path, mocker
 ) -> None:
-    """Regresión: el `OSError` de un archivo bloqueado subía sin capturar y
-    tumbaba el paso 5 entero —el que escribe compose, .env y el certificado—
-    saliendo como `Error inesperado`. Es basura cosmética: se informa y se
-    sigue.
+    """Regression: the `OSError` from a locked file escaped uncaught and took
+    down the whole of step 5 — the one that writes the compose file, .env and
+    the certificate — surfacing as `Unexpected error`. It is cosmetic litter:
+    it is reported and the step carries on.
 
-    Se simula el recorrido en vez de crear el archivo porque en NTFS
-    `a.txt:Zone.Identifier` es un alternate data stream y no aparece como
-    archivo listable; lo que se prueba aquí es el manejo del error, que no
-    depende del sistema de archivos.
+    The walk is simulated rather than creating the file because on NTFS
+    `a.txt:Zone.Identifier` is an alternate data stream and does not show up as
+    a listable file; what is under test here is the error handling, which does
+    not depend on the filesystem.
     """
     mocker.patch(
         "axion_wizard.steps.s05_compose.os.walk",
         return_value=[(str(tmp_path), [], ["a.txt:Zone.Identifier"])],
     )
-    mocker.patch.object(Path, "unlink", side_effect=OSError("en uso por otro proceso"))
+    mocker.patch.object(Path, "unlink", side_effect=OSError("in use by another process"))
 
     removed, failed = s05.clean_zone_identifier_files(tmp_path)
 
@@ -838,9 +836,9 @@ def test_clean_zone_identifier_files_survives_an_unremovable_file(
 def test_clean_zone_identifier_does_not_descend_into_heavy_directories(
     tmp_path: Path, mocker
 ) -> None:
-    """`.venv` y `.git` tienen decenas de miles de archivos y no pueden
-    contener un Zone.Identifier que importe: recorrerlos convertía una
-    limpieza instantánea en una pausa de segundos."""
+    """`.venv` and `.git` hold tens of thousands of files and cannot contain a
+    Zone.Identifier that matters: walking them turned an instant cleanup into a
+    pause of several seconds."""
     walked_dirnames: list[str] = ["fastapi", ".venv", ".git", "node_modules", "nginx"]
     mocker.patch(
         "axion_wizard.steps.s05_compose.os.walk",
@@ -849,16 +847,16 @@ def test_clean_zone_identifier_does_not_descend_into_heavy_directories(
 
     s05.clean_zone_identifier_files(tmp_path)
 
-    # `os.walk` respeta la poda in-place de `dirnames`.
+    # `os.walk` honours pruning `dirnames` in place.
     assert walked_dirnames == ["fastapi", "nginx"]
 
 
-# --- valores que sobreviven a un segundo `install` ------------------------------
+# --- values that survive a second `install` -------------------------------------
 #
-# Regresión de una pérdida de datos silenciosa: `.env` se regeneraba entero en
-# cada corrida, así que un segundo `install` —para cambiar el modelo, por
-# ejemplo— borraba el token del webhook. fastapi volvía a aceptar cualquier
-# llamada sin validarla, sin error, sin aviso y sin nada en los logs.
+# Regression from a silent data loss: `.env` was regenerated in full on every
+# run, so a second `install` — to change the model, say — wiped the webhook
+# token. fastapi went back to accepting any call without validating it, with no
+# error, no warning and nothing in the logs.
 
 
 def test_render_env_preserves_the_webhook_token() -> None:
@@ -868,9 +866,9 @@ def test_render_env_preserves_the_webhook_token() -> None:
 
 def test_render_env_preserves_the_system_prompt() -> None:
     text = render_env(
-        make_config(), preserved={"OLLAMA_SYSTEM_PROMPT": "Responde siempre en español."}
+        make_config(), preserved={"OLLAMA_SYSTEM_PROMPT": "Always answer in English."}
     )
-    assert "OLLAMA_SYSTEM_PROMPT=Responde siempre en español." in text
+    assert "OLLAMA_SYSTEM_PROMPT=Always answer in English." in text
 
 
 def test_render_env_defaults_to_empty_when_nothing_to_preserve() -> None:
@@ -881,12 +879,12 @@ def test_render_env_defaults_to_empty_when_nothing_to_preserve() -> None:
 
 def test_preserved_env_values_reads_the_existing_file(tmp_path: Path) -> None:
     (tmp_path / ".env").write_text(
-        "POSTGRES_PASSWORD=abc\nMM_WEBHOOK_TOKEN=tok3n\nOLLAMA_SYSTEM_PROMPT=se breve\n",
+        "POSTGRES_PASSWORD=abc\nMM_WEBHOOK_TOKEN=tok3n\nOLLAMA_SYSTEM_PROMPT=be brief\n",
         encoding="utf-8",
     )
     preserved = s05.preserved_env_values(tmp_path)
     assert preserved["MM_WEBHOOK_TOKEN"] == "tok3n"
-    assert preserved["OLLAMA_SYSTEM_PROMPT"] == "se breve"
+    assert preserved["OLLAMA_SYSTEM_PROMPT"] == "be brief"
 
 
 def test_preserved_env_values_empty_without_a_previous_env(tmp_path: Path) -> None:
@@ -894,28 +892,28 @@ def test_preserved_env_values_empty_without_a_previous_env(tmp_path: Path) -> No
 
 
 def test_a_second_render_round_trip_keeps_the_token(tmp_path: Path) -> None:
-    """El ciclo completo: `set-webhook-token` escribe, `install` regenera."""
+    """The full cycle: `set-webhook-token` writes, `install` regenerates."""
     env_path = tmp_path / ".env"
     s05.write_secret_env_file(env_path, render_env(make_config()))
-    s05.update_env_value(env_path, "MM_WEBHOOK_TOKEN", "token-de-ejemplo-no-real-000")
+    s05.update_env_value(env_path, "MM_WEBHOOK_TOKEN", "example-token-not-real-000")
 
     preserved = s05.preserved_env_values(tmp_path)
     s05.write_secret_env_file(env_path, render_env(make_config(), preserved=preserved))
 
-    assert "MM_WEBHOOK_TOKEN=token-de-ejemplo-no-real-000" in env_path.read_text(encoding="utf-8")
+    assert "MM_WEBHOOK_TOKEN=example-token-not-real-000" in env_path.read_text(encoding="utf-8")
 
 
 def test_write_secret_env_file_backs_up_the_previous_version(tmp_path: Path) -> None:
-    """`.env` y `wg.env` llevan secretos y se regeneran enteros; eran los
-    únicos archivos gestionados sin copia de seguridad."""
+    """`.env` and `wg.env` carry secrets and are regenerated whole; they were
+    the only managed files without a backup."""
     env_path = tmp_path / ".env"
-    env_path.write_text("POSTGRES_PASSWORD=viejo\n", encoding="utf-8")
+    env_path.write_text("POSTGRES_PASSWORD=old\n", encoding="utf-8")
 
-    backup = s05.write_secret_env_file(env_path, "POSTGRES_PASSWORD=nuevo\n", backup=True)
+    backup = s05.write_secret_env_file(env_path, "POSTGRES_PASSWORD=new\n", backup=True)
 
     assert backup is not None
-    assert backup.read_text(encoding="utf-8") == "POSTGRES_PASSWORD=viejo\n"
-    assert env_path.read_text(encoding="utf-8") == "POSTGRES_PASSWORD=nuevo\n"
+    assert backup.read_text(encoding="utf-8") == "POSTGRES_PASSWORD=old\n"
+    assert env_path.read_text(encoding="utf-8") == "POSTGRES_PASSWORD=new\n"
 
 
 def test_write_secret_env_file_without_a_previous_version_has_no_backup(tmp_path: Path) -> None:
@@ -923,40 +921,40 @@ def test_write_secret_env_file_without_a_previous_version_has_no_backup(tmp_path
 
 
 def test_existing_env_value_survives_a_file_it_cannot_decode(tmp_path: Path) -> None:
-    """`OLLAMA_SYSTEM_PROMPT` invita a editar el `.env` a mano, y un editor de
-    Windows guardando en ANSI produce bytes que no son UTF-8. Perder ese valor
-    es malo; abortar la instalación entera por ello, peor."""
-    (tmp_path / ".env").write_bytes(b"OLLAMA_SYSTEM_PROMPT=responde en espa\xf1ol\n")
+    """`OLLAMA_SYSTEM_PROMPT` invites editing `.env` by hand, and a Windows
+    editor saving in ANSI produces bytes that are not UTF-8. Losing that value is
+    bad; aborting the whole install over it is worse."""
+    (tmp_path / ".env").write_bytes(b"OLLAMA_SYSTEM_PROMPT=answer in espa\xf1ol\n")
     assert s05.existing_env_value(tmp_path, "OLLAMA_SYSTEM_PROMPT") is None
     assert s05.preserved_env_values(tmp_path) == dict.fromkeys(s05.PRESERVED_ENV_KEYS, "")
 
 
-# --- la contraseña del panel debe sobrevivir a la interpolación de Compose --------
+# --- the panel password must survive Compose interpolation ------------------------
 #
-# Regresión de un fallo mudo y confirmado en vivo con wg-easy v14: `wg.env`
-# contenía `PASSWORD_HASH=$2b$12$GktCd...` y al contenedor le llegaba
-# `$2b$12.96FL219a`. Docker Compose SÍ interpola los valores de `env_file:`
-# —al contrario de lo que afirmaba el comentario de la plantilla— y se comía
-# `$GktCd...` como variable indefinida. El panel arrancaba sano y rechazaba
-# cualquier contraseña, sin escribir nada en sus logs.
+# Regression from a mute failure, confirmed live against wg-easy v14: `wg.env`
+# held `PASSWORD_HASH=$2b$12$GktCd...` and what reached the container was
+# `$2b$12.96FL219a`. Docker Compose DOES interpolate the values in `env_file:`
+# — contrary to what the template's comment claimed — and ate `$GktCd...` as an
+# undefined variable. The panel came up healthy and rejected every password,
+# writing nothing at all to its logs.
 #
-# La v15 recibe la contraseña en claro, así que el hash y su escape
-# desaparecieron. El peligro no: cualquier `$` en la contraseña volvería a
-# ser interpolado igual. Lo que lo evita ahora es que `$` esté prohibido en
-# ella, y eso es lo que sostienen estos tests.
+# v15 takes the password in plaintext, so the hash and its escaping are gone.
+# The hazard is not: any `$` in the password would be interpolated just the
+# same. What prevents it now is that `$` is forbidden in it, and that is what
+# these tests hold up.
 
 
 def test_the_panel_password_cannot_contain_an_interpolable_dollar() -> None:
     with pytest.raises(ValueError, match=r"\$"):
-        make_config(wireguard_admin_password="tiene$dolar-y-es-bastante-larga")
+        make_config(wireguard_admin_password="has$a-dollar-and-is-long-enough")
 
 
 def test_wg_env_password_survives_a_compose_interpolation_round_trip() -> None:
-    """Lo que Compose entregaría al contenedor es exactamente lo escrito.
+    """What Compose would hand the container is exactly what was written.
 
-    Sin `$` no hay nada que expandir, que es justo la propiedad que la
-    validación de la contraseña garantiza — de ahí que ya no haga falta
-    escapar nada en la plantilla.
+    With no `$` there is nothing to expand, which is precisely the property the
+    password validation guarantees — hence nothing needs escaping in the
+    template any more.
     """
     config = make_config()
     raw = config.wireguard_admin_password.get_secret_value()

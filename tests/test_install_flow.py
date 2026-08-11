@@ -1,4 +1,4 @@
-"""Tests del flujo de instalación completo (§4) y de su reanudación."""
+"""Tests for the complete install flow (§4) and for resuming it."""
 
 from pathlib import Path
 
@@ -33,7 +33,7 @@ def _config(tmp_path: Path, **overrides) -> AxionConfig:
 
 
 class _FakeStep(Step):
-    """Paso de mentira que registra lo que le llaman."""
+    """A fake step that records what gets called on it."""
 
     def __init__(
         self, state, context, name, *, ok=True, raises=None, still_valid=True, revalidate=True
@@ -43,8 +43,8 @@ class _FakeStep(Step):
         self.title = name
         self.ok = ok
         self.raises = raises
-        #: Qué contesta `verify()` al revalidar una reanudación: es lo que
-        #: distingue "el paso sigue aplicado" de "esto ya no existe".
+        #: What `verify()` answers when revalidating a resume: it is what
+        #: separates "the step still holds" from "this no longer exists".
         self.still_valid = still_valid
         self.revalidate_on_resume = revalidate
         self.calls: list[str] = []
@@ -53,21 +53,21 @@ class _FakeStep(Step):
         self.calls.append("run")
         if self.raises is not None:
             raise self.raises
-        return StepResult(name=self.name, ok=self.ok, message=f"{self.name} hecho")
+        return StepResult(name=self.name, ok=self.ok, message=f"{self.name} done")
 
     def verify(self) -> StepResult:
         self.calls.append("verify")
         return StepResult(
             name=self.name,
             ok=self.ok and self.still_valid,
-            message="" if self.still_valid else "ya no está aplicado",
+            message="" if self.still_valid else "no longer applied",
         )
 
     def restore(self) -> None:
         self.calls.append("restore")
 
 
-# --- orden y persistencia -------------------------------------------------------------
+# --- order and persistence ------------------------------------------------------------
 
 
 def test_runs_every_step_in_order_and_persists_progress(tmp_path: Path) -> None:
@@ -84,7 +84,7 @@ def test_runs_every_step_in_order_and_persists_progress(tmp_path: Path) -> None:
 
 
 def test_stops_at_the_first_failing_step(tmp_path: Path) -> None:
-    """Seguir tras un paso fallido dejaría el stack a medias sin avisar."""
+    """Carrying on after a failed step would leave the stack half-built without warning."""
     state = _state(tmp_path)
     context = InstallContext(project_dir=tmp_path)
     steps = [
@@ -94,12 +94,12 @@ def test_stops_at_the_first_failing_step(tmp_path: Path) -> None:
     ]
 
     assert orchestrator.run_steps(state, context, steps) is False
-    assert steps[2].calls == [], "el paso posterior al fallo no debe ejecutarse"
+    assert steps[2].calls == [], "the step after the failure must not run"
     assert state_store.load_state(tmp_path).is_complete("dos") is False
 
 
 def test_the_last_step_may_fail_without_aborting(tmp_path: Path) -> None:
-    """El paso 9 solo informa: su tabla ya se imprimió y no hay nada después."""
+    """Step 9 only reports: its table has already printed and nothing follows."""
     state = _state(tmp_path)
     context = InstallContext(project_dir=tmp_path)
     steps = [_FakeStep(state, context, "uno"), _FakeStep(state, context, "verify", ok=False)]
@@ -111,7 +111,7 @@ def test_the_last_step_may_fail_without_aborting(tmp_path: Path) -> None:
 def test_an_axion_error_is_recorded_and_reraised(tmp_path: Path) -> None:
     state = _state(tmp_path)
     context = InstallContext(project_dir=tmp_path)
-    boom = PlatformError(what="sin Docker", why="hace falta", steps=["instalarlo"])
+    boom = PlatformError(what="no Docker", why="it is required", steps=["install it"])
     steps = [_FakeStep(state, context, "uno", raises=boom)]
 
     with pytest.raises(PlatformError):
@@ -121,14 +121,15 @@ def test_an_axion_error_is_recorded_and_reraised(tmp_path: Path) -> None:
     assert persisted.is_complete("uno") is False
 
 
-# --- reanudación -----------------------------------------------------------------------
+# --- resuming --------------------------------------------------------------------------
 
 
 def test_completed_steps_are_restored_not_rerun(tmp_path: Path) -> None:
-    """Al reanudar, un paso ya hecho repuebla el contexto con `restore()` en
-    vez de volver a preguntar: el estado persistido no guarda sus valores."""
+    """On resume, an already-done step repopulates the context with
+    `restore()` rather than asking again: the persisted state holds none of
+    its values."""
     previous = state_store.WizardState()
-    previous.mark_complete("uno", "hecho antes")
+    previous.mark_complete("uno", "done earlier")
     state_store.save_state(tmp_path, previous)
 
     state = _state(tmp_path)
@@ -136,25 +137,25 @@ def test_completed_steps_are_restored_not_rerun(tmp_path: Path) -> None:
     steps = [_FakeStep(state, context, "uno"), _FakeStep(state, context, "dos")]
 
     assert orchestrator.run_steps(state, context, steps) is True
-    # `restore` repuebla el contexto y `verify` confirma que el paso sigue
-    # aplicado; lo que no puede aparecer es `run`.
+    # `restore` repopulates the context and `verify` confirms the step still
+    # holds; what must not appear is `run`.
     assert steps[0].calls == ["restore", "verify"]
-    assert "run" not in steps[0].calls, "no debe re-ejecutarse"
+    assert "run" not in steps[0].calls, "it must not run again"
     assert steps[1].calls == ["run"]
 
 
-# --- reanudación que no se cree el archivo de estado -------------------------------
+# --- resuming without trusting the state file --------------------------------------
 #
-# Regresión de un caso real: el estado decía "deploy: 6 servicios operativos"
-# después de que el usuario desinstalara Docker. `install` se saltaba el
-# despliegue —"ya se hizo"— y aterrizaba en el paso 9 a fallar las siete
-# comprobaciones, sin ninguna pista de que el problema estaba siete pasos
-# antes. El archivo cuenta lo que pasó la última vez, no lo que hay ahora.
+# Regression from a real case: the state said "deploy: 6 services operational"
+# after the user uninstalled Docker. `install` skipped the deployment — "it was
+# already done" — and landed on step 9 to fail all seven checks, with no hint
+# that the problem was seven steps earlier. The file says what happened last
+# time, not what is true now.
 
 
 def test_a_completed_step_that_is_no_longer_valid_is_redone(tmp_path: Path) -> None:
     previous = state_store.WizardState()
-    previous.mark_complete("uno", "hecho antes")
+    previous.mark_complete("uno", "done earlier")
     state_store.save_state(tmp_path, previous)
 
     state = _state(tmp_path)
@@ -166,12 +167,12 @@ def test_a_completed_step_that_is_no_longer_valid_is_redone(tmp_path: Path) -> N
 
 
 def test_invalidating_a_step_also_discards_everything_after_it(tmp_path: Path) -> None:
-    """Lo que venía detrás se construyó sobre el paso caído, así que deja de
-    contar también — si no, se rehace el despliegue y se sigue confiando en
-    una verificación que se hizo contra el stack anterior."""
+    """Whatever came after was built on top of the fallen step, so it stops
+    counting too — otherwise the deployment is redone while a verification made
+    against the previous stack is still trusted."""
     previous = state_store.WizardState()
     for name in ("uno", "dos", "tres"):
-        previous.mark_complete(name, "hecho antes")
+        previous.mark_complete(name, "done earlier")
     state_store.save_state(tmp_path, previous)
 
     state = _state(tmp_path)
@@ -183,17 +184,17 @@ def test_invalidating_a_step_also_discards_everything_after_it(tmp_path: Path) -
     ]
 
     assert orchestrator.run_steps(state, context, steps) is True
-    assert "run" not in steps[0].calls, "el paso anterior al caído sigue valiendo"
+    assert "run" not in steps[0].calls, "the step before the fallen one still holds"
     assert steps[1].calls == ["restore", "verify", "run"]
-    assert steps[2].calls == ["run"], "el posterior se rehace, no se da por bueno"
+    assert steps[2].calls == ["run"], "the later one is redone, not taken on trust"
 
 
 def test_steps_that_opt_out_are_not_revalidated(tmp_path: Path) -> None:
-    """`WireguardStep` espera 30s a que responda el panel y `VerifyStep`
-    ejecuta las nueve comprobaciones: revalidarlos costaría caro y no
-    protege a nadie, porque son los dos últimos."""
+    """`WireguardStep` waits 30s for the panel to answer and `VerifyStep` runs
+    all nine checks: revalidating them would cost dearly and protect nobody,
+    because they are the last two."""
     previous = state_store.WizardState()
-    previous.mark_complete("uno", "hecho antes")
+    previous.mark_complete("uno", "done earlier")
     state_store.save_state(tmp_path, previous)
 
     state = _state(tmp_path)
@@ -205,8 +206,8 @@ def test_steps_that_opt_out_are_not_revalidated(tmp_path: Path) -> None:
 
 
 def test_the_real_steps_that_opt_out_are_the_last_two() -> None:
-    """Ancla explícita: si alguien desactiva la revalidación en un paso del
-    que sí dependen los siguientes, vuelve el bug original."""
+    """An explicit anchor: if anyone turns revalidation off on a step the
+    later ones do depend on, the original bug comes back."""
     from axion_wizard.steps.s01_environment import EnvironmentStep
     from axion_wizard.steps.s05_compose import ComposeStep
     from axion_wizard.steps.s06_deploy import DeployStep
@@ -221,10 +222,10 @@ def test_the_real_steps_that_opt_out_are_the_last_two() -> None:
 
 
 def test_a_step_that_cannot_be_restored_is_marked_for_rerun(tmp_path: Path) -> None:
-    """Si los artefactos ya no están, seguir con un contexto a medias
-    reventaría más adelante y más lejos de la causa."""
+    """If the artifacts are gone, carrying on with a half-built context would
+    blow up later and further from the cause."""
     previous = state_store.WizardState()
-    previous.mark_complete("config", "hecho antes")
+    previous.mark_complete("config", "done earlier")
     state_store.save_state(tmp_path, previous)
 
     state = _state(tmp_path)
@@ -243,12 +244,12 @@ def test_a_step_that_cannot_be_restored_is_marked_for_rerun(tmp_path: Path) -> N
 def test_a_step_that_cannot_be_restored_also_invalidates_the_later_ones(
     tmp_path: Path,
 ) -> None:
-    """Mismo motivo que al invalidar por `verify()`: lo que venía detrás se
-    construyó sobre este paso. Sin esto, la siguiente ejecución rehacía solo
-    este y volvía a dar por buenos los demás."""
+    """The same reason as invalidating via `verify()`: whatever came after was
+    built on top of this step. Without this, the next run redid only this one
+    and went on trusting the rest."""
     previous = state_store.WizardState()
     for name in ("config", "compose", "deploy"):
-        previous.mark_complete(name, "hecho antes")
+        previous.mark_complete(name, "done earlier")
     state_store.save_state(tmp_path, previous)
 
     state = _state(tmp_path)
@@ -275,8 +276,8 @@ def test_a_step_that_cannot_be_restored_also_invalidates_the_later_ones(
 
 
 def test_dry_run_does_not_write_the_state_file(tmp_path: Path) -> None:
-    """Marcar como hecho lo que no se hizo haría que la ejecución real
-    siguiente se saltara pasos que nunca llegaron a aplicarse."""
+    """Marking as done what was not done would make the next real run skip
+    steps that were never applied."""
     state = _state(tmp_path, dry_run=True)
     context = InstallContext(project_dir=tmp_path)
     steps = [_FakeStep(state, context, "uno")]
@@ -286,7 +287,7 @@ def test_dry_run_does_not_write_the_state_file(tmp_path: Path) -> None:
     assert not state_store.state_path(tmp_path).exists()
 
 
-# --- composición real de los pasos --------------------------------------------------------
+# --- the real composition of the steps ----------------------------------------------------
 
 
 def test_build_steps_returns_the_ten_steps_in_spec_order(tmp_path: Path) -> None:
@@ -307,11 +308,11 @@ def test_build_steps_returns_the_ten_steps_in_spec_order(tmp_path: Path) -> None
     ]
 
 
-# --- reconstrucción de la configuración desde artefactos -------------------------------------
+# --- rebuilding the configuration from artifacts ---------------------------------------------
 
 
 def test_config_is_rebuilt_from_env_files(tmp_path: Path) -> None:
-    """Es lo que hace posible reanudar sin volver a preguntar contraseñas."""
+    """This is what makes resuming possible without asking for passwords again."""
     from axion_wizard.steps.s03_config import load_config_from_artifacts
 
     (tmp_path / ".env").write_text(
@@ -331,9 +332,9 @@ def test_config_is_rebuilt_from_env_files(tmp_path: Path) -> None:
     assert config.ollama_model == "qwen2.5:1.5b"
     assert config.postgres_password.get_secret_value() == "a" * 64
     assert config.access_mode is AccessMode.LAN
-    # Las credenciales del panel también vuelven. Con la v14 solo se guardaba
-    # el hash, así que el paso 8 tenía que volver a pedir la contraseña a
-    # mitad de la instalación; ahora se reanuda sin preguntar nada.
+    # The panel credentials come back too. Under v14 only the hash was stored,
+    # so step 8 had to ask for the password again halfway through the install;
+    # now it resumes without asking anything.
     assert config.wireguard_admin_username == "admin"
     assert (
         config.wireguard_admin_password.get_secret_value() == "correct-horse-battery-staple"
@@ -364,19 +365,19 @@ def test_toml_config_reads_a_plaintext_password(tmp_path: Path) -> None:
 
     assert config.host == "192.168.1.50"
     assert config.wireguard_admin_password.get_secret_value() == "panel-seguro-y-largo"
-    # Sin `wireguard_admin_username` se usa el mismo por defecto que ofrece
-    # el camino interactivo.
+    # Without `wireguard_admin_username`, the same default the interactive
+    # path offers is used.
     assert config.wireguard_admin_username == "admin"
-    # Sin `postgres_password` en el TOML se genera una: hex, nunca base64.
+    # With no `postgres_password` in the TOML one is generated: hex, never base64.
     generated = config.postgres_password.get_secret_value()
     assert len(generated) == 64
     assert not set(generated) & set("/+=")
 
 
 def test_existing_postgres_password_reads_from_env(tmp_path: Path) -> None:
-    """Unidad directa de la función que comparten el camino interactivo y
-    el `--unattended`: ambos deben quedar coherentes con lo que Postgres ya
-    tiene inicializado."""
+    """A direct unit test of the function the interactive and `--unattended`
+    paths share: both have to stay consistent with what Postgres already has
+    initialised."""
     from axion_wizard.steps.s03_config import existing_postgres_password
 
     (tmp_path / ".env").write_text("POSTGRES_PASSWORD=" + "c" * 64 + "\n", encoding="utf-8")
@@ -389,13 +390,13 @@ def test_existing_postgres_password_none_without_env(tmp_path: Path) -> None:
     assert existing_postgres_password(tmp_path) is None
 
 
-def test_toml_config_reuses_theexisting_postgres_password(tmp_path: Path) -> None:
-    """Regresión real, repetida dos veces la misma noche: Postgres solo
-    aplica POSTGRES_PASSWORD al inicializar su volumen la primera vez.
-    Generar una nueva al azar en cada `install --unattended` dejaba al
-    Postgres ya inicializado con una contraseña que ya no coincidía con la
-    de `.env`, y Mattermost no lograba autenticarse — sin ningún error
-    claro hasta revisar los logs del contenedor."""
+def test_toml_config_reuses_the_existing_postgres_password(tmp_path: Path) -> None:
+    """A real regression, hit twice in one night: Postgres only applies
+    POSTGRES_PASSWORD when it first initialises its volume. Generating a fresh
+    random one on every `install --unattended` left an already-initialised
+    Postgres with a password that no longer matched `.env`'s, and Mattermost
+    could not authenticate — with no clear error until the container's logs
+    were read."""
     from axion_wizard.steps.s03_config import load_config_from_toml
 
     existing_password = "a" * 64
@@ -416,8 +417,8 @@ def test_toml_config_reuses_theexisting_postgres_password(tmp_path: Path) -> Non
 
 
 def test_toml_config_explicit_password_wins_over_existing_env(tmp_path: Path) -> None:
-    """Si el TOML sí trae `postgres_password`, es una elección explícita del
-    usuario y gana sobre lo que hubiera en `.env`."""
+    """If the TOML does carry `postgres_password`, that is an explicit choice
+    by the user and it wins over whatever was in `.env`."""
     from axion_wizard.steps.s03_config import load_config_from_toml
 
     (tmp_path / ".env").write_text(f"POSTGRES_PASSWORD={'a' * 64}\n", encoding="utf-8")
@@ -476,7 +477,7 @@ def test_unattended_without_config_explains_what_is_missing(tmp_path: Path) -> N
 
 
 def test_summary_masks_every_secret(tmp_path: Path) -> None:
-    """§9 no admite excepciones ni en la pantalla que el usuario acaba de rellenar."""
+    """§9 admits no exceptions, not even on the screen the user has just filled in."""
     from axion_wizard.render.console import console
     from axion_wizard.steps.s03_config import render_summary
 
@@ -491,7 +492,7 @@ def test_summary_masks_every_secret(tmp_path: Path) -> None:
     assert config.host in rendered
 
 
-# --- reset: empezar de cero a propósito ----------------------------------------------
+# --- reset: starting from scratch on purpose ------------------------------------------
 
 
 def test_reset_removes_the_progress_file(tmp_path: Path) -> None:
@@ -514,8 +515,8 @@ def test_reset_is_harmless_without_previous_progress(tmp_path: Path) -> None:
 
 
 def test_reset_does_not_touch_the_deployment_artifacts(tmp_path: Path) -> None:
-    """"Rehacer los pasos" y "borrar mis datos" son cosas distintas; para la
-    segunda está `uninstall --purge`."""
+    """"Redo the steps" and "delete my data" are different things; the second
+    is what `uninstall --purge` is for."""
     state_store.save_state(tmp_path, state_store.WizardState())
     for name in (".env", "wg.env", "docker-compose.yml"):
         (tmp_path / name).write_text("contenido\n", encoding="utf-8")
@@ -554,13 +555,13 @@ def test_install_restart_discards_the_previous_progress(tmp_path: Path, mocker) 
     install.assert_called_once()
 
 
-# --- el mapa de progreso que se enseña al reanudar --------------------------------
+# --- the progress map shown when resuming -----------------------------------------
 
 
 def _render(renderable) -> str:
-    """Renderiza con la consola compartida: los estilos del panel son tokens
-    del tema de AXION (`axion.border`…) y una `Console` pelada no sabría
-    resolverlos."""
+    """Render with the shared console: the panel's styles are tokens from the
+    AXION theme (`axion.border`…) and a bare `Console` would not resolve
+    them."""
     from axion_wizard.render.console import console
 
     with console.capture() as capture:
@@ -569,11 +570,12 @@ def _render(renderable) -> str:
 
 
 def test_resume_overview_marks_done_failed_and_where_it_restarts(tmp_path: Path) -> None:
-    """El usuario tiene que poder ver de un vistazo por qué empieza donde
-    empieza; antes solo había ocho líneas grises seguidas y un salto al 9."""
+    """The user has to be able to see at a glance why it starts where it
+    starts; before there were only eight grey lines in a row and a jump to
+    9."""
     previous = state_store.WizardState()
-    previous.mark_complete("uno", "hecho")
-    previous.mark_failed("dos", "reventó")
+    previous.mark_complete("uno", "done")
+    previous.mark_failed("dos", "blew up")
     state_store.save_state(tmp_path, previous)
 
     state = _state(tmp_path)
@@ -587,9 +589,9 @@ def test_resume_overview_marks_done_failed_and_where_it_restarts(tmp_path: Path)
     text = _render(orchestrator.render_resume_overview(steps, previous))
 
     assert "1/3" in text and "3/3" in text
-    assert "reventó" in text
+    assert "blew up" in text
     assert "starts here" in text
-    # y cómo salir de ahí si no es lo que se quería
+    # and how to get out of it if that is not what was wanted
     assert "axion-wizard reset" in text
 
 

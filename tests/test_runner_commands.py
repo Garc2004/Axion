@@ -10,7 +10,7 @@ runner = CliRunner()
 
 @pytest.fixture(autouse=True)
 def _never_elevate(mocker):
-    """Los tests no deben disparar UAC/sudo reales."""
+    """The tests must never trigger a real UAC/sudo prompt."""
     mocker.patch("axion_wizard.cli.privileges.is_elevated", return_value=True)
 
 
@@ -40,10 +40,10 @@ def test_gen_cert_writes_certificate_with_verified_san(tmp_path: Path) -> None:
 def test_gen_cert_restarts_nginx_so_it_serves_the_new_certificate(
     tmp_path: Path, mocker
 ) -> None:
-    """`nginx/certs` es un bind mount: el archivo nuevo ya está dentro del
-    contenedor, pero nginx sirve el que cargó en memoria al arrancar. Sin el
-    reinicio, `gen-cert` terminaba en verde y el navegador seguía viendo el
-    certificado viejo."""
+    """`nginx/certs` is a bind mount: the new file is already inside the
+    container, but nginx serves the one it loaded into memory at startup.
+    Without the restart, `gen-cert` finished green and the browser went on
+    seeing the old certificate."""
     from axion_wizard.services.compose import ContainerStatus
     from axion_wizard.utils.shell import CommandResult
 
@@ -66,8 +66,8 @@ def test_gen_cert_restarts_nginx_so_it_serves_the_new_certificate(
 
 
 def test_gen_cert_without_a_stack_does_not_touch_docker(tmp_path: Path, mocker) -> None:
-    """Generar el certificado antes de desplegar es legítimo: se usará cuando
-    el stack se levante."""
+    """Generating the certificate before deploying is legitimate: it will be
+    used when the stack comes up."""
     restart = mocker.patch("axion_wizard.services.compose.restart")
 
     result = runner.invoke(app, ["--project-dir", str(tmp_path), "gen-cert", "192.168.1.50"])
@@ -109,9 +109,10 @@ def test_up_dry_run_does_not_invoke_docker(tmp_path: Path, mocker) -> None:
 
 
 def test_up_verifies_the_effective_wg_easy_tag(tmp_path: Path, mocker) -> None:
-    """§6.4: la tag que importa es la del contenedor en marcha, no la que
-    quedó escrita en el compose — quien lo edite a mano puede acabar en v15,
-    que ignora WG_HOST/PASSWORD_HASH sin un solo error en los logs."""
+    """§6.4: the tag that matters is the running container's, not the one
+    left written in the compose file — anyone hand-editing it can end up on
+    another major, which configures itself incompatibly without a single error
+    in the logs."""
     _project_with_compose(tmp_path)
     mocker.patch("axion_wizard.steps.s06_deploy.deploy")
     mocker.patch("axion_wizard.services.compose.ps", return_value=[])
@@ -135,8 +136,8 @@ def test_up_of_another_service_skips_the_wg_easy_check(tmp_path: Path, mocker) -
 
 
 def test_logs_says_so_when_no_service_returned_anything(tmp_path: Path, mocker) -> None:
-    """Sin esto imprimía exactamente nada y salía con 0: indistinguible de
-    que el comando no hubiera hecho nada."""
+    """Without this it printed exactly nothing and exited 0: indistinguishable
+    from the command having done nothing at all."""
     _project_with_compose(tmp_path)
     mocker.patch("axion_wizard.services.compose.logs", return_value="")
 
@@ -184,8 +185,8 @@ def test_down_reports_failure_with_nonzero_exit(tmp_path: Path, mocker) -> None:
 
 
 def test_uninstall_purge_requires_typing_the_project_name(tmp_path: Path, mocker) -> None:
-    """§9: --purge borra datos irrecuperables, así que pide confirmación
-    escribiendo el nombre del proyecto."""
+    """§9: --purge deletes unrecoverable data, so it asks for confirmation by
+    typing the project's name."""
     project = _project_with_compose(tmp_path)
     down = mocker.patch("axion_wizard.services.compose.down")
     mocker.patch("questionary.text", return_value=mocker.Mock(ask=lambda: "nombre-incorrecto"))
@@ -193,7 +194,7 @@ def test_uninstall_purge_requires_typing_the_project_name(tmp_path: Path, mocker
     result = runner.invoke(app, ["--project-dir", str(project), "uninstall", "--purge"])
 
     assert result.exit_code == 1
-    # No debe borrar nada si la confirmación no coincide.
+    # It must delete nothing if the confirmation does not match.
     down.assert_not_called()
 
 
@@ -231,9 +232,9 @@ def test_uninstall_purge_with_yes_skips_the_prompt(tmp_path: Path, mocker) -> No
 
 
 def test_uninstall_purge_dry_run_neither_prompts_nor_deletes(tmp_path: Path, mocker) -> None:
-    """`--dry-run` promete no tocar nada, así que no hay nada que confirmar.
-    Preguntando igualmente, un `--dry-run --purge` no interactivo se quedaba
-    esperando una respuesta que nunca llegaba y salía con 1."""
+    """`--dry-run` promises to touch nothing, so there is nothing to confirm.
+    Asking anyway meant a non-interactive `--dry-run --purge` sat waiting for
+    an answer that never came and exited 1."""
     project = _project_with_compose(tmp_path)
     down = mocker.patch("axion_wizard.services.compose.down")
     text_prompt = mocker.patch("questionary.text")
@@ -276,7 +277,7 @@ def test_models_lists_catalog_with_hardware_context(mocker) -> None:
     result = runner.invoke(app, ["models"])
     assert result.exit_code == 0
     assert "Hardware detected" in result.stdout
-    # al menos un modelo del fallback embebido aparece listado
+    # at least one model from the embedded fallback appears in the list
     assert any(m.name.split(":")[0] in result.stdout for m in ollama.get_embedded_catalog())
 
 
@@ -349,7 +350,7 @@ def test_set_webhook_token_writes_env_and_recreates_fastapi(tmp_path: Path, mock
     assert deploy.call_args.kwargs["services"] == ["fastapi"]
     wait_for_healthy.assert_called_once()
     assert wait_for_healthy.call_args.kwargs["services"] == ["fastapi"]
-    # el token nunca debe aparecer en la salida de la terminal (§9).
+    # the token must never appear in the terminal output (§9).
     assert "token-de-ejemplo-no-real-000" not in result.stdout
 
 
@@ -408,13 +409,13 @@ def test_network_check_renders_a_table(mocker) -> None:
     assert "51820" in result.stdout
 
 
-# --- model: editar la IA sin tocar .env ni recordar comandos de compose ------------
+# --- model: edit the AI without touching .env or memorising compose commands ------
 #
-# Cambiar de modelo exigía tres pasos manuales y saberse los tres: descargarlo,
-# editar OLLAMA_MODEL a mano y recrear fastapi con el `docker compose` correcto
-# (un `restart` no vale: las variables de entorno se fijan al crear el
-# contenedor). Olvidar el tercero dejaba al usuario mirando una IA que seguía
-# respondiendo con el modelo viejo, sin ningún error.
+# Changing the model took three manual steps and knowing all three: pull it,
+# hand-edit OLLAMA_MODEL, and recreate fastapi with the right `docker compose`
+# invocation (a `restart` will not do: environment variables are fixed when the
+# container is created). Forgetting the third left the user staring at an AI
+# still answering with the old model, with no error.
 
 
 @pytest.fixture
@@ -428,13 +429,13 @@ def _fake_deploy(mocker):
 def test_model_show_reports_the_current_settings(tmp_path: Path) -> None:
     project = _project_with_compose(tmp_path)
     (project / ".env").write_text(
-        "OLLAMA_MODEL=llama3.2:3b\nOLLAMA_SYSTEM_PROMPT=Responde en español.\n",
+        "OLLAMA_MODEL=llama3.2:3b\nOLLAMA_SYSTEM_PROMPT=Answer in English.\n",
         encoding="utf-8",
     )
     result = runner.invoke(app, ["--project-dir", str(project), "model"])
     assert result.exit_code == 0
     assert "llama3.2:3b" in result.stdout
-    assert "Responde en español." in result.stdout
+    assert "Answer in English." in result.stdout
 
 
 def test_model_show_fails_cleanly_without_a_project(tmp_path: Path) -> None:
@@ -461,9 +462,9 @@ def test_model_set_writes_env_and_recreates_fastapi(tmp_path: Path, mocker, _fak
 def test_model_set_pulls_the_model_when_it_is_missing(
     tmp_path: Path, mocker, _fake_deploy
 ) -> None:
-    """Sin la descarga el fallo llega más tarde y en otro sitio: fastapi
-    arranca con un modelo que Ollama no tiene y cada mensaje devuelve un error
-    que no menciona la descarga por ninguna parte."""
+    """Without the pull, the failure arrives later and elsewhere: fastapi
+    starts with a model Ollama does not have and every message returns an error
+    that mentions the missing download nowhere."""
     project = _project_with_compose(tmp_path)
     mocker.patch(
         "axion_wizard.services.ollama.list_installed_models",
@@ -560,11 +561,11 @@ def test_model_set_rejects_an_empty_name(tmp_path: Path) -> None:
     assert "model" in result.stderr.lower()
 
 
-# --- set-bot-token: el interruptor del modo asíncrono -------------------------------
+# --- set-bot-token: the asynchronous-mode switch ------------------------------------
 #
-# Sin token de bot, Mattermost abandona la petición del webhook a los ~30s y
-# la respuesta de un modelo lento se pierde entera, sin error visible. Con él,
-# el puente contesta al instante y publica cuando el modelo termina.
+# Without a bot token, Mattermost abandons the webhook request after ~30s and
+# a slow model's answer is lost whole, with no visible error. With one, the
+# bridge answers instantly and posts when the model finishes.
 
 
 def test_set_bot_token_writes_env_and_recreates_fastapi(tmp_path: Path, mocker) -> None:
@@ -580,7 +581,7 @@ def test_set_bot_token_writes_env_and_recreates_fastapi(tmp_path: Path, mocker) 
     assert "MM_BOT_TOKEN=bot-token-de-ejemplo" in (project / ".env").read_text()
     assert deploy.call_args.kwargs["services"] == ["fastapi"]
     wait_for_healthy.assert_called_once()
-    # El token nunca debe aparecer en la salida de la terminal (§9).
+    # The token must never appear in the terminal output (§9).
     assert "bot-token-de-ejemplo" not in result.stdout
 
 
@@ -661,8 +662,8 @@ def test_reset_without_progress_is_not_an_error(tmp_path: Path) -> None:
 
 
 def test_reset_does_not_require_a_deployed_stack(tmp_path: Path) -> None:
-    """A diferencia de `up`/`logs`, `reset` tiene que funcionar justamente
-    cuando el stack ya no está — es para eso."""
+    """Unlike `up`/`logs`, `reset` has to work precisely when the stack is no
+    longer there — that is what it is for."""
     from axion_wizard.utils import state as state_store
 
     state_store.save_state(tmp_path, state_store.WizardState())
@@ -672,7 +673,7 @@ def test_reset_does_not_require_a_deployed_stack(tmp_path: Path) -> None:
 
 
 def test_reset_never_asks_for_elevation() -> None:
-    """Borrar un archivo del proyecto no necesita UAC."""
+    """Deleting a file from the project needs no UAC."""
     from axion_wizard.cli import ELEVATION_REQUIRED_COMMANDS
 
     assert "reset" not in ELEVATION_REQUIRED_COMMANDS
