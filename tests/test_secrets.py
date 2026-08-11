@@ -53,16 +53,16 @@ def test_validate_env_value_accepts_a_safe_value() -> None:
 
 def test_weak_password_error_is_an_invalid_env_value_error() -> None:
     """`WeakPasswordError` es un caso particular de `InvalidEnvValueError`:
-    quien capture el genérico también atrapa el de WireGuard."""
+    anyone catching the generic one also catches WireGuard's."""
     assert issubclass(sec.WeakPasswordError, sec.InvalidEnvValueError)
 
 
 # --- credenciales del panel: longitud minima (wg-easy v15) ------------------
 #
-# El wizard ya no hashea nada: la v15 recibe la contrasena en claro y la
-# hashea ella. Lo que si valida aqui es la longitud, porque `INIT_PASSWORD`
-# no la valida: una contrasena corta crea la cuenta igual y solo falla
-# despues, al entrar, con un 400 que parece "contrasena incorrecta".
+# The wizard no longer hashes anything: v15 receives the password in the clear
+# and hashes it itself. What is validated here is the length, because
+# `INIT_PASSWORD` does not: a short password creates the account anyway and
+# only fails later, on login, with a 400 that looks like "wrong password".
 
 
 def test_password_below_the_minimum_is_rejected() -> None:
@@ -75,8 +75,8 @@ def test_password_at_the_minimum_is_accepted() -> None:
 
 
 def test_forbidden_chars_are_checked_before_length() -> None:
-    """Una contrasena larga con un caracter prohibido sigue fallando por el
-    caracter, que es el motivo accionable."""
+    """A long password with a forbidden character still fails on the
+    character, which is the actionable reason."""
     with pytest.raises(sec.WeakPasswordError):
         sec.validate_wireguard_password("bad`password-pero-larga")
 
@@ -105,12 +105,12 @@ def test_mask_secret_empty_string() -> None:
     assert sec.mask_secret("") == ""
 
 
-# --- redacción de texto arbitrario (§9) -------------------------------------
+# --- redacting arbitrary text (§9) ------------------------------------------
 
 
 @pytest.fixture(autouse=True)
 def _isolate_secret_registry():
-    """El registro es global; aislarlo evita que un test contamine a otro."""
+    """The registry is global; isolating it stops one test contaminating another."""
     sec.clear_registered_secrets()
     yield
     sec.clear_registered_secrets()
@@ -119,13 +119,13 @@ def _isolate_secret_registry():
 def test_redact_masks_a_registered_secret() -> None:
     secret = sec.generate_hex_secret(16)
     sec.register_secret(secret)
-    assert secret not in sec.redact(f"algo salió mal con {secret} aquí")
-    assert sec.MASK in sec.redact(f"algo salió mal con {secret} aquí")
+    assert secret not in sec.redact(f"something went wrong with {secret} here")
+    assert sec.MASK in sec.redact(f"something went wrong with {secret} here")
 
 
 def test_redact_masks_dsn_password_even_if_not_registered() -> None:
-    """El patrón de DSN cubre contraseñas que el wizard nunca generó (p.ej.
-    un .env escrito a mano), que el registro por sí solo no conocería."""
+    """The DSN pattern covers passwords the wizard never generated (a
+    hand-written .env, say), which the registry alone could not know."""
     text = "failed: postgres://mattermost:sup3rs3cr3tvalue@postgres:5432/mattermost?sslmode=disable"
     redacted = sec.redact(text)
     assert "sup3rs3cr3tvalue" not in redacted
@@ -157,23 +157,23 @@ def test_redact_empty_string() -> None:
 
 
 def test_redact_noop_when_nothing_registered_and_no_dsn() -> None:
-    assert sec.redact("todo bien por aquí") == "todo bien por aquí"
+    assert sec.redact("all fine over here") == "all fine over here"
 
 
 def test_register_secret_ignores_short_values() -> None:
-    """Redactar cadenas cortas destrozaría texto legítimo sin ganar nada."""
+    """Redacting short strings would mangle legitimate text for no gain."""
     sec.register_secret("abc")
     assert sec.redact("abc def abc") == "abc def abc"
 
 
 def test_register_secret_ignores_empty_value() -> None:
     sec.register_secret("")
-    assert sec.redact("texto normal") == "texto normal"
+    assert sec.redact("ordinary text") == "ordinary text"
 
 
 def test_redact_masks_longest_secret_first() -> None:
-    """Si un secreto contiene a otro, enmascarar primero el largo evita
-    dejar fragmentos reconocibles del que lo contenía."""
+    """If one secret contains another, masking the long one first avoids
+    leaving recognisable fragments of the one that contained it."""
     short = "abcdefgh12"
     long = short + "34567890"
     sec.register_secret(short)

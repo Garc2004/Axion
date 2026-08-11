@@ -9,7 +9,7 @@ from axion_wizard.utils import winconsole
 
 @pytest.fixture(autouse=True)
 def _restore_pause_flag():
-    """`disable_pause` toca estado de módulo; sin esto un test contagiaría al resto."""
+    """`disable_pause` touches module state; without this one test would infect the rest."""
     winconsole._pause_enabled = True
     yield
     winconsole._pause_enabled = True
@@ -31,11 +31,11 @@ CMD_EXE = os.path.normcase(r"C:\Windows\System32\cmd.exe")
 
 
 def _console_with(mocker, pids, executables, own=AXION_EXE):
-    """Simula una consola con `pids` adjuntos, cada uno con su ejecutable.
+    """Simulate a console with `pids` attached, each with its own executable.
 
-    Se sustituyen solo funciones del propio módulo. Parchear
-    `winconsole.os.getpid` falsearía `os.getpid` para todo el proceso —es el
-    módulo `os` de verdad—, incluida la factoría de temporales de pytest.
+    Only functions of the module itself are substituted. Patching
+    `winconsole.os.getpid` would fake `os.getpid` for the whole process — it is
+    the real `os` module — including pytest's temp-directory factory.
     """
     mocker.patch("axion_wizard.utils.winconsole.console_process_ids", return_value=pids)
     mocker.patch("axion_wizard.utils.winconsole._own_executable", return_value=own)
@@ -47,10 +47,10 @@ def _console_with(mocker, pids, executables, own=AXION_EXE):
 
 
 def test_owns_console_with_the_pyinstaller_bootloader_pair(mocker) -> None:
-    """Regresión del bug reportado: en el .exe empaquetado hay SIEMPRE dos
-    procesos adjuntos (bootloader de --onefile + hijo que corre el código),
-    así que la condición anterior (`GetConsoleProcessList() == 1`) no se
-    cumplía nunca y la ventana seguía cerrándose sola al hacer doble clic."""
+    """Regression for the reported bug: in the packaged .exe there are ALWAYS
+    two attached processes (--onefile's bootloader + the child running the
+    code), so the previous condition (`GetConsoleProcessList() == 1`) was never
+    true and the window kept closing on its own after a double click."""
     _console_with(mocker, [100, 101], {100: AXION_EXE, 101: AXION_EXE})
     assert winconsole.owns_its_console() is True
 
@@ -62,13 +62,13 @@ def test_owns_console_when_this_process_is_the_only_one(mocker) -> None:
 
 def test_does_not_own_console_when_a_shell_is_also_attached(mocker) -> None:
     """Lanzado desde cmd/PowerShell la consola sobrevive al proceso: pausar
-    ahí solo estorbaría."""
+    pausing there would only get in the way."""
     _console_with(mocker, [100, 101, 200], {100: AXION_EXE, 101: AXION_EXE, 200: CMD_EXE})
     assert winconsole.owns_its_console() is False
 
 
 def test_does_not_own_console_when_a_process_cannot_be_identified(mocker) -> None:
-    """Un adjunto vivo pero opaco podría ser el shell: no se asume que es nuestro."""
+    """A live but opaque attachment could be the shell: it is not assumed to be ours."""
     _console_with(mocker, [100, 200], {100: AXION_EXE, 200: None})
     assert winconsole.owns_its_console() is False
 
@@ -123,7 +123,7 @@ def test_should_pause_when_console_is_ours_and_stdin_is_a_tty(mocker, monkeypatc
 
 
 def test_should_not_pause_when_stdin_is_redirected(mocker, monkeypatch) -> None:
-    """`axion-wizard doctor < /dev/null` o CI: pausar ahí colgaría el proceso."""
+    """`axion-wizard doctor < /dev/null` or CI: pausing there would hang the process."""
     monkeypatch.delenv(winconsole.NO_PAUSE_ENV_VAR, raising=False)
     mocker.patch("axion_wizard.utils.winconsole.owns_its_console", return_value=True)
     mocker.patch.object(sys, "stdin", _FakeStdin(interactive=False))
@@ -146,7 +146,7 @@ def test_should_not_pause_after_disable_pause(mocker, monkeypatch) -> None:
 
 
 def test_should_not_pause_when_stdin_is_none(mocker, monkeypatch) -> None:
-    """En un bundle sin consola, `sys.stdin` puede ser None."""
+    """In a bundle with no console, `sys.stdin` can be None."""
     monkeypatch.delenv(winconsole.NO_PAUSE_ENV_VAR, raising=False)
     mocker.patch("axion_wizard.utils.winconsole.owns_its_console", return_value=True)
     mocker.patch.object(sys, "stdin", None)
@@ -167,7 +167,7 @@ def test_pause_prompts_on_stderr_and_waits_for_a_line(mocker) -> None:
     winconsole.pause_if_console_would_close()
 
     assert "Enter" in stderr.getvalue()
-    assert stdin.tell() > 0  # se consumió la línea
+    assert stdin.tell() > 0  # the line was consumed
 
 
 def test_pause_does_nothing_when_not_needed(mocker) -> None:
@@ -181,7 +181,7 @@ def test_pause_does_nothing_when_not_needed(mocker) -> None:
 
 
 def test_pause_swallows_a_closed_stdin(mocker) -> None:
-    """Un stdin cerrado a mitad no debe convertir una salida limpia en un error."""
+    """A stdin closed midway must not turn a clean exit into an error."""
     mocker.patch("axion_wizard.utils.winconsole.should_pause", return_value=True)
     stdin = _FakeStdin()
     stdin.close()

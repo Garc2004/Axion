@@ -65,10 +65,10 @@ def test_run_streaming_captures_nonzero_exit() -> None:
 
 
 def test_run_streaming_times_out_on_a_silent_process() -> None:
-    """Regresión: iterar el pipe directamente solo permitía comprobar el
-    deadline *entre* líneas, así que un proceso que deja de escribir (un
-    `docker compose up` colgado) bloqueaba indefinidamente en vez de
-    abortar — §6.3 exige un límite real en toda invocación."""
+    """Regression: iterating the pipe directly only allowed checking the
+    deadline *between* lines, so a process that stops writing (a hung
+    `docker compose up`) blocked indefinitely rather than aborting — §6.3
+    requires a real limit on every invocation."""
     code = "import time; print('started', flush=True); time.sleep(30)"
     start = time.monotonic()
 
@@ -78,7 +78,7 @@ def test_run_streaming_times_out_on_a_silent_process() -> None:
         )
 
     elapsed = time.monotonic() - start
-    assert elapsed < 10, f"abortó en {elapsed:.1f}s; el timeout no está acotando la espera"
+    assert elapsed < 10, f"aborted in {elapsed:.1f}s; the timeout is not bounding the wait"
 
 
 def test_run_streaming_times_out_when_no_output_at_all() -> None:
@@ -94,7 +94,7 @@ def test_run_streaming_times_out_when_no_output_at_all() -> None:
 
 
 def test_run_streaming_kills_the_process_on_timeout() -> None:
-    """El proceso no debe quedar huérfano corriendo tras un timeout."""
+    """The process must not be left orphaned and running after a timeout."""
     code = "import time; time.sleep(30)"
     procs_before = _child_python_count()
 
@@ -103,7 +103,7 @@ def test_run_streaming_kills_the_process_on_timeout() -> None:
             [sys.executable, "-c", code], on_line=lambda _line: None, timeout=1.0
         )
 
-    # Tras el timeout el hijo debe estar muerto, no acumulándose.
+    # After the timeout the child must be dead, not piling up.
     assert _child_python_count() <= procs_before
 
 
@@ -124,20 +124,21 @@ def test_run_streaming_timeout_error_reports_the_command() -> None:
     assert sys.executable in exc_info.value.command_args
 
 
-# --- terminación normal: esperar antes de matar ------------------------------------
+# --- normal termination: wait before killing ---------------------------------------
 #
-# Regresión: `_terminate` hacía `kill()` en cuanto `poll()` devolvía None, y
-# tras el EOF del pipe eso es una carrera contra un proceso que YA terminó
-# bien — el EOF llega cuando el hijo cierra stdout, que es parte de su salida
-# pero no el final. Perder esa carrera sustituye el código real por uno de
-# señal, y un `docker compose up` correcto se reporta como fallo de despliegue.
+# Regression: `_terminate` called `kill()` as soon as `poll()` returned None,
+# and after the pipe's EOF that is a race against a process that has ALREADY
+# finished cleanly — EOF arrives when the child closes stdout, which is part of
+# its exit but not the end of it. Losing that race replaces the real exit code
+# with a signal's, and a successful `docker compose up` gets reported as a
+# deployment failure.
 
 
 @pytest.mark.parametrize("run", range(15))
 def test_run_streaming_preserves_the_exit_code_after_eof(run: int) -> None:
-    """Repetido: la ventana de la carrera es de microsegundos, así que una
-    sola pasada no prueba gran cosa."""
-    code = "import sys; print('linea'); sys.stdout.flush(); sys.exit(3)"
+    """Repeated: the race window is microseconds wide, so a single pass does
+    not prove much."""
+    code = "import sys; print('line'); sys.stdout.flush(); sys.exit(3)"
     result = shell.run_streaming([sys.executable, "-c", code], on_line=lambda _line: None)
     assert result.returncode == 3
 
@@ -152,7 +153,7 @@ def test_run_streaming_reports_success_after_eof(run: int) -> None:
 
 def test_terminate_does_not_kill_a_process_that_already_finished(mocker) -> None:
     proc = mocker.Mock()
-    proc.poll.return_value = None  # todavía no recogido
+    proc.poll.return_value = None  # not reaped yet
     proc.stdout = None
 
     shell._terminate(proc, expect_exit=True)
@@ -162,8 +163,8 @@ def test_terminate_does_not_kill_a_process_that_already_finished(mocker) -> None
 
 
 def test_terminate_kills_first_when_aborting(mocker) -> None:
-    """El camino del timeout sí mata antes: cerrar el pipe con el lector
-    bloqueado no lo interrumpe, así que un proceso colgado bloquearía aquí."""
+    """The timeout path does kill first: closing the pipe while the reader is
+    blocked does not interrupt it, so a hung process would block here."""
     proc = mocker.Mock()
     proc.poll.return_value = None
     proc.stdout = None

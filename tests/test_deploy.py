@@ -50,7 +50,7 @@ def test_deploy_succeeds_without_raising(mocker) -> None:
         "axion_wizard.steps.s06_deploy.compose.up",
         return_value=CommandResult(args=[], returncode=0, stdout="", stderr=""),
     )
-    s06.deploy(Path("docker-compose.yml"), services=["postgres"])  # no debe lanzar
+    s06.deploy(Path("docker-compose.yml"), services=["postgres"])  # must not raise
 
 
 def test_deploy_streams_lines_into_progress(mocker) -> None:
@@ -90,10 +90,10 @@ def test_first_not_running_service_none_when_all_running(mocker) -> None:
 
 
 def test_readiness_check_runs_one_docker_ps_per_round(mocker) -> None:
-    """Regresión de eficiencia: `_service_is_ready` preguntaba por servicio, y
-    cada pregunta lanzaba un `docker compose ps` completo. Con seis servicios
-    eso eran seis invocaciones a Docker por reintento, en un bucle con backoff
-    de hasta cinco minutos."""
+    """Efficiency regression: `_service_is_ready` asked per service, and each
+    question launched a full `docker compose ps`. With six services that was
+    six Docker invocations per retry, in a loop with backoff running for up to
+    five minutes."""
     ps_mock = mocker.patch(
         "axion_wizard.steps.s06_deploy.compose.ps",
         return_value=[
@@ -213,9 +213,9 @@ def _nginx_status(state: str = "running") -> ContainerStatus:
 
 
 def test_refresh_nginx_restarts_when_mattermost_was_deployed(mocker) -> None:
-    """El caso real: recrear Mattermost le cambia la IP, nginx sigue con la
-    anterior resuelta y todo el stack devuelve 502 con los seis contenedores
-    healthy."""
+    """The real case: recreating Mattermost changes its IP, nginx still holds
+    the previous one resolved, and the whole stack returns 502 with all six
+    containers healthy."""
     mocker.patch(
         "axion_wizard.steps.s06_deploy.compose.get_service_status",
         return_value=_nginx_status(),
@@ -230,8 +230,8 @@ def test_refresh_nginx_restarts_when_mattermost_was_deployed(mocker) -> None:
 
 
 def test_refresh_nginx_skips_when_no_upstream_was_deployed(mocker) -> None:
-    """`axion-wizard up ollama` no toca ningún upstream de nginx: reiniciarlo
-    sería una interrupción del servicio a cambio de nada."""
+    """`axion-wizard up ollama` touches no nginx upstream: restarting it would
+    be a service interruption in exchange for nothing."""
     restart = mocker.patch("axion_wizard.steps.s06_deploy.compose.restart")
 
     assert s06.refresh_nginx(Path("x"), ["ollama"]) is False
@@ -250,9 +250,9 @@ def test_refresh_nginx_skips_when_nginx_is_not_running(mocker) -> None:
 
 
 def test_refresh_nginx_raises_when_restart_fails(mocker) -> None:
-    """Un reinicio fallido deja el stack en 502; enmascararlo con un
-    despliegue "correcto" es justo el fallo que esta función existe para
-    evitar."""
+    """A failed restart leaves the stack on 502; masking that with a
+    "successful" deployment is exactly the failure this function exists to
+    prevent."""
     mocker.patch(
         "axion_wizard.steps.s06_deploy.compose.get_service_status",
         return_value=_nginx_status(),
@@ -285,8 +285,9 @@ def test_verify_wg_easy_tag_accepts_safe_tag(mocker) -> None:
 
 
 def test_verify_wg_easy_tag_raises_on_v14(mocker) -> None:
-    """Un compose editado a mano puede dejar el contenedor en la v14, que
-    ignora las INIT_* y expone otra API. Nada de eso da error visible."""
+    """A hand-edited compose file can leave the container on v14, which
+    ignores the INIT_* variables and exposes a different API. None of that
+    produces a visible error."""
     mocker.patch(
         "axion_wizard.steps.s06_deploy.compose.get_service_status",
         return_value=ContainerStatus(
@@ -299,8 +300,8 @@ def test_verify_wg_easy_tag_raises_on_v14(mocker) -> None:
 
 
 def test_verify_wg_easy_tag_rejects_untagged_image(mocker) -> None:
-    """Sin tag explícita Docker resuelve a `latest`, que puede dejar de
-    apuntar a la v15 sin previo aviso — el caso que §6.4 existe para atajar."""
+    """With no explicit tag Docker resolves to `latest`, which can stop
+    pointing at v15 without warning — the case §6.4 exists to head off."""
     mocker.patch(
         "axion_wizard.steps.s06_deploy.compose.get_service_status",
         return_value=ContainerStatus(
@@ -313,7 +314,7 @@ def test_verify_wg_easy_tag_rejects_untagged_image(mocker) -> None:
 
 
 def test_verify_wg_easy_tag_handles_port_qualified_registry(mocker) -> None:
-    """El `:` del puerto del registro no debe confundirse con una tag."""
+    """The registry port's `:` must not be confused with a tag."""
     mocker.patch(
         "axion_wizard.steps.s06_deploy.compose.get_service_status",
         return_value=ContainerStatus(
@@ -337,7 +338,7 @@ def test_verify_wg_easy_tag_noop_when_image_missing(mocker) -> None:
     s06.verify_wg_easy_tag(Path("x"))  # no debe lanzar
 
 
-# --- la contraseña tiene que llegar entera al contenedor ---------------------------
+# --- the password has to reach the container intact --------------------------------
 
 
 def test_panel_password_check_passes_when_it_arrives_intact(mocker) -> None:
@@ -353,9 +354,9 @@ def test_panel_password_check_passes_when_it_arrives_intact(mocker) -> None:
 
 
 def test_panel_password_check_catches_a_mangled_value(mocker) -> None:
-    """Compose interpola los valores de `env_file:`. Con la v14 esto atrapaba
-    un hash bcrypt destrozado; el modo de fallo es el mismo aunque ahora la
-    contraseña vaya en claro: el panel arranca sano y no deja entrar."""
+    """Compose interpolates the values of `env_file:`. Under v14 this caught a
+    mangled bcrypt hash; the failure mode is the same now the password travels
+    in the clear: the panel starts healthy and lets nobody in."""
     mocker.patch(
         "axion_wizard.steps.s06_deploy.compose.exec_in_service",
         return_value=CommandResult(args=[], returncode=0, stdout="correct-horse-\n", stderr=""),
@@ -370,8 +371,8 @@ def test_panel_password_check_catches_a_mangled_value(mocker) -> None:
 
 
 def test_panel_password_check_is_silent_when_it_cannot_ask(mocker) -> None:
-    """Sin `printenv` o sin exec no se puede afirmar nada; dar el despliegue
-    por fallido sería peor que no comprobarlo."""
+    """Without `printenv` or without exec nothing can be asserted; declaring
+    the deployment failed would be worse than not checking at all."""
     mocker.patch(
         "axion_wizard.steps.s06_deploy.compose.exec_in_service",
         return_value=CommandResult(args=[], returncode=126, stdout="", stderr="no such file"),

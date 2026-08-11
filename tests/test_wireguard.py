@@ -79,10 +79,10 @@ def test_wait_for_panel_ready_raises_network_error_on_timeout(mocker) -> None:
 
 # --- _client_id_from_creation -----------------------------------------------------
 #
-# La v14 no devolvia el cliente creado, solo `{"success": true}`, asi que el
-# id habia que deducirlo listando antes y despues y comparando — con la
-# ambiguedad extra de que wg-easy nunca ha exigido nombres unicos. La v15 lo
-# devuelve en la respuesta y todo ese rodeo desaparecio.
+# v14 did not return the created client, only `{"success": true}`, so the id
+# had to be deduced by listing before and after and comparing — with the added
+# ambiguity that wg-easy has never required unique names. v15 returns it in the
+# response and that whole detour went away.
 
 
 def test_client_id_from_creation_reads_the_field() -> None:
@@ -91,9 +91,9 @@ def test_client_id_from_creation_reads_the_field() -> None:
 
 
 def test_client_id_from_creation_accepts_a_numeric_id() -> None:
-    """El esquema lo declara como el identificador de la fila; dar por hecho
-    que siempre llega serializado como texto es justo el tipo de suposicion
-    que este modulo evita en el resto de respuestas."""
+    """The schema declares it as the row identifier; assuming it always
+    arrives serialised as text is exactly the kind of assumption this module
+    avoids everywhere else."""
     response = httpx.Response(200, json={"success": True, "clientId": 42})
     assert wg._client_id_from_creation(response) == "42"
 
@@ -110,8 +110,8 @@ def test_client_id_from_creation_on_non_json_is_none() -> None:
 
 
 def test_list_clients_returns_bare_array(mocker) -> None:
-    """wg-easy v14 responde un array JSON suelto, sin envolver (confirmado
-    contra su código fuente), a diferencia de otros endpoints del panel."""
+    """wg-easy answers with a bare JSON array, unwrapped (confirmed against
+    its source), unlike other endpoints of the panel."""
     mock_inner = _inner_client(
         mocker,
         get=mocker.AsyncMock(
@@ -174,8 +174,8 @@ def test_login_success(mocker) -> None:
 
 
 def test_login_sends_username_and_remember(mocker) -> None:
-    """`remember` esta declarado `z.boolean()` sin `.optional()`: omitirlo
-    devuelve un 400 de validacion que no menciona el campo que falta."""
+    """`remember` is declared `z.boolean()` without `.optional()`: omitting it
+    returns a 400 validation error that never mentions the missing field."""
     post = mocker.AsyncMock(return_value=httpx.Response(200, json={"status": "success"}))
     panel = _client_with_mocked_httpx(mocker, _inner_client(mocker, post=post))
     asyncio.run(panel.login("admin", "correct-password"))
@@ -197,9 +197,10 @@ def test_login_wrong_password_raises_deployment_error(mocker) -> None:
 
 
 def test_login_totp_required_is_not_treated_as_success(mocker) -> None:
-    """Un 200 no significa haber entrado: con 2FA el panel responde 200 y
-    `TOTP_REQUIRED`, sin sesion. Darlo por bueno dejaba al wizard llamando a
-    /api/client sin autenticar y fallando despues con un 401 confuso."""
+    """A 200 does not mean you are in: with 2FA the panel answers 200 and
+    `TOTP_REQUIRED`, with no session. Taking that at face value left the wizard
+    calling /api/client unauthenticated and failing later with a confusing
+    401."""
     post = mocker.AsyncMock(
         return_value=httpx.Response(200, json={"status": "TOTP_REQUIRED"})
     )
@@ -245,8 +246,8 @@ def test_create_client_success(mocker) -> None:
 
 
 def test_create_client_without_a_client_id_raises_deployment_error(mocker) -> None:
-    """Defensivo: si el POST responde exito pero sin `clientId`, el contrato
-    cambio — mejor fallar accionable que devolver un id equivocado."""
+    """Defensive: if the POST reports success but carries no `clientId`, the
+    contract changed — better to fail actionably than to return a wrong id."""
     post = mocker.AsyncMock(return_value=httpx.Response(200, json={"success": True}))
     panel = _client_with_mocked_httpx(mocker, _inner_client(mocker, post=post))
     with pytest.raises(DeploymentError, match="did not return the id"):
@@ -282,9 +283,9 @@ def test_get_client_configuration_failure_raises_deployment_error(mocker) -> Non
 
 
 def test_create_client_connection_error_raises_network_error(mocker) -> None:
-    """El panel puede caerse *después* del login, a mitad del alta: eso debe
-    salir como NetworkError accionable, no como un httpx.ConnectError crudo
-    convertido en 'Error inesperado'."""
+    """The panel can go down *after* the login, mid-enrolment: that has to
+    surface as an actionable NetworkError, not as a raw httpx.ConnectError
+    turned into 'Unexpected error'."""
     mock_inner = _inner_client(
         mocker,
         get=mocker.AsyncMock(return_value=httpx.Response(200, json=[])),
@@ -325,7 +326,7 @@ def test_render_qr_terminal_returns_multiline_unicode_block_art() -> None:
     text = wg.render_qr_terminal("[Interface]\nPrivateKey = xxx\n")
     assert isinstance(text, str)
     assert len(text.splitlines()) > 1
-    assert chr(27) not in text  # solo bloques Unicode, sin secuencias ANSI
+    assert chr(27) not in text  # Unicode blocks only, no ANSI sequences
 
 
 def test_render_qr_terminal_different_input_different_output() -> None:

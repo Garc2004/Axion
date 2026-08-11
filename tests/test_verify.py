@@ -65,9 +65,9 @@ def test_check_https_responds_connection_error(mocker) -> None:
     mock_client.__aexit__ = mocker.AsyncMock(return_value=False)
     mocker.patch("axion_wizard.steps.s09_verify.httpx.AsyncClient", return_value=mock_client)
 
-    # retry_timeout corto: sin esto, el reintento por defecto (20s, pensado
-    # para la latencia real de LAN bajo Docker Desktop/WSL2) haría que un
-    # fallo que sabemos permanente tardara 20s en confirmarse.
+    # A short retry_timeout: without it, the default retry (20s, sized for the
+    # real LAN latency under Docker Desktop/WSL2) would make a failure we know
+    # is permanent take 20s to confirm.
     result = asyncio.run(verify.check_https_responds("192.168.1.50", retry_timeout=0.1))
     assert result.ok is False
 
@@ -128,10 +128,10 @@ def test_check_webhook_reachable_failure(mocker) -> None:
 
 
 def test_check_webhook_reachable_uses_curl_not_wget(mocker) -> None:
-    """Regresión real: la imagen de mattermost-team-edition no trae wget
-    (mismo hallazgo que el healthcheck del propio servicio) — con wget esta
-    comprobación fallaba siempre con 'executable file not found in $PATH',
-    indistinguible de un webhook genuinamente inalcanzable."""
+    """A real regression: the mattermost-team-edition image does not ship wget
+    (the same finding as the service's own healthcheck) — with wget this check
+    always failed with 'executable file not found in $PATH', indistinguishable
+    from a genuinely unreachable webhook."""
     exec_mock = mocker.patch(
         "axion_wizard.steps.s09_verify.compose.exec_in_service",
         return_value=CommandResult(args=[], returncode=0, stdout='{"status":"ok"}', stderr=""),
@@ -190,10 +190,10 @@ def test_check_wireguard_panel_unreachable(mocker) -> None:
 
 
 def test_check_wireguard_panel_retries_transient_failures(mocker) -> None:
-    """Regresión real: bajo Docker Desktop/WSL2, el panel podía tardar
-    varios segundos más de lo que cubre un único intento aunque funcionara
-    perfectamente — `doctor` lo marcaba FALLO mientras el navegador (o
-    `install`, que sí reintenta) lo veía sin problema."""
+    """A real regression: under Docker Desktop/WSL2 the panel could take
+    several seconds longer than a single attempt covers even when working
+    perfectly — `doctor` marked it FAIL while the browser (or `install`, which
+    does retry) saw it without trouble."""
     mock_ok = mocker.Mock(status_code=200)
     mock_client = mocker.AsyncMock()
     mock_client.get = mocker.AsyncMock(side_effect=[httpx.ConnectError("refused"), mock_ok])
@@ -364,12 +364,12 @@ def test_run_all_checks_calls_every_check(mocker) -> None:
     assert "IP forwarding (WireGuard)" in names
 
 
-# --- puertos: sin privilegios no es lo mismo que "faltan" --------------------------
+# --- ports: no privileges is not the same as "missing" ----------------------------
 
 
 def test_published_ports_does_not_fail_when_it_cannot_inspect(mocker) -> None:
-    """`doctor` no eleva: en Linux sin root `psutil` deniega la enumeración y
-    todos los puertos de la variante `host` se reportaban como ausentes."""
+    """`doctor` does not elevate: on Linux without root `psutil` denies the
+    enumeration, and every port of the `host` variant was reported missing."""
     mocker.patch(
         "axion_wizard.steps.s09_verify.compose.ps",
         return_value=[
@@ -417,13 +417,13 @@ def test_published_ports_still_fails_when_a_port_is_really_missing(mocker) -> No
     assert "51820" in result.detail
 
 
-# --- WebSocket: el check que distingue "no responde" de "solo responde con F5" -----
+# --- WebSocket: the check that separates "no answer" from "only answers on F5" ----
 #
-# Mattermost empuja los mensajes nuevos por WebSocket. Si ese canal está roto
-# pero HTTP funciona, la respuesta de la IA se escribe en el canal y el
-# navegador no se entera hasta que se recarga la página — el síntoma exacto
-# que llevó a añadir esta comprobación. `doctor` solo miraba `GET https://`,
-# que es justo el tráfico que sí funciona en ese escenario.
+# Mattermost pushes new messages over a WebSocket. If that channel is broken
+# but HTTP works, the AI's answer is written into the channel and the browser
+# does not find out until the page is reloaded — the exact symptom that led to
+# adding this check. `doctor` only looked at `GET https://`, which is precisely
+# the traffic that does work in that scenario.
 
 
 def test_websocket_ok_on_a_101_handshake(mocker) -> None:

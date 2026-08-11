@@ -61,7 +61,7 @@ def test_installed_model_names_filters_missing_names() -> None:
     assert ollama.installed_model_names(installed) == {"a"}
 
 
-# --- Nivel 2: catálogo remoto -----------------------------------------------------
+# --- Tier 2: remote catalogue -----------------------------------------------------
 
 
 def test_parse_remote_catalog_entry_ok() -> None:
@@ -147,7 +147,7 @@ def test_get_embedded_catalog_returns_fresh_copies_each_call() -> None:
     assert "mutated" not in second[0].tags
 
 
-# --- Estimación de requisitos desde el nombre --------------------------------------
+# --- Estimating requirements from the name -----------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -175,9 +175,9 @@ def test_estimate_requirements_from_name_unknown(name: str) -> None:
 
 
 def test_remote_entry_without_metadata_gets_estimated_requirements() -> None:
-    """Regresión: la API pública de Ollama devuelve poco más que nombres, así
-    que sin estimación todo entraba con requisitos 0 y se anunciaba como
-    compatible — `mistral-large-3:675b` incluido."""
+    """Regression: Ollama's public API returns little more than names, so
+    without an estimate everything arrived with requirements of 0 and was
+    advertised as compatible — `mistral-large-3:675b` included."""
     model = ollama._parse_remote_catalog_entry({"name": "mistral-large-3:675b"})
     assert model is not None
     assert model.min_ram_gb > 100
@@ -244,7 +244,7 @@ def test_build_catalog_merges_remote_names_with_embedded_requirements(mocker) ->
 
     # el conocido recupera sus requisitos curados
     assert by_name["qwen2.5:1.5b"].min_ram_gb > 0
-    # y los curados que el remoto no traía siguen presentes
+    # and the curated ones the remote tier did not carry are still present
     assert "llama3.1:8b" in by_name
 
 
@@ -264,7 +264,7 @@ def test_build_catalog_keeps_embedded_models_absent_from_remote(mocker) -> None:
     assert names.issuperset({m.name for m in ollama.get_embedded_catalog()})
 
 
-# --- Adecuación al hardware -----------------------------------------------------
+# --- Hardware fit ---------------------------------------------------------------
 
 
 def test_is_model_within_hardware_ram_only() -> None:
@@ -306,7 +306,7 @@ def test_sort_by_hardware_fit_prefers_fitting_models_first() -> None:
         [too_big, small, gpu_only, big_fitting], ram_gb=16, has_gpu=False
     )
     names = [m.name for m in ordered]
-    # los que encajan van primero, el más "capaz" que aún encaje antes que el más chico
+    # those that fit come first, the most "capable" that still fits before the smallest
     assert names.index("big-fitting") < names.index("small")
     assert names.index("small") < names.index("gpu-only")
     assert names.index("small") < names.index("too-big")
@@ -336,12 +336,12 @@ def test_mark_installed() -> None:
     assert models[1].installed is False
 
 
-# --- build_catalog (orquestación) -------------------------------------------------
+# --- build_catalog (orchestration) ------------------------------------------------
 
 
 def test_build_catalog_includes_remote_models_when_available(mocker) -> None:
     """El remoto se suma al curado, no lo reemplaza: si lo reemplazara, se
-    perderían los requisitos de hardware que solo el curado conoce."""
+    would lose the hardware requirements only the curated tier knows."""
     remote_models = [
         ollama.ModelInfo(name="remote-model", size_bytes=1, min_ram_gb=4, needs_gpu=False)
     ]
@@ -426,9 +426,9 @@ def test_handle_pull_line_ignores_malformed_json() -> None:
 
 
 def test_handle_pull_line_raises_on_error_field() -> None:
-    with pytest.raises(OllamaError, match="modelo-inexistente"):
+    with pytest.raises(OllamaError, match="nonexistent-model"):
         ollama._handle_pull_line(
-            '{"error":"model not found"}', "modelo-inexistente", lambda _p: None
+            '{"error":"model not found"}', "nonexistent-model", lambda _p: None
         )
 
 
@@ -490,12 +490,12 @@ def test_pull_model_raises_ollama_error_on_stream_error_field(mocker) -> None:
         asyncio.run(ollama.pull_model("nonexistent", lambda _p: None))
 
 
-# --- procedencia de los requisitos: dato real > curado > estimación ---------------
+# --- where requirements come from: real figure > curated > estimate --------------
 #
-# Regresión: `_parse_remote_catalog_entry` rellenaba `min_ram_gb` con la
-# estimación del nombre, y `enrich_from_embedded_catalog` solo rellenaba si
-# valía 0 — así que para cualquier nombre con sufijo de parámetros (`:0.5b`,
-# `:7b`… es decir, casi todos) el catálogo curado era código muerto.
+# Regression: `_parse_remote_catalog_entry` filled `min_ram_gb` with the
+# estimate from the name, and `enrich_from_embedded_catalog` only filled it in
+# when it was 0 — so for any name carrying a parameter suffix (`:0.5b`, `:7b`…
+# which is to say almost all of them) the curated catalogue was dead code.
 
 
 def test_estimated_requirements_are_marked_as_such() -> None:
@@ -526,7 +526,7 @@ def test_curated_catalog_overrides_a_name_based_estimate() -> None:
 
 
 def test_curated_catalog_does_not_override_real_api_metadata() -> None:
-    """Un dato que la API sí aportó gana a todo lo demás."""
+    """A figure the API did supply beats everything else."""
     real = ollama._parse_remote_catalog_entry(
         {"name": "qwen2.5:1.5b", "min_ram_gb": 3.5, "needs_gpu": False}
     )

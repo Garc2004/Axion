@@ -35,9 +35,9 @@ def test_split_image_tag(image: str, expected: tuple[str, str | None]) -> None:
 
 
 def test_assert_image_is_pinned_rejects_untagged_from_port_qualified_registry() -> None:
-    """Regresión: partir por el último `:` tomaba el puerto del registro como
-    si fuera la tag, así que una imagen realmente sin fijar pasaba el guard
-    de §6.4 sin protestar."""
+    """Regression: splitting on the last `:` took the registry's port for the
+    tag, so a genuinely unpinned image sailed through §6.4's guard without
+    complaint."""
     with pytest.raises(images.UnpinnedImageError):
         images.assert_image_is_pinned("localhost:5000/wg-easy")
 

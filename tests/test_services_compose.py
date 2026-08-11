@@ -53,7 +53,7 @@ def test_parse_ps_output_maps_fields() -> None:
     assert by_service["postgres"].is_running is True
     assert by_service["postgres"].is_healthy_or_no_healthcheck is True
 
-    # sin healthcheck propio: Health == "" -> None, se considera "sano" por defecto
+    # no healthcheck of its own: Health == "" -> None, treated as "healthy" by default
     assert by_service["ollama"].health is None
     assert by_service["ollama"].is_healthy_or_no_healthcheck is True
 
@@ -162,7 +162,7 @@ def test_up_without_services_touches_the_whole_stack(mocker) -> None:
     )
     compose.up(Path("docker-compose.yml"))
     args = run_mock.call_args[0][0]
-    assert args[-1] == "--build"  # ningún nombre de servicio se añadió
+    assert args[-1] == "--build"  # no service name was appended
 
 
 def test_down_without_volumes(mocker) -> None:
@@ -222,9 +222,9 @@ def test_build_deployment_failure_error_includes_log_tail(mocker) -> None:
 
 
 def test_build_deployment_failure_error_redacts_dsn_password(mocker) -> None:
-    """Regresión (§9): el panel de error muestra los últimos renglones del log
-    del contenedor, y Mattermost/PostgreSQL registran su DSN completo —con la
-    contraseña— al fallar la conexión. Antes se mostraba en claro."""
+    """Regression (§9): the error panel shows the last lines of the
+    container's log, and Mattermost/PostgreSQL log their full DSN — password
+    included — when the connection fails. It used to be shown in the clear."""
     secret = "a1b2c3d4e5f6a1b2c3d4"
     fake_log = (
         '{"level":"error","msg":"failed to connect",'
@@ -259,8 +259,8 @@ def test_logs_redacts_registered_secret(mocker) -> None:
 
 
 def test_config_validate_redacts_secrets_in_stderr(mocker) -> None:
-    """Compose interpola el .env antes de validar, así que su stderr puede
-    citar una línea ya con la contraseña sustituida."""
+    """Compose interpolates the .env before validating, so its stderr can
+    quote a line with the password already substituted in."""
     secret = "b2c3d4e5f6a1b2c3d4e5"
     mocker.patch(
         "axion_wizard.services.compose.run",
@@ -287,13 +287,13 @@ def test_build_deployment_failure_error_handles_empty_log(mocker) -> None:
 
 # --- never_started / describe_service_state ------------------------------------------
 #
-# Regresión de un incidente real: un `docker-compose.yml` se borró a mitad de
-# `docker compose up -d --build`, y postgres/wireguard (sin dependencias)
-# arrancaron bien mientras mattermost/ollama/fastapi/nginx quedaron en
-# `created` sin arrancar nunca. El panel de error decía solo "sin salida en
-# el log", indistinguible de un contenedor que sí corrió y no escribió nada
-# — hubo que salir a `docker compose ps` a mano para ver qué pasaba de
-# verdad. `describe_service_state` existe para que el propio panel lo diga.
+# Regression from a real incident: a `docker-compose.yml` was deleted halfway
+# through `docker compose up -d --build`, and postgres/wireguard (with no
+# dependencies) started fine while mattermost/ollama/fastapi/nginx sat in
+# `created` and never started. The error panel said only "no output in the
+# log", indistinguishable from a container that did run and wrote nothing —
+# diagnosing it took a separate `docker compose ps` by hand.
+# `describe_service_state` exists so the panel says it itself.
 
 
 def test_never_started_true_when_created(mocker) -> None:
@@ -344,8 +344,8 @@ def test_describe_service_state_when_running_and_healthy() -> None:
 
 
 def test_failure_error_explains_a_service_that_never_started(mocker) -> None:
-    """El caso real: el log está vacío porque el contenedor nunca arrancó, no
-    porque haya corrido y callado. El mensaje debe decir la diferencia."""
+    """The real case: the log is empty because the container never started,
+    not because it ran and said nothing. The message has to say which."""
     ps_json = '[{"Service":"mattermost","Name":"x","State":"created","Health":""}]'
 
     def fake_run(args, **kwargs):
@@ -359,8 +359,8 @@ def test_failure_error_explains_a_service_that_never_started(mocker) -> None:
 
     assert "never started" in error.why
     assert "no output in the log" in error.why
-    # Con el servicio bloqueado, mirar `ps` de todo el stack va antes que
-    # revisar el log de un contenedor que nunca corrió.
+    # With the service blocked, looking at `ps` for the whole stack comes
+    # before reading the log of a container that never ran.
     assert "ps" in error.steps[0]
 
 
@@ -374,9 +374,9 @@ def test_failure_error_notes_when_the_service_was_never_created(mocker) -> None:
 
 
 def test_logs_reports_when_the_command_itself_fails(mocker) -> None:
-    """Antes, un `docker compose logs` que fallara devolvía stdout vacío
-    —indistinguible de un contenedor sin salida— y el stderr real, con la
-    causa del fallo, se descartaba en silencio."""
+    """Previously, a failing `docker compose logs` returned an empty stdout —
+    indistinguishable from a container with no output — and the real stderr,
+    carrying the cause, was silently discarded."""
     mocker.patch(
         "axion_wizard.services.compose.run",
         return_value=CommandResult(
