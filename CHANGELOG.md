@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.2] — 2026-08-12
+
+### Fixed
+
+- **Every fresh install broke at step 6: Mattermost never left `unhealthy`,
+  and the deployment error printed 30 lines of perfectly normal startup log
+  with no indication of the real cause.** 0.3.1's move to Mattermost 11.7.8
+  landed on a far more minimal image than 10.x's Ubuntu-based one: no shell,
+  no coreutils, not even `curl` or `wget` — so the healthcheck's `curl -fsS
+  http://localhost:8065/api/v4/system/ping` failed every single time with
+  "executable file not found in $PATH", indistinguishable from the server
+  itself never coming up. It had, in every case tested. The healthcheck now
+  runs `mmctl system status --local` — the one binary the image still ships
+  besides the server, and exactly what the image's own baked-in `HEALTHCHECK`
+  already uses, talking over a local Unix socket rather than HTTP.
+- `doctor`'s "Webhook reachable" check had the identical bug one layer up: it
+  ran `curl` inside the mattermost container to prove `fastapi:8000` was
+  reachable, which also always failed on 11.x. It now runs from `nginx`
+  instead — same `edge_net`, same reachability fact, and nginx's image still
+  carries curl. (Reachability between two containers on the same bridge
+  network does not depend on which container asks, so this checks exactly
+  the same thing it always did.)
+
+### Verification
+
+916 tests passing, `ruff` and `mypy` clean. Reproduced live: a fresh install
+against 0.3.1's binary hung at step 6 exactly as described above; the same
+install against this fix reached `healthy` on Mattermost's first healthcheck
+after `docker compose up`, confirmed both with a minimal `postgres` +
+`mattermost` compose stack and by exec-ing `mmctl system status --local`
+directly against a running 11.7.8 container.
+
 ## [0.3.1] — 2026-08-12
 
 ### Breaking

@@ -29,7 +29,6 @@ from axion_wizard.domain.config import WireguardVariant
 from axion_wizard.domain.deployment import DeploymentFacts, discover_deployment
 from axion_wizard.domain.stack import (
     FASTAPI_SERVICE,
-    MATTERMOST_SERVICE,
     NGINX_SERVICE,
     WIREGUARD_SERVICE,
 )
@@ -153,20 +152,26 @@ def check_cert_has_san(cert_path: Path) -> CheckResult:
 
 def check_webhook_reachable(
     compose_path: Path,
-    mattermost_service: str = MATTERMOST_SERVICE,
+    nginx_service: str = NGINX_SERVICE,
     fastapi_service: str = FASTAPI_SERVICE,
     timeout: float = 15.0,
 ) -> CheckResult:
-    """Method: `docker exec <mattermost>` → a request to `fastapi:8000/health`.
+    """Method: `docker exec <nginx>` → a request to `fastapi:8000/health`.
 
-    `curl`, not `wget`: the official mattermost-team-edition image does not
-    ship wget (the same finding as the service's own healthcheck, §4.6) — this
-    check always failed with "executable file not found in $PATH",
-    indistinguishable from a genuinely unreachable webhook.
+    Run from nginx, not mattermost: both sit on `edge_net`, so reachability of
+    `fastapi:8000` is the same fact regardless of which container asks — this
+    only checks Docker-network connectivity, not Mattermost's own SSRF
+    allow-list, which is application-level and no external process run inside
+    its container can exercise. Used to run as `docker exec <mattermost>
+    curl ...`, but 11.x's image ships no shell and no general-purpose tool at
+    all — not curl, not wget, not even `cat` (the same finding as the
+    service's own healthcheck, §4.6) — so that exec always failed with
+    "executable file not found in $PATH", indistinguishable from a genuinely
+    unreachable webhook. nginx's image still carries curl.
     """
     result = compose.exec_in_service(
         compose_path,
-        mattermost_service,
+        nginx_service,
         ["curl", "-fsS", f"http://{fastapi_service}:8000/health"],
         timeout=timeout,
     )

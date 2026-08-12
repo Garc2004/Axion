@@ -80,11 +80,17 @@ services:
     networks:
       - edge_net
     healthcheck:
-      # curl, not wget: the official mattermost-team-edition image does not
-      # ship wget, so that healthcheck always failed with "executable file not
-      # found in $PATH" — Docker marked the container "unhealthy" forever,
-      # even though the server answered perfectly from the inside.
-      test: ["CMD", "curl", "-fsS", "http://localhost:8065/api/v4/system/ping"]
+      # mmctl, not curl: 11.x's image dropped every general-purpose tool —
+      # no shell, no coreutils, not even curl or wget (both were present on
+      # 10.x's Ubuntu-based image; this is the same "executable file not
+      # found in $PATH" failure the old comment here described for wget,
+      # now hitting curl too after the major bump). `mmctl` is the one binary
+      # the image still ships beside the server itself, and `system status
+      # --local` is exactly what the image's own baked-in HEALTHCHECK runs —
+      # it talks over `/var/tmp/mattermost_local.socket`
+      # (`MM_SERVICESETTINGS_ENABLELOCALMODE=true` is baked into the image's
+      # env), not HTTP, so nothing else needs to be reachable for it to answer.
+      test: ["CMD", "/mattermost/bin/mmctl", "system", "status", "--local"]
       interval: 15s
       timeout: 5s
       retries: 10

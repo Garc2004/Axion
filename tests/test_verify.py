@@ -127,17 +127,21 @@ def test_check_webhook_reachable_failure(mocker) -> None:
     assert "refused" in result.detail
 
 
-def test_check_webhook_reachable_uses_curl_not_wget(mocker) -> None:
-    """A real regression: the mattermost-team-edition image does not ship wget
-    (the same finding as the service's own healthcheck) — with wget this check
-    always failed with 'executable file not found in $PATH', indistinguishable
-    from a genuinely unreachable webhook."""
+def test_check_webhook_reachable_uses_curl_from_nginx(mocker) -> None:
+    """A real regression, twice over: the mattermost-team-edition image never
+    shipped wget, and as of 11.x it ships no general-purpose tool at all —
+    not even curl anymore. Execing into mattermost for this check always
+    failed with 'executable file not found in $PATH', indistinguishable from
+    a genuinely unreachable webhook — so this runs from nginx instead, which
+    still carries curl and sits on the same network."""
     exec_mock = mocker.patch(
         "axion_wizard.steps.s09_verify.compose.exec_in_service",
         return_value=CommandResult(args=[], returncode=0, stdout='{"status":"ok"}', stderr=""),
     )
     verify.check_webhook_reachable(Path("x"))
+    service = exec_mock.call_args[0][1]
     command = exec_mock.call_args[0][2]
+    assert service == "nginx"
     assert "wget" not in command
     assert command[0] == "curl"
 
