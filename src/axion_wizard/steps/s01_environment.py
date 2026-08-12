@@ -194,6 +194,7 @@ class EnvironmentStep(Step):
             f"this machine — the model will run on CPU. {why}"
         )
         self.context.warn(message)
+        console.print()
         console.print(f"[axion.warn]{message}[/]")
 
     def _check_ipv6_netfilter(self, variant: str) -> bool:
@@ -213,6 +214,7 @@ class EnvironmentStep(Step):
 
         supported = detect_docker.docker_ipv6_netfilter_works()
         if not supported:
+            console.print()
             console.print(
                 "[axion.dim]This machine's Docker cannot run IPv6 netfilter rules "
                 "(common under Docker Desktop): the WireGuard tunnel will carry IPv4 "
@@ -237,6 +239,7 @@ class EnvironmentStep(Step):
             "filesystem (~/)."
         )
         self.context.warn(message)
+        console.print()
         console.print(f"[axion.warn]{message}[/]")
 
     def _warn_about_broken_mirrored(self, wsl: detect_platform.WslInfo) -> None:
@@ -255,6 +258,7 @@ class EnvironmentStep(Step):
             "The stack will not be reachable from the LAN without `netsh portproxy`."
         )
         self.context.warn(message)
+        console.print()
         console.print(f"[axion.warn]{message}[/]")
 
     def _warn_about_windows_docker_desktop_lan_exposure(
@@ -309,12 +313,15 @@ class EnvironmentStep(Step):
                 # looks right. Client isolation on the router is another matter
                 # entirely — it is warned about anyway, because from here there
                 # is no way to check it.
-                self.context.warn(
+                isolation_message = (
                     "LAN access also depends on the router not isolating clients from "
                     "each other (AP/client isolation). If Mattermost will not load "
                     "from another device despite the Windows configuration, check that "
                     "option in the router's admin panel."
                 )
+                self.context.warn(isolation_message)
+                console.print()
+                console.print(f"[axion.warn]{isolation_message}[/]")
                 self._warn_about_mirrored_tcp_stalls()
                 return
             message = (
@@ -330,6 +337,7 @@ class EnvironmentStep(Step):
             )
 
         self.context.warn(message)
+        console.print()
         console.print(f"[axion.warn]{message}[/]")
         console.print(f"[axion.dim]Before deploying: {steps_hint}.[/]")
 
@@ -356,6 +364,7 @@ class EnvironmentStep(Step):
             "alternative is going back to NAT plus `netsh portproxy`."
         )
         self.context.warn(message)
+        console.print()
         console.print(f"[axion.dim]{message}[/]")
         console.print(
             "[axion.dim]To confirm it without changing anything: `axion-wizard doctor` "
