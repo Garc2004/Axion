@@ -22,6 +22,7 @@ in synchronous mode.
 
 from __future__ import annotations
 
+from axion_wizard.domain.stack import WEBHOOK_CALLBACK_URL
 from axion_wizard.render.console import console
 from axion_wizard.steps.base import Step, StepResult
 from axion_wizard.steps.prompts import interactive_input_available
@@ -60,7 +61,8 @@ class BotSetupStep(Step):
         )
         console.print(
             "  2. Integrations → Outgoing Webhooks → Create, pointing at the channel "
-            "the AI should answer in, and copy its token."
+            f"the AI should answer in, with [axion.info]{WEBHOOK_CALLBACK_URL}[/] as "
+            "the Callback URL, and copy its token."
         )
 
         bot_token, webhook_token = self._collect_tokens()

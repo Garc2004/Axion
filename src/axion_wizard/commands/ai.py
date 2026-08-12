@@ -19,7 +19,7 @@ import asyncio
 from typing import TYPE_CHECKING
 
 from axion_wizard.commands._common import announce_dry_run, compose_path_of
-from axion_wizard.domain.stack import FASTAPI_SERVICE
+from axion_wizard.domain.stack import FASTAPI_SERVICE, WEBHOOK_CALLBACK_URL
 from axion_wizard.errors import ConfigError
 from axion_wizard.render import ui
 from axion_wizard.render.console import console
@@ -63,7 +63,10 @@ def run_set_webhook_token(state: GlobalState, token: str) -> None:
     token = _validated_token(
         token,
         label="the token",
-        source_hint="Copy the token from Mattermost: Integrations → Outgoing Webhooks.",
+        source_hint=(
+            "Create it in Mattermost: Integrations → Outgoing Webhooks → Create, "
+            f"with {WEBHOOK_CALLBACK_URL} as the Callback URL — then copy its token."
+        ),
     )
     env_path = state.project_dir / ".env"
 

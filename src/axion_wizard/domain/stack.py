@@ -49,3 +49,12 @@ MANAGED_SERVICES = (
 #: one of these leaves nginx pointing at a stale container IP — see
 #: `s06_deploy.refresh_nginx`.
 NGINX_UPSTREAM_SERVICES = frozenset({MATTERMOST_SERVICE})
+
+#: Where Mattermost's outgoing webhook has to POST — the "Callback URLs"
+#: field of Integrations → Outgoing Webhooks → Create. Not obvious from the
+#: panel itself and undocumented anywhere else: `fastapi/main.py` only
+#: defines the route (`POST /webhook/mattermost`), so both `s08b_bot_setup`'s
+#: install-time instructions and `set-webhook-token`'s error hint need this
+#: same string — kept in one place rather than typed twice and one day
+#: drifting out of sync with the route.
+WEBHOOK_CALLBACK_URL = f"http://{FASTAPI_SERVICE}:8000/webhook/mattermost"
