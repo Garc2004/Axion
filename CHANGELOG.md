@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.3] — 2026-08-12
+
+### Fixed
+
+- **Step 9's Mattermost bot/webhook instructions said what to copy *out* of
+  the panel (the token) but never what to paste *into* it.** Outgoing
+  Webhooks → Create requires a Callback URL, and nothing — not the wizard,
+  not the README, not `docs/` — said what it was; the only way to find out
+  was reading `fastapi/main.py` for the route it defines. Step 9 now prints
+  `http://fastapi:8000/webhook/mattermost` alongside the existing
+  instructions, and `set-webhook-token`'s empty-token error carries the same
+  hint for whoever skipped it during install. The URL lives once in
+  `domain/stack.py` (`WEBHOOK_CALLBACK_URL`), next to `FASTAPI_SERVICE`, so
+  the two call sites can't drift from the actual route.
+
 ## [0.3.2] — 2026-08-12
 
 ### Fixed
