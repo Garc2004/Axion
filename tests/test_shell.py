@@ -172,3 +172,61 @@ def test_terminate_kills_first_when_aborting(mocker) -> None:
     shell._terminate(proc, expect_exit=False)
 
     proc.kill.assert_called_once()
+
+
+# --- the bounded close ---------------------------------------------------------
+#
+# Regression: `_terminate` closed stdout unconditionally, on the assumption that
+# killing the child guarantees the reader hits EOF. That only holds while the
+# child owns the pipe's write end alone — on Windows a grandchild that inherited
+# the handle keeps it open, the pending read never returns, and `close()` waits
+# for exactly that read. A timeout then becomes a hang, in the one code path
+# whose entire job is to give up.
+
+
+def test_terminate_does_not_close_the_pipe_while_the_reader_is_stuck(mocker) -> None:
+    mocker.patch.object(shell, "_READER_JOIN_TIMEOUT", 0.05)
+    proc = mocker.Mock()
+    proc.poll.return_value = None
+    proc.stdout = mocker.Mock()
+    stuck_reader = mocker.Mock()
+    stuck_reader.is_alive.return_value = True
+
+    shell._terminate(proc, reader=stuck_reader, expect_exit=False)
+
+    stuck_reader.join.assert_called_once()
+    proc.stdout.close.assert_not_called()
+
+
+def test_terminate_closes_the_pipe_once_the_reader_is_done(mocker) -> None:
+    proc = mocker.Mock()
+    proc.poll.return_value = None
+    proc.stdout = mocker.Mock()
+    finished_reader = mocker.Mock()
+    finished_reader.is_alive.return_value = False
+
+    shell._terminate(proc, reader=finished_reader, expect_exit=False)
+
+    proc.stdout.close.assert_called_once()
+
+
+def test_run_streaming_returns_promptly_when_a_grandchild_holds_the_pipe() -> None:
+    """The real shape of the bug, end to end: the child spawns a grandchild that
+    inherits stdout and outlives it, so the pipe never reaches EOF. The timeout
+    has to still return, rather than blocking in `_terminate`."""
+    code = (
+        "import subprocess, sys, time; "
+        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], "
+        "stdout=sys.stdout); "
+        "print('spawned', flush=True); "
+        "sys.exit(0)"
+    )
+    start = time.monotonic()
+
+    with pytest.raises(shell.CommandTimeoutError):
+        shell.run_streaming(
+            [sys.executable, "-c", code], on_line=lambda _line: None, timeout=1.0
+        )
+
+    elapsed = time.monotonic() - start
+    assert elapsed < 15, f"took {elapsed:.1f}s; _terminate is blocking on the orphaned pipe"

@@ -46,6 +46,16 @@ class EnvironmentFacts:
     #: GPUs with no passthrough support under WSL2 (§7, a real incident). Each
     #: mode also implies a different Ollama image.
     gpu_acceleration: str = detect_docker.GPU_ACCELERATION_NONE
+    #: Whether the container runtime's kernel can run IPv6 netfilter rules —
+    #: only meaningful for the `ports` variant, which is the only one the
+    #: compose template consults it for (native Linux's `host` variant has
+    #: `network_mode: host` and no IPv6 handling to switch off). Defaults to
+    #: `False` — the same "assume the safe/off setting until proven otherwise"
+    #: choice as `gpu_acceleration`'s default: wrongly assuming it works
+    #: reproduces the incident this exists to prevent (wg-easy's `PostUp`
+    #: aborting and leaving the tunnel dead); wrongly assuming it is broken
+    #: only costs IPv6 inside a VPN tunnel nobody is relying on for that.
+    wireguard_ipv6_supported: bool = False
 
     @property
     def gpu_passthrough_works(self) -> bool:

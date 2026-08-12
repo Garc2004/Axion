@@ -186,6 +186,10 @@ def _render(template_name: str, context: dict) -> str:
 def build_compose_context(
     config: AxionConfig,
     gpu_acceleration: str = GPU_ACCELERATION_NONE,
+    #: `False` until step 1 proves otherwise — see
+    #: `EnvironmentFacts.wireguard_ipv6_supported` for why the safe default is
+    #: "assume broken", the same choice `gpu_acceleration` already makes.
+    wireguard_ipv6_supported: bool = False,
 ) -> dict:
     return {
         "n8n_image": images.N8N_IMAGE,
@@ -199,12 +203,20 @@ def build_compose_context(
         "wireguard_image": images.WIREGUARD_IMAGE,
         "backup_image": images.BACKUP_IMAGE,
         "gpu_acceleration": gpu_acceleration,
+        "wireguard_ipv6_supported": wireguard_ipv6_supported,
         "outgoing_webhook_timeout": OUTGOING_WEBHOOK_TIMEOUT_SECONDS,
     }
 
 
-def render_compose(config: AxionConfig, gpu_acceleration: str = GPU_ACCELERATION_NONE) -> str:
-    return _render("docker-compose.yml.j2", build_compose_context(config, gpu_acceleration))
+def render_compose(
+    config: AxionConfig,
+    gpu_acceleration: str = GPU_ACCELERATION_NONE,
+    wireguard_ipv6_supported: bool = False,
+) -> str:
+    return _render(
+        "docker-compose.yml.j2",
+        build_compose_context(config, gpu_acceleration, wireguard_ipv6_supported),
+    )
 
 
 #: `.env` keys the user fills in *after* deployment, and which therefore have
@@ -464,12 +476,17 @@ def merge_compose_preserving_user_edits(existing_text: str, rendered_text: str) 
 
 
 def render_compose_to_disk(
-    config: AxionConfig, compose_path: Path, gpu_acceleration: str = GPU_ACCELERATION_NONE
+    config: AxionConfig,
+    compose_path: Path,
+    gpu_acceleration: str = GPU_ACCELERATION_NONE,
+    wireguard_ipv6_supported: bool = False,
 ) -> Path | None:
     """Render `docker-compose.yml`, backing up and merging if it already
     existed. Returns the path of the backup created, or `None` if the file was
     new."""
-    rendered = render_compose(config, gpu_acceleration=gpu_acceleration)
+    rendered = render_compose(
+        config, gpu_acceleration=gpu_acceleration, wireguard_ipv6_supported=wireguard_ipv6_supported
+    )
     validate_compose_yaml_shape(rendered)
     assert_ssrf_env_present(rendered)
     assert_no_unpinned_images(rendered)
@@ -664,7 +681,10 @@ class ComposeStep(Step):
         project_name = resolve_compose_project_name(self.context.project_dir)
 
         backup_path = render_compose_to_disk(
-            config, compose_path, gpu_acceleration=environment.gpu_acceleration
+            config,
+            compose_path,
+            gpu_acceleration=environment.gpu_acceleration,
+            wireguard_ipv6_supported=environment.wireguard_ipv6_supported,
         )
 
         # The values the user fills in after deployment (webhook token, AI

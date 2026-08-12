@@ -252,6 +252,33 @@ def test_render_compose_ports_variant_publishes_ports_and_sysctls() -> None:
     assert "edge_net" in wg["networks"]
 
 
+def test_render_compose_ports_variant_disables_ipv6_by_default() -> None:
+    """Not called `wireguard_ipv6_supported` is the same "assume broken until
+    proven otherwise" default as `gpu_acceleration`: whoever renders without
+    threading step 1's probe through gets the safe setting, not the one that
+    reproduces the incident."""
+    config = make_config(wireguard_variant=WireguardVariant.PORTS)
+    data = _load_yaml(s05.render_compose(config))
+    assert data["services"]["wireguard"]["environment"]["DISABLE_IPV6"] == "true"
+
+
+def test_render_compose_ports_variant_keeps_ipv6_when_the_probe_says_it_works() -> None:
+    """When step 1's real probe (`docker_ipv6_netfilter_works`) confirms the
+    kernel can run IPv6 netfilter, nothing needs disabling."""
+    config = make_config(wireguard_variant=WireguardVariant.PORTS)
+    data = _load_yaml(s05.render_compose(config, wireguard_ipv6_supported=True))
+    assert "environment" not in data["services"]["wireguard"]
+
+
+def test_render_compose_host_variant_ignores_ipv6_support() -> None:
+    """`network_mode: host` has no IPv6 handling to switch off in the first
+    place, so the flag makes no difference to this branch either way."""
+    config = make_config(wireguard_variant=WireguardVariant.HOST)
+    for supported in (True, False):
+        data = _load_yaml(s05.render_compose(config, wireguard_ipv6_supported=supported))
+        assert "environment" not in data["services"]["wireguard"]
+
+
 def test_render_compose_nvidia_adds_deploy_reservation() -> None:
     data = _load_yaml(s05.render_compose(make_config(), gpu_acceleration="nvidia"))
     ollama = data["services"]["ollama"]

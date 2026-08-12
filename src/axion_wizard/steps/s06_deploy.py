@@ -33,17 +33,35 @@ from axion_wizard.errors import DeploymentError
 from axion_wizard.render.console import console
 from axion_wizard.services import compose
 from axion_wizard.steps.base import Step, StepResult
+from axion_wizard.utils.shell import CommandNotFoundError, CommandTimeoutError
 
-DEFAULT_UP_TIMEOUT = 900.0
+#: A single source of truth with `services.compose`: the deployment's limit is
+#: a property of the command, not of the step that happens to call it.
+DEFAULT_UP_TIMEOUT = compose.DEFAULT_UP_TIMEOUT
 DEFAULT_HEALTHCHECK_TIMEOUT = 300.0
 
 _DONE_STATUSES = frozenset({"Started", "Healthy", "Running", "Built"})
 
+#: `Image` as well as `Container`: `docker compose up --build` announces the
+#: build as ` Image axion-fastapi Building ` and ` Image axion-fastapi Built `,
+#: and without that alternative the regex read `Image` as the name, looked for a
+#: status right after it, found the image's name instead and matched nothing —
+#: so the two events that frame the longest phase of a first install were the
+#: ones being dropped. The image name carries the service's, which is all
+#: `_match_task` needs.
 _PROGRESS_LINE_RE = re.compile(
-    r"^\s*(?:Container\s+)?(?P<name>\S+)\s+(?P<status>Pulling|Pulled|Building|Built|"
+    r"^\s*(?:(?:Container|Image)\s+)?(?P<name>\S+)\s+(?P<status>Pulling|Pulled|Building|Built|"
     r"Creating|Created|Starting|Started|Waiting|Healthy|Running|Removing|Removed|"
     r"Stopping|Stopped|Error)\b"
 )
+
+#: Buildkit's own progress, which names no service: `#7 [4/5] RUN pip install …`,
+#: `#11 exporting layers`. See `parse_buildkit_step_line`.
+_BUILDKIT_STEP_RE = re.compile(r"^#\d+\s+(?P<detail>(?:\[[^\]]*\]|exporting)\s*\S.*)$")
+
+#: Buildkit details are long (a whole `RUN` line) and share the row with the
+#: bar; past this they are cut with an ellipsis.
+_MAX_STATUS_LENGTH = 44
 
 
 def parse_progress_line(line: str) -> tuple[str, str] | None:
@@ -54,6 +72,32 @@ def parse_progress_line(line: str) -> tuple[str, str] | None:
     if not match:
         return None
     return match.group("name"), match.group("status")
+
+
+def parse_buildkit_step_line(line: str) -> str | None:
+    """The readable part of a buildkit progress line, or `None`.
+
+    A first install spends most of step 6 inside buildkit, and buildkit says
+    nothing about services: of the 48 lines a minimal build emits, 30 look like
+    `#6 [2/2] RUN …` and `parse_progress_line` matches not one of them. The
+    result was that every bar sat at "waiting…" for the whole build while
+    Docker Desktop still showed no containers — indistinguishable, from the
+    outside, from the wizard having hung. This is a real incident, and the
+    reason the wizard reports what buildkit is doing instead of ignoring it.
+
+    Which bar it belongs to cannot be read from the line itself; `deploy`
+    routes it to whichever service the preceding ` Image … Building ` named.
+    """
+    match = _BUILDKIT_STEP_RE.match(line.strip())
+    if not match:
+        return None
+    return match.group("detail").strip() or None
+
+
+def shorten_status(detail: str, limit: int = _MAX_STATUS_LENGTH) -> str:
+    if len(detail) <= limit:
+        return detail
+    return f"{detail[: limit - 1].rstrip()}…"
 
 
 def _match_task(tasks: dict[str, TaskID], container_or_service_name: str) -> TaskID | None:
@@ -69,7 +113,8 @@ def _match_task(tasks: dict[str, TaskID], container_or_service_name: str) -> Tas
 def deploy(compose_path: Path, services: list[str], timeout: float = DEFAULT_UP_TIMEOUT) -> None:
     """`docker compose up -d --build` with one progress bar per service.
     Raises `DeploymentError` carrying the failed container's log if the
-    command exits non-zero."""
+    command exits non-zero, or `compose.build_up_timeout_error` if it runs out
+    of time."""
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}", justify="left"),
@@ -80,18 +125,35 @@ def deploy(compose_path: Path, services: list[str], timeout: float = DEFAULT_UP_
         tasks: dict[str, TaskID] = {
             name: progress.add_task(name, total=1, status="waiting…") for name in services
         }
+        #: The bar buildkit's output belongs to: whichever service the last
+        #: ` Image … Building ` named.
+        building: TaskID | None = None
 
         def on_line(line: str) -> None:
+            nonlocal building
             parsed = parse_progress_line(line)
-            if parsed is None:
+            if parsed is not None:
+                name, status = parsed
+                task_id = _match_task(tasks, name)
+                if task_id is not None:
+                    if status == "Building":
+                        building = task_id
+                    elif status == "Built":
+                        building = None
+                    completed = 1 if status in _DONE_STATUSES else 0
+                    progress.update(task_id, status=status, completed=completed)
                 return
-            name, status = parsed
-            task_id = _match_task(tasks, name)
-            if task_id is not None:
-                completed = 1 if status in _DONE_STATUSES else 0
-                progress.update(task_id, status=status, completed=completed)
 
-        result = compose.up(compose_path, on_line=on_line, timeout=timeout)
+            # Not a compose event: it may still be buildkit reporting the step
+            # it is on, which is the only sign of life during a build.
+            detail = parse_buildkit_step_line(line)
+            if detail is not None and building is not None:
+                progress.update(building, status=shorten_status(detail))
+
+        try:
+            result = compose.up(compose_path, on_line=on_line, timeout=timeout)
+        except CommandTimeoutError as exc:
+            raise compose.build_up_timeout_error(compose_path, timeout) from exc
 
     if not result.ok:
         failed_service = _first_not_running_service(compose_path, services) or services[0]
@@ -149,8 +211,21 @@ def check_ollama_ready(
     compose_path: Path, service: str = OLLAMA_SERVICE, timeout: float = 10.0
 ) -> bool:
     """`ollama list` internally queries the same endpoint as `GET /api/tags`;
-    using it avoids depending on the image shipping HTTP tools."""
-    result = compose.exec_in_service(compose_path, service, ["ollama", "list"], timeout=timeout)
+    using it avoids depending on the image shipping HTTP tools.
+
+    A timeout is answered with `False`, not with an exception: this runs inside
+    `wait_for_healthy`'s retry loop, where "it did not answer in ten seconds"
+    means precisely "not ready yet" and the next round will ask again. Letting
+    `CommandTimeoutError` escape instead aborted the whole step over one slow
+    reply — and because it is not an `AxionError`, it did so without recording
+    the failure and under the `Unexpected error` handler.
+    """
+    try:
+        result = compose.exec_in_service(
+            compose_path, service, ["ollama", "list"], timeout=timeout
+        )
+    except (CommandTimeoutError, CommandNotFoundError):
+        return False
     return result.ok
 
 

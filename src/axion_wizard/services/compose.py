@@ -15,10 +15,33 @@ from pathlib import Path
 from axion_wizard.errors import ConfigError, DeploymentError
 from axion_wizard.utils.jsonio import parse_json_lines_or_array
 from axion_wizard.utils.secrets import redact
-from axion_wizard.utils.shell import CommandNotFoundError, CommandResult, run, run_streaming
+from axion_wizard.utils.shell import (
+    CommandNotFoundError,
+    CommandResult,
+    CommandTimeoutError,
+    run,
+    run_streaming,
+)
 
 DEFAULT_TIMEOUT = 30.0
-DEFAULT_UP_TIMEOUT = 900.0
+
+#: Limit for `up -d --build`, which on a first install has to cover pulling the
+#: whole stack — ollama alone is over 6 GB, and the eight images together come
+#: to around eleven.
+#:
+#: It used to be 900 s, and that is not a margin: **without a TTY, Docker emits
+#: no byte-level progress**. Measured against this same daemon, a pull writes
+#: only state transitions (`Pulling fs layer` → `Download complete` → `Pull
+#: complete`), so one large layer is a *single* silent stretch lasting as long
+#: as the download does. The limit therefore has to cover the entire transfer,
+#: not a lull in it: on a domestic line those eleven gigabytes take well over
+#: fifteen minutes, and the wizard was killing its own deployment halfway
+#: through and blaming the timeout.
+#:
+#: The other half of that failure — that giving up used to be indistinguishable
+#: from hanging — is handled by `build_up_timeout_error`.
+DEFAULT_UP_TIMEOUT = 3600.0
+
 DEFAULT_LOG_TAIL_LINES = 30
 
 
@@ -160,8 +183,22 @@ def parse_ps_output(output: str) -> list[ContainerStatus]:
 
 
 def ps(compose_path: Path, timeout: float = DEFAULT_TIMEOUT) -> list[ContainerStatus]:
+    """The state of the project's containers, or an empty list if it could not
+    be read.
+
+    A timeout counts as "could not be read" rather than as an error to raise.
+    This is called from inside `s06_deploy.wait_for_healthy`'s retry loop and
+    from every `doctor` check, and in both places an empty list already means
+    "nothing is operational" and produces the right message. Raising instead
+    meant a `CommandTimeoutError` — not an `AxionError` — escaping through the
+    generic handler, so a daemon that answered slowly once looked like a wizard
+    crash and left nothing recorded in the state file.
+    """
     args = [*_compose_base_args(compose_path), "ps", "--format", "json", "--all"]
-    result = run(args, timeout=timeout, cwd=str(compose_path.parent))
+    try:
+        result = run(args, timeout=timeout, cwd=str(compose_path.parent))
+    except (CommandNotFoundError, CommandTimeoutError):
+        return []
     if not result.ok:
         return []
     return parse_ps_output(result.stdout)
@@ -238,6 +275,51 @@ def describe_service_state(status: ContainerStatus | None, service: str) -> str:
             f"passing (state: `{status.health}`)."
         )
     return f"The container for `{service}` is running and healthy."
+
+
+def build_up_timeout_error(compose_path: Path, timeout: float) -> DeploymentError:
+    """Assemble the error for a `docker compose up` that ran out of time.
+
+    It exists because the alternative was letting `CommandTimeoutError` travel
+    up, and that is a plain `RuntimeError`: `run_steps` only records
+    `AxionError`, so the failure never reached `.axion-wizard-state.json` — the
+    state file stayed pointing at step 5 while the run had already given up on
+    step 6 — and it came out through the last-resort handler as `Unexpected
+    error: 900.0s timeout exceeded running: docker compose …`, exactly the raw
+    message §8 exists to prevent. From a real incident: forty minutes with the
+    eight containers up and healthy and a wizard that said nothing about it.
+
+    The containers are deliberately described as possibly fine: what timed out
+    is the command the wizard was watching, not necessarily the deployment, and
+    sending someone to tear down a stack that is already running would be the
+    wrong move.
+    """
+    running = [status.service for status in ps(compose_path) if status.is_running]
+    if running:
+        state_note = (
+            f"These containers are up despite it: {', '.join(sorted(running))}. What ran "
+            "out of time is the command the wizard was watching, not necessarily the "
+            "deployment itself."
+        )
+    else:
+        state_note = "No container from this project is up."
+
+    return DeploymentError(
+        what=f"`docker compose up` exceeded its {timeout:.0f}s limit",
+        why=(
+            f"{state_note}\n\nOn a first install this command downloads the whole stack "
+            "(around eleven gigabytes) and builds the FastAPI bridge, and Docker reports "
+            "no progress at all while a layer is downloading — so a slow connection can "
+            "look identical to a stall."
+        ),
+        steps=[
+            f"See what did come up: docker compose -f {compose_path} ps",
+            "Resume where it left off: axion-wizard install — already downloaded layers "
+            "are cached, so the retry starts from where the download got to.",
+            "If it times out again with nothing downloading, read the log of whichever "
+            f"service is missing: docker compose -f {compose_path} logs <service>",
+        ],
+    )
 
 
 def build_deployment_failure_error(compose_path: Path, service: str) -> DeploymentError:

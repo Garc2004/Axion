@@ -5,7 +5,7 @@ import pytest
 from axion_wizard.errors import DeploymentError
 from axion_wizard.services.compose import ContainerStatus
 from axion_wizard.steps import s06_deploy as s06
-from axion_wizard.utils.shell import CommandResult
+from axion_wizard.utils.shell import CommandResult, CommandTimeoutError
 
 # --- parse_progress_line / _match_task ---------------------------------------
 
@@ -24,11 +24,73 @@ def test_parse_progress_line(line: str, expected) -> None:
     assert s06.parse_progress_line(line) == expected
 
 
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        # `up --build` frames the build with these two, and they were the ones
+        # being dropped: the regex read `Image` as the name and found no status
+        # after it. They bracket the longest phase of a first install.
+        (" Image axion-fastapi Building ", ("axion-fastapi", "Building")),
+        (" Image axion-fastapi Built ", ("axion-fastapi", "Built")),
+    ],
+)
+def test_parse_progress_line_reads_image_build_events(line: str, expected) -> None:
+    assert s06.parse_progress_line(line) == expected
+
+
+def test_parse_progress_line_ignores_network_events() -> None:
+    """`Network axion_default Creating` is not a service event; matching it
+    would leave a bar reporting the network's state as its own."""
+    assert s06.parse_progress_line(" Network axion_default Creating ") is None
+
+
 def test_match_task_finds_service_by_substring() -> None:
     tasks = {"postgres": 1, "ollama": 2}
     assert s06._match_task(tasks, "axion-postgres-1") == 1
     assert s06._match_task(tasks, "axion-ollama-1") == 2
     assert s06._match_task(tasks, "axion-nginx-1") is None
+
+
+# --- parse_buildkit_step_line -------------------------------------------------
+#
+# The lines below are copied verbatim from a real `docker compose up -d --build`
+# against Docker Desktop: of the 48 it emitted, 30 were buildkit's and none was
+# recognised, which is why every bar stayed at "waiting…" for the whole build.
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        (
+            "#9 [4/5] RUN pip install --no-cache-dir -r requirements.txt",
+            "[4/5] RUN pip install --no-cache-dir -r requirements.txt",
+        ),
+        (
+            "#3 [internal] load metadata for docker.io/library/python:3.12-slim",
+            "[internal] load metadata for docker.io/library/python:3.12-slim",
+        ),
+        ("#11 exporting to image", "exporting to image"),
+        # Noise: neither says anything a reader would act on.
+        ("#6 DONE 3.4s", None),
+        ("#8 CACHED", None),
+        ("#1 reading from stdin 779B 0.0s done", None),
+        # Compose events are not buildkit's; they have their own parser.
+        (" Container axion-postgres-1 Started ", None),
+        ("", None),
+    ],
+)
+def test_parse_buildkit_step_line(line: str, expected) -> None:
+    assert s06.parse_buildkit_step_line(line) == expected
+
+
+def test_shorten_status_keeps_short_details_intact() -> None:
+    assert s06.shorten_status("exporting to image") == "exporting to image"
+
+
+def test_shorten_status_truncates_a_long_run_line() -> None:
+    shortened = s06.shorten_status("[4/5] RUN pip install --no-cache-dir -r requirements.txt")
+    assert len(shortened) <= s06._MAX_STATUS_LENGTH
+    assert shortened.endswith("…")
 
 
 # --- deploy() ------------------------------------------------------------------
@@ -66,6 +128,60 @@ def test_deploy_streams_lines_into_progress(mocker) -> None:
     mocker.patch("axion_wizard.steps.s06_deploy.compose.up", side_effect=fake_up)
     s06.deploy(Path("docker-compose.yml"), services=["postgres"])
     assert len(captured_lines) == 2
+
+
+def test_deploy_turns_a_timeout_into_a_reported_failure(mocker) -> None:
+    """Regression: `compose.up` timing out raised `CommandTimeoutError`, a plain
+    `RuntimeError`. `run_steps` records only `AxionError`, so the run gave up on
+    step 6 without writing it to `.axion-wizard-state.json` and surfaced as
+    `Unexpected error: 900.0s timeout exceeded …`."""
+    mocker.patch(
+        "axion_wizard.steps.s06_deploy.compose.up",
+        side_effect=CommandTimeoutError(["docker", "compose", "up"], 900.0),
+    )
+    mocker.patch("axion_wizard.steps.s06_deploy.compose.ps", return_value=[])
+
+    with pytest.raises(DeploymentError) as exc_info:
+        s06.deploy(Path("docker-compose.yml"), services=["postgres"], timeout=900.0)
+
+    # The limit that was actually in force, so the number in the panel matches
+    # the one the run was using.
+    assert "900" in exc_info.value.what
+    # It must point somewhere, not just announce the timeout.
+    assert exc_info.value.steps
+
+
+def test_deploy_timeout_says_which_containers_did_come_up(mocker) -> None:
+    """Sending someone to tear down a stack that is already running would be
+    the wrong move, so the error names what survived."""
+    mocker.patch(
+        "axion_wizard.steps.s06_deploy.compose.up",
+        side_effect=CommandTimeoutError(["docker", "compose", "up"], 900.0),
+    )
+    mocker.patch(
+        "axion_wizard.steps.s06_deploy.compose.ps",
+        return_value=[
+            ContainerStatus(service="postgres", name="p", state="running", health="healthy"),
+            ContainerStatus(service="nginx", name="n", state="created", health=None),
+        ],
+    )
+
+    with pytest.raises(DeploymentError) as exc_info:
+        s06.deploy(Path("docker-compose.yml"), services=["postgres", "nginx"])
+
+    assert "postgres" in exc_info.value.why
+    assert "nginx" not in exc_info.value.why  # created, not running
+
+
+def test_check_ollama_ready_treats_a_timeout_as_not_ready(mocker) -> None:
+    """Inside `wait_for_healthy`'s loop a slow answer means "not yet", and the
+    next round asks again. Letting the timeout escape aborted the whole step
+    over one slow reply, and did it without recording the failure."""
+    mocker.patch(
+        "axion_wizard.steps.s06_deploy.compose.exec_in_service",
+        side_effect=CommandTimeoutError(["docker", "compose", "exec"], 10.0),
+    )
+    assert s06.check_ollama_ready(Path("docker-compose.yml")) is False
 
 
 def test_first_not_running_service_returns_first_missing(mocker) -> None:

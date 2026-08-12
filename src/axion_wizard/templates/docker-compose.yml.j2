@@ -204,6 +204,30 @@ services:
       - SYS_MODULE
     sysctls:
       net.ipv4.conf.all.src_valid_mark: 1
+{%- if not wireguard_ipv6_supported %}
+    environment:
+      # `wireguard_ipv6_supported` comes from actually running `ip6tables -t
+      # nat` inside this same image in step 1 (see
+      # `detect.docker.docker_ipv6_netfilter_works`), not from assuming it by
+      # platform: Docker Desktop's WSL2 kernel is commonly built with no
+      # `ip6_tables` at all — not even `--privileged` changes that — and
+      # without this variable wg-easy writes an IPv6 address into wg0.conf and
+      # hooks `ip6tables` into its `PostUp`, which wg-quick runs as a single
+      # chain. That command's failure then aborts the whole thing with exit 3
+      # and rolls the interface back (`ip link delete dev wg0`).
+      #
+      # The container survives and the panel answers, so nothing looks broken
+      # from the outside; but `wg show` is empty, the image's own healthcheck
+      # (`wg show | grep -q interface`) fails forever, and step 6 waits on all
+      # eight services being healthy — so the install can never finish, with
+      # the real cause buried in the wireguard log. And the VPN is genuinely
+      # dead: no interface, no tunnel.
+      #
+      # It applies to an already-initialised volume too, unlike the `INIT_*`
+      # variables: wg-easy regenerates wg0.conf from this on every start, so
+      # enrolled clients survive the fix.
+      DISABLE_IPV6: "true"
+{%- endif %}
     env_file:
       - wg.env
     volumes:

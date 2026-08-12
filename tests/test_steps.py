@@ -112,6 +112,12 @@ def test_environment_step_picks_the_ports_variant_under_docker_desktop(
         "axion_wizard.steps.s01_environment.detect_hardware",
         return_value=HardwareInfo(ram_total_bytes=8 * 1024**3, cpu_logical=4, cpu_physical=4),
     )
+    # The `ports` variant makes `run()` probe IPv6 netfilter support for real;
+    # mocked here so the test does not shell out to an actual `docker run`.
+    mocker.patch(
+        "axion_wizard.steps.s01_environment.detect_docker.docker_ipv6_netfilter_works",
+        return_value=True,
+    )
     context = InstallContext(tmp_path)
     step = EnvironmentStep(GlobalState(project_dir=tmp_path, quiet=True), context)
 
@@ -401,6 +407,55 @@ def test_intel_gpu_says_there_is_no_ollama_image_instead_of_blaming_the_driver(
     warning = step.context.warnings[0]
     assert "Intel" in warning
     assert "NVIDIA" not in warning
+
+
+# --- real IPv6 netfilter support, not assumed from the platform ---------------------
+#
+# Regression from a real incident: wg-easy's `PostUp` runs `ip6tables -t nat`
+# unconditionally, and Docker Desktop's WSL2 kernel commonly has no `ip6_tables`
+# compiled in at all. `wg-quick` runs `PostUp` as one chain, so that command's
+# failure aborted the whole thing and rolled the WireGuard interface back — the
+# container stayed up and the panel answered, but `wg show` came back empty and
+# the image's own healthcheck failed forever, stalling step 6 indefinitely.
+
+
+def test_ipv6_netfilter_skipped_for_the_host_variant(tmp_path: Path, mocker) -> None:
+    """`network_mode: host` has no IPv6 handling to switch off — probing would
+    only cost an extra image pull for nothing."""
+    probe = mocker.patch(
+        "axion_wizard.steps.s01_environment.detect_docker.docker_ipv6_netfilter_works"
+    )
+    step = _env_step(tmp_path, mocker)
+
+    assert step._check_ipv6_netfilter("host") is True
+    probe.assert_not_called()
+
+
+def test_ipv6_netfilter_probed_for_the_ports_variant(tmp_path: Path, mocker) -> None:
+    probe = mocker.patch(
+        "axion_wizard.steps.s01_environment.detect_docker.docker_ipv6_netfilter_works",
+        return_value=True,
+    )
+    step = _env_step(tmp_path, mocker)
+
+    assert step._check_ipv6_netfilter("ports") is True
+    probe.assert_called_once()
+
+
+def test_ipv6_netfilter_unsupported_is_reported_but_not_a_warning(
+    tmp_path: Path, mocker
+) -> None:
+    """Losing IPv6 inside the VPN tunnel is not a broken deployment — nobody
+    relies on it for Mattermost/AI access — so it is worth mentioning but not
+    worth `context.warnings`, which feeds the closing summary's warning list."""
+    mocker.patch(
+        "axion_wizard.steps.s01_environment.detect_docker.docker_ipv6_netfilter_works",
+        return_value=False,
+    )
+    step = _env_step(tmp_path, mocker)
+
+    assert step._check_ipv6_netfilter("ports") is False
+    assert step.context.warnings == []
 
 
 def test_model_prompt_defaults_to_the_model_already_installed(tmp_path: Path, mocker) -> None:

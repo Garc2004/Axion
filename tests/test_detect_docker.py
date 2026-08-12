@@ -214,3 +214,53 @@ def test_gpu_passthrough_false_on_timeout(mocker) -> None:
         "axion_wizard.detect.docker.run", side_effect=CommandTimeoutError(["docker"], 60.0)
     )
     assert dk.docker_gpu_passthrough_works() is False
+
+
+# --- docker_ipv6_netfilter_works -----------------------------------------------------
+
+
+def test_ipv6_netfilter_true_when_the_probe_container_runs(mocker) -> None:
+    run_mock = mocker.patch(
+        "axion_wizard.detect.docker.run",
+        return_value=CommandResult(args=[], returncode=0, stdout="", stderr=""),
+    )
+    assert dk.docker_ipv6_netfilter_works() is True
+    # Probes with the pinned image that actually gets deployed, not a
+    # throwaway one — pulling it here costs nothing step 6 was not already
+    # going to spend.
+    from axion_wizard.domain.images import WIREGUARD_IMAGE
+
+    assert WIREGUARD_IMAGE in run_mock.call_args.args[0]
+
+
+def test_ipv6_netfilter_false_when_the_kernel_has_no_ip6_tables(mocker) -> None:
+    """The real, reproduced failure: `ip6tables -t nat` exits non-zero even
+    under full privileges, because the module is not compiled into the
+    kernel at all — not merely denied to the container."""
+    mocker.patch(
+        "axion_wizard.detect.docker.run",
+        return_value=CommandResult(
+            args=[],
+            returncode=1,
+            stdout="",
+            stderr=(
+                "ip6tables v1.8.11 (legacy): can't initialize ip6tables table `nat': "
+                "Table does not exist (do you need to insmod?)"
+            ),
+        ),
+    )
+    assert dk.docker_ipv6_netfilter_works() is False
+
+
+def test_ipv6_netfilter_false_when_docker_is_missing(mocker) -> None:
+    mocker.patch("axion_wizard.detect.docker.run", side_effect=CommandNotFoundError("docker"))
+    assert dk.docker_ipv6_netfilter_works() is False
+
+
+def test_ipv6_netfilter_false_on_timeout(mocker) -> None:
+    """A slow first pull of the wg-easy image must not be mistaken for a
+    broken deployment: it just falls back to the safe default (disabled)."""
+    mocker.patch(
+        "axion_wizard.detect.docker.run", side_effect=CommandTimeoutError(["docker"], 180.0)
+    )
+    assert dk.docker_ipv6_netfilter_works() is False

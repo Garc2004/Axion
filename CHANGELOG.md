@@ -5,6 +5,92 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+## [0.3.1] — 2026-08-12
+
+### Breaking
+
+- **Mattermost upgraded from 10.5.14 to 11.7.8.** The 10 line is a dead end:
+  both of its ESRs are now out of support — 10.5 since 2025-11-15, 10.11 since
+  2026-08-15 — so nothing found after those dates was ever backported to the
+  pin. 11.7 is the ESR Mattermost's own docs name as the replacement, with
+  support to 2027-05-15. This is the deliberate migration `domain/images.py`
+  had been deferring, not a patch bump: it carries a database schema migration
+  that does not come back. **Back up `postgres_data` and the `mattermost_*`
+  volumes before running `install`/`doctor --fix` against an existing
+  deployment.**
+
+### Fixed
+
+- **WireGuard could never come up on a kernel with no IPv6 netfilter, and the
+  install could never get past step 6 because of it.** Docker Desktop's WSL2
+  kernel commonly carries none at all, so the `ip6tables` commands wg-easy puts
+  in its `PostUp` fail with "Table does not exist" — and `wg-quick` runs that
+  hook as a single chain, so the failure aborted the whole thing and rolled the
+  interface back (`ip link delete dev wg0`). Nothing looked broken from the
+  outside: the container stayed up and the panel answered. But `wg show` was
+  empty, so the image's own healthcheck failed forever, step 6 waits on all
+  eight services being healthy, and the install stalled there with the real
+  cause buried in the wireguard log. The VPN was genuinely dead, too — no
+  interface, no tunnel.
+
+  Step 1 now actually tests this (`detect.docker.docker_ipv6_netfilter_works`,
+  in the same spirit as the existing GPU passthrough probes) rather than
+  assuming it from the platform: assuming it only on Windows would have left
+  Docker Desktop for macOS and Linux — which share the same affected engine —
+  silently broken by it too, while a native Linux Engine, which almost always
+  ships `ip6_tables` compiled in, would have paid for disabling IPv6 it never
+  needed. When the probe finds it broken, `wireguard`'s compose section gets
+  `DISABLE_IPV6=true`, which applies to an already-initialised volume as well,
+  so enrolled clients survive the fix.
+
+- **Step 6 reported nothing at all while it was building.** Buildkit's output
+  names no service — 30 of the 48 lines a minimal build emits look like
+  `#6 [2/2] RUN …` — and none of it was recognised, so every bar sat at
+  "waiting…" for the whole build while Docker Desktop still showed no
+  containers. On a first install that is many minutes indistinguishable from a
+  hang. The two events that frame the build (` Image … Building `/` Built `)
+  were being dropped too, because the parser read `Image` as the container's
+  name. Both are now recognised, and buildkit's step is shown on the bar of
+  whichever service is building.
+
+- **A `docker compose up` that ran out of time could hang forever, and when it
+  did not, it reported nothing useful.** Two separate faults met: the timeout
+  raised `CommandTimeoutError`, a plain `RuntimeError`, and the step runner
+  records only `AxionError` — so the failure never reached
+  `.axion-wizard-state.json` and came out through the last-resort handler as
+  `Unexpected error: 900.0s timeout exceeded running: docker compose …`. Worse,
+  the abort path closed the pipe on the assumption that killing the child
+  guarantees EOF, which only holds while the child owns the pipe's write end
+  alone: a grandchild that inherited the handle keeps it open, the pending read
+  never returns, and `close()` waits for exactly that read. Reproduced, and it
+  blocks indefinitely — a timeout turning into a hang in the one code path whose
+  job is to give up. The close is now bounded, and the timeout becomes a proper
+  error panel that names which containers did come up.
+
+### Changed
+
+- **The limit for `docker compose up` goes from 15 minutes to an hour.** Not a
+  cosmetic margin: without a TTY, Docker emits no byte-level progress — only
+  `Pulling fs layer` → `Download complete` → `Pull complete` — so one large
+  layer is a *single* silent stretch as long as the download itself. A first
+  install pulls around eleven gigabytes (ollama alone is over six), and on a
+  domestic line the wizard was killing its own deployment halfway through.
+- **Container images.** ollama 0.32.6 → 0.32.9 (and `-rocm`), n8n 2.34.4 →
+  2.35.1 — patch/minor bumps, no state to migrate. nginx's pin becomes the
+  exact `1.31.3-alpine` instead of the floating `1.31-alpine` it resolved to
+  anyway (same image digest) — consistent with every other pin here naming an
+  exact patch. postgres, wg-easy and docker-volume-backup were already at the
+  newest version within their pinned line.
+- The fastapi bridge's own `Dockerfile` moves off the floating `python:3.12-
+  slim` to the exact `python:3.12.13-slim` it already resolved to, same
+  reasoning as the nginx pin above.
+- `uv.lock` refreshed to the newest versions satisfying `pyproject.toml`'s
+  bounds (platformdirs, pydantic-settings, ruff, mypy tooling, pyinstaller and
+  their transitive dependencies). No dependency's lower bound changed; test
+  suite, ruff and mypy all pass unchanged against the new resolution.
+
 ## [0.3.0] — 2026-08-11
 
 ### Breaking

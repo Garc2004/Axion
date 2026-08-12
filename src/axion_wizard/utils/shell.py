@@ -128,13 +128,14 @@ def run_streaming(
 
     lines: list[str] = []
     finished_cleanly = False
+    reader, line_queue = _start_reader(proc)
     try:
-        for line in _iter_lines_with_timeout(proc, args, timeout):
+        for line in _iter_lines_with_timeout(line_queue, args, timeout):
             lines.append(line)
             on_line(line.rstrip("\n"))
         finished_cleanly = True
     finally:
-        _terminate(proc, expect_exit=finished_cleanly)
+        _terminate(proc, reader=reader, expect_exit=finished_cleanly)
 
     return CommandResult(
         args=args,
@@ -147,17 +148,14 @@ def run_streaming(
 _STREAM_EOF = object()
 
 
-def _iter_lines_with_timeout(
-    proc: subprocess.Popen, args: list[str], timeout: float
-) -> Iterator[str]:
-    """Iterate the lines of `proc.stdout` against a real global deadline.
+def _start_reader(proc: subprocess.Popen) -> tuple[threading.Thread, queue.Queue[object]]:
+    """Start the thread that drains `proc.stdout` into a queue.
 
-    Iterating the pipe directly (`for line in proc.stdout`) would only let the
-    timeout be checked *between* lines: a process that hangs without writing
-    anything would block forever, which is exactly what §6.3 forbids. Instead
-    a separate thread reads, and this waits on a queue with a timeout, so it
-    can abort even if not one line ever arrives. A thread (rather than
-    `selectors`) because on Windows you cannot `select()` on a pipe.
+    A thread (rather than `selectors`) because on Windows you cannot `select()`
+    on a pipe. It is started here, rather than inside
+    `_iter_lines_with_timeout`, so `_terminate` can also reach it: whether that
+    thread is still blocked on a read decides whether closing the pipe is safe
+    — see `_terminate`.
     """
     assert proc.stdout is not None
     line_queue: queue.Queue[object] = queue.Queue()
@@ -171,7 +169,20 @@ def _iter_lines_with_timeout(
 
     reader = threading.Thread(target=_reader, daemon=True)
     reader.start()
+    return reader, line_queue
 
+
+def _iter_lines_with_timeout(
+    line_queue: queue.Queue[object], args: list[str], timeout: float
+) -> Iterator[str]:
+    """Iterate the lines read by `_start_reader` against a real global deadline.
+
+    Iterating the pipe directly (`for line in proc.stdout`) would only let the
+    timeout be checked *between* lines: a process that hangs without writing
+    anything would block forever, which is exactly what §6.3 forbids. Waiting
+    on the queue with a timeout instead means the deadline holds even if not
+    one line ever arrives.
+    """
     deadline = time.monotonic() + timeout
     while True:
         remaining = deadline - time.monotonic()
@@ -191,8 +202,17 @@ def _iter_lines_with_timeout(
 #: reading its real exit code and replacing it with a signal's.
 _GRACEFUL_EXIT_TIMEOUT = 5.0
 
+#: How long to wait for the reader thread to notice the pipe is finished before
+#: giving up on closing it. See `_terminate`.
+_READER_JOIN_TIMEOUT = 5.0
 
-def _terminate(proc: subprocess.Popen, *, expect_exit: bool = False) -> None:
+
+def _terminate(
+    proc: subprocess.Popen,
+    *,
+    reader: threading.Thread | None = None,
+    expect_exit: bool = False,
+) -> None:
     """Make sure the process is dead and release the pipe.
 
     There are two paths, and confusing them cost the exit code:
@@ -213,6 +233,16 @@ def _terminate(proc: subprocess.Popen, *, expect_exit: bool = False) -> None:
       a 1, so a successful `docker compose up` was reported as a deployment
       failure. There is nothing hung to fear here: the pipe is closed, so
       waiting cannot block indefinitely.
+
+    In both paths the `close()` itself is bounded, because "killing the child
+    makes the reader get EOF" holds only while the child is the sole owner of
+    the pipe's write end. On Windows a grandchild that inherited that handle
+    keeps it open after its parent dies, the pending read never returns, and
+    `close()` — which waits for exactly that read — blocks forever. That turns
+    a timeout into a hang: the abort path is where the code has *already*
+    decided to give up, and it would sit there instead, with the spinner still
+    turning and nothing written to the state file. Rather than block, the handle
+    is left to the garbage collector, which is the cheaper of the two leaks.
     """
     if not expect_exit and proc.poll() is None:
         proc.kill()
@@ -221,6 +251,12 @@ def _terminate(proc: subprocess.Popen, *, expect_exit: bool = False) -> None:
     except subprocess.TimeoutExpired:
         proc.kill()
         proc.wait()
+    if reader is not None:
+        reader.join(timeout=_READER_JOIN_TIMEOUT)
+        if reader.is_alive():
+            # Still blocked on a read nobody is going to satisfy; closing here
+            # would block with it.
+            return
     if proc.stdout is not None:
         try:
             proc.stdout.close()

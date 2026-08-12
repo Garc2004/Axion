@@ -15,31 +15,28 @@ is not.
 from __future__ import annotations
 
 WIREGUARD_IMAGE = "ghcr.io/wg-easy/wg-easy:15.3.0"
-#: Stays on the 10.x line on purpose. 11 exists, but a major bump triggers
-#: schema migrations against the database that do not come back: not an
-#: upgrade an installer should apply on its own to a deployment with a message
-#: history inside it.
-#:
-#: Current on its own line — 10.5.14 is the last patch 10.5 received — but be
-#: clear about what that is worth: **10.5 is an ESR whose support ended on
-#: 2025-11-15**, so nothing found after that date has been backported to it.
-#: 10.11 ESR ends 2026-08-15, which buys nothing either. The supported
-#: destination is 11.7 ESR (to 2027-05-15), and getting there is a deliberate
-#: migration someone has to decide to run, not a pin change.
-MATTERMOST_IMAGE = "mattermost/mattermost-team-edition:10.5.14"
+#: Moved off the 10.x line on purpose: 10.5 and 10.11, the two ESRs in that
+#: line, both lost support before this pin changed — 10.5 on 2025-11-15,
+#: 10.11 on 2026-08-15 — so staying on 10.x meant riding a dead line with no
+#: backports coming. 11.7 is the ESR Mattermost's own docs name as the
+#: replacement (support to 2027-05-15); moving to it is the deliberate
+#: migration the previous comment here deferred, not a routine pin bump — it
+#: carries a database schema migration that does not come back, so back up
+#: `postgres_data` and `mattermost_*` before deploying this.
+MATTERMOST_IMAGE = "mattermost/mattermost-team-edition:11.7.8"
 #: Pinned to the 15 line for the same reason, and more so: changing major in
 #: PostgreSQL requires `pg_upgrade` or a dump and restore, and the container
 #: flatly refuses to start on a data directory from another version. Within
 #: 15, staying current is worth it — those are security patches.
 POSTGRES_IMAGE = "postgres:15.18-alpine"
-NGINX_IMAGE = "nginx:1.31-alpine"
-OLLAMA_IMAGE = "ollama/ollama:0.32.6"
+NGINX_IMAGE = "nginx:1.31.3-alpine"
+OLLAMA_IMAGE = "ollama/ollama:0.32.9"
 #: The same Ollama version built against ROCm, for AMD GPUs. The default
 #: image does not ship AMD's libraries: with it, handing over `/dev/kfd`
 #: achieves nothing and the model keeps running on CPU without saying why.
-OLLAMA_ROCM_IMAGE = "ollama/ollama:0.32.6-rocm"
+OLLAMA_ROCM_IMAGE = "ollama/ollama:0.32.9-rocm"
 BACKUP_IMAGE = "offen/docker-volume-backup:v2.48.2"
-N8N_IMAGE = "docker.n8n.io/n8nio/n8n:2.34.4"
+N8N_IMAGE = "docker.n8n.io/n8nio/n8n:2.35.1"
 
 ALL_PINNED_IMAGES = (
     WIREGUARD_IMAGE,

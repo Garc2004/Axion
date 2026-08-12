@@ -44,6 +44,7 @@ class EnvironmentStep(Step):
             os_info.name, docker.context.is_desktop
         )
         gpu_acceleration = self._check_gpu_passthrough(hardware)
+        ipv6_supported = self._check_ipv6_netfilter(variant)
         facts = EnvironmentFacts(
             os_info=os_info,
             wsl=wsl,
@@ -51,6 +52,7 @@ class EnvironmentStep(Step):
             hardware=hardware,
             wireguard_variant=variant,
             gpu_acceleration=gpu_acceleration,
+            wireguard_ipv6_supported=ipv6_supported,
         )
         self.context.environment = facts
 
@@ -193,6 +195,30 @@ class EnvironmentStep(Step):
         )
         self.context.warn(message)
         console.print(f"[axion.warn]{message}[/]")
+
+    def _check_ipv6_netfilter(self, variant: str) -> bool:
+        """Whether the runtime's kernel can run IPv6 netfilter rules, by
+        actually testing it — see `detect_docker.docker_ipv6_netfilter_works`
+        for the failure this exists to catch.
+
+        Only the `ports` variant's compose section reacts to the result
+        (`network_mode: host` has no IPv6 handling to switch off), so that is
+        the only case worth paying for a probe — which pulls the wg-easy
+        image early. Skipping it for `host` also means native Linux keeps its
+        current behaviour by default rather than losing IPv6 in the tunnel to
+        a probe it did not need.
+        """
+        if variant != WireguardVariant.PORTS.value:
+            return True
+
+        supported = detect_docker.docker_ipv6_netfilter_works()
+        if not supported:
+            console.print(
+                "[axion.dim]This machine's Docker cannot run IPv6 netfilter rules "
+                "(common under Docker Desktop): the WireGuard tunnel will carry IPv4 "
+                "only.[/]"
+            )
+        return supported
 
     # --- non-fatal warnings --------------------------------------------------------
 

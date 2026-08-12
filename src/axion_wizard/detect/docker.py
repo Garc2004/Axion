@@ -168,3 +168,61 @@ def docker_rocm_passthrough_works(timeout: float = 60.0) -> bool:
     except (CommandNotFoundError, CommandTimeoutError):
         return False
     return result.ok
+
+
+def docker_ipv6_netfilter_works(timeout: float = 180.0) -> bool:
+    """An actual test of whether the container runtime's kernel can run IPv6
+    netfilter rules — what wg-easy's `PostUp` needs for the `ip6tables -t nat`
+    hook it writes into `wg0.conf` alongside the IPv4 one.
+
+    Docker Desktop's WSL2 kernel is commonly built with no `ip6_tables` at
+    all — not merely unavailable to an unprivileged container: `docker run
+    --privileged` fails identically, with `ip6tables v1.8.11 (legacy): can't
+    initialize ip6tables table 'nat': Table does not exist`. `wg-quick` runs
+    `PostUp` as a single chain, so that one command's failure aborts the whole
+    thing and rolls the interface back (`ip link delete dev wg0`): the
+    container stays up and the panel answers, so nothing looks broken, but
+    `wg show` comes back empty, the image's own healthcheck fails forever, and
+    step 6 — which waits on every service being healthy — never finishes. This
+    is a real, reproduced incident, not a hypothetical.
+
+    It was tempting to assume this from the platform (Windows, `ports`
+    variant) rather than test it, the way `decide_wireguard_variant` assumes
+    Compose v2 support from the OS. That would have been wrong here: Docker
+    Desktop for macOS and Linux run the *same* affected engine, and assuming
+    the problem only on Windows would leave both silently broken by it too —
+    while a native Linux Engine, which almost always ships `ip6_tables`
+    compiled in, would pay for disabling IPv6 it never needed. Testing is what
+    tells the two apart.
+
+    Runs against the pinned `wireguard_image`, not a throwaway one: it is what
+    actually gets deployed, and step 6 pulls it regardless — probing with it
+    here does not add bytes to the total download, only moves this one image's
+    pull earlier. `--cap-add NET_ADMIN --cap-add SYS_MODULE` mirror exactly
+    what the real `wireguard` service is granted (see the compose template),
+    so the probe fails or succeeds under the same conditions the deployment
+    will.
+    """
+    from axion_wizard.domain.images import WIREGUARD_IMAGE
+
+    try:
+        result = run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--cap-add",
+                "NET_ADMIN",
+                "--cap-add",
+                "SYS_MODULE",
+                "--entrypoint",
+                "sh",
+                WIREGUARD_IMAGE,
+                "-c",
+                "ip6tables -t nat -L -n",
+            ],
+            timeout=timeout,
+        )
+    except (CommandNotFoundError, CommandTimeoutError):
+        return False
+    return result.ok
