@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.4] — 2026-08-12
+
+### Fixed
+
+- **The first WireGuard client could never be created.** Reproduced against a
+  real wg-easy v15.3.0: `POST /api/client`'s zod schema declares `expiresAt`
+  `.nullable()` without `.optional()` — it accepts `null` or a string, but
+  not the key being absent — so a request carrying only `{"name": ...}`
+  always came back `400 "expiresAt is required"`, in both step 8 and
+  `wireguard add-client`. The request now sends `expiresAt: null`; confirmed
+  live, the same request that used to 400 now returns `200` with a
+  `clientId`. Same trap already documented here for `login`'s `remember`.
+- The failure message for that case (and any other client-creation error)
+  only ever showed `AxionError.__str__`, which is just `what` — the actual
+  cause (`why`, e.g. "expiresAt is required") never reached the screen. Both
+  are shown now.
+- Step 1 could print up to four independent warnings (GPU, IPv6, crossed
+  filesystem, LAN exposure) back to back with no blank line between them,
+  reading as one undifferentiated paragraph instead of four distinct notes —
+  common on Docker Desktop for Windows, where several fire in the same run.
+  Separated. One of the four (client isolation on the router, when mirrored
+  networking already looks correctly configured) was being recorded for the
+  closing summary but never actually printed live — the only one of six
+  similar warnings in that file missing its `console.print`. It now shows up
+  when it happens, not just at the very end.
+
+### Changed
+
+- The instructions printed after a client's QR (step 8 and `wireguard
+  add-client`) go from one generic line — "scan the QR or import the
+  configuration manually" — to the actual steps: where to get WireGuard,
+  which menu item to use on mobile versus desktop, and to turn the tunnel on
+  once imported.
+
 ## [0.3.3] — 2026-08-12
 
 ### Fixed
