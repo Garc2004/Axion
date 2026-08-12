@@ -51,10 +51,8 @@ def run_wireguard_add_client(state: GlobalState, name: str) -> None:
 
     console.print(f"\n[axion.ok]Client created:[/] {client.name} (id {client.id})\n")
     console.print(wg.render_qr_terminal(client.config_text))
-    console.print(
-        "[axion.dim]Scan the QR with the WireGuard app, or import the "
-        "configuration manually from the panel.[/]"
-    )
+    console.print("[axion.info]Configure it in the WireGuard app:[/]")
+    console.print(wg.CLIENT_APP_SETUP_STEPS)
 
 
 def _ask_panel_credentials(known_username: str | None) -> tuple[str, str]:

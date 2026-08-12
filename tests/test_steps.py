@@ -10,7 +10,7 @@ from axion_wizard.detect.docker import DockerContextInfo, DockerInfo
 from axion_wizard.detect.hardware import HardwareInfo
 from axion_wizard.detect.platform import OsInfo, WslInfo
 from axion_wizard.domain.config import AccessMode, AxionConfig, WireguardVariant
-from axion_wizard.errors import PlatformError
+from axion_wizard.errors import DeploymentError, PlatformError
 from axion_wizard.steps.context import EnvironmentFacts, InstallContext
 
 
@@ -1110,3 +1110,39 @@ def test_wireguard_step_works_unattended(tmp_path: Path, mocker) -> None:
     )
 
     assert step.run().ok is True
+
+
+def test_wireguard_step_reports_why_not_just_what_on_failure(tmp_path: Path, mocker) -> None:
+    """A real regression: `AxionError.__str__` returns only `what`, so
+    printing `exc` alone always said the same generic 'could not create
+    client' sentence, whatever the real cause — a rejected password, a
+    validation error naming the exact field, the panel down mid-request.
+    `why` is the one that actually distinguishes them, and it went straight
+    into the void."""
+    from axion_wizard.steps.s08_wireguard import WireguardStep
+
+    mocker.patch("axion_wizard.steps.s08_wireguard.wg.wait_for_panel_ready")
+    panel = mocker.MagicMock()
+    panel.__aenter__ = mocker.AsyncMock(return_value=panel)
+    panel.__aexit__ = mocker.AsyncMock(return_value=False)
+    panel.login = mocker.AsyncMock()
+    mocker.patch(
+        "axion_wizard.steps.s08_wireguard.wg.WireguardPanelClient", return_value=panel
+    )
+    mocker.patch(
+        "axion_wizard.steps.s08_wireguard.wg.create_client_with_qr",
+        new=mocker.AsyncMock(
+            side_effect=DeploymentError(
+                what="The WireGuard panel could not create client 'first-client'",
+                why="expiresAt is required",
+                steps=["Read the wireguard container's logs."],
+            )
+        ),
+    )
+
+    context = _context(tmp_path)
+    step = WireguardStep(GlobalState(project_dir=tmp_path, unattended=True, quiet=True), context)
+    result = step.run()
+
+    assert result.ok is True
+    assert "expiresAt is required" in context.warnings[0]

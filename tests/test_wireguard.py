@@ -241,8 +241,23 @@ def test_create_client_success(mocker) -> None:
 
     assert asyncio.run(panel.create_client("my-phone")) == "abc"
     assert post.call_args[0][0] == "/api/client"
-    assert post.call_args[1]["json"] == {"name": "my-phone"}
+    assert post.call_args[1]["json"] == {"name": "my-phone", "expiresAt": None}
     get.assert_not_awaited()
+
+
+def test_create_client_sends_expires_at(mocker) -> None:
+    """A real regression: `expiresAt` is declared `.nullable()` without
+    `.optional()` in wg-easy's zod schema — that accepts `null` or a string,
+    but not the key being absent. Omitting it (as if it were truly optional)
+    got every client creation rejected with a 400 that says nothing about
+    which field was the problem."""
+    post = mocker.AsyncMock(
+        return_value=httpx.Response(200, json={"success": True, "clientId": "abc"})
+    )
+    panel = _client_with_mocked_httpx(mocker, _inner_client(mocker, post=post))
+    asyncio.run(panel.create_client("my-phone"))
+
+    assert post.call_args[1]["json"] == {"name": "my-phone", "expiresAt": None}
 
 
 def test_create_client_without_a_client_id_raises_deployment_error(mocker) -> None:

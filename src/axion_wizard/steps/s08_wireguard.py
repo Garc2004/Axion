@@ -66,8 +66,13 @@ class WireguardStep(Step):
             # covers the panel not answering or rejecting the credentials,
             # which is where it really matters not to tear down an install
             # that otherwise finished fine.
+            # `AxionError.__str__` returns only `what` — printing `exc` alone
+            # said "could not create client 'first-client'" every time,
+            # whatever the real cause (a rejected password, a validation
+            # error naming the exact field, a panel down mid-request). `why`
+            # is the one that actually says which.
             message = (
-                f"Could not create the initial WireGuard client ({exc}). "
+                f"Could not create the initial WireGuard client ({exc.what}: {exc.why}). "
                 "Create one whenever you like with: axion-wizard wireguard add-client <name>"
             )
             self.context.warn(message)
@@ -76,10 +81,8 @@ class WireguardStep(Step):
 
         console.print(f"\n[axion.ok]Client created:[/] {client.name} (id {client.id})\n")
         console.print(wg.render_qr_terminal(client.config_text))
-        console.print(
-            "[axion.dim]Scan the QR with the WireGuard app, or import the "
-            "configuration manually from the panel.[/]"
-        )
+        console.print("[axion.info]Configure it in the WireGuard app:[/]")
+        console.print(wg.CLIENT_APP_SETUP_STEPS)
         return StepResult(name=self.name, ok=True, message=f"client {client.name} created")
 
     def verify(self) -> StepResult:

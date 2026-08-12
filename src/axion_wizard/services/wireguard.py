@@ -43,6 +43,19 @@ PANEL_HTTPS_WARNING = (
     "Opening it with https:// gives ERR_SSL_PROTOCOL_ERROR — always use http://."
 )
 
+#: Printed after a client's QR, in both the install step and `wireguard
+#: add-client`. Used to be a single line — "scan the QR with the WireGuard
+#: app, or import the configuration manually from the panel" — that named no
+#: app store, no menu, no file, leaving anyone without a WireGuard client
+#: already installed to guess the rest.
+CLIENT_APP_SETUP_STEPS = (
+    "  1. Install WireGuard — wireguard.com/install, or your phone's app store.\n"
+    "  2. Mobile: tap + → Scan from QR code, and scan the code above.\n"
+    "     Desktop: + → Import tunnel(s) from file, using the .conf downloaded "
+    "from the panel — or paste the text above into a new empty tunnel.\n"
+    "  3. Turn the tunnel on — the toggle next to its name."
+)
+
 
 def build_panel_url(host: str, port: int = DEFAULT_PANEL_PORT) -> str:
     """The panel serves plain HTTP: always build with an explicit `http://`
@@ -250,8 +263,17 @@ class WireguardPanelClient:
         to deduce which one was new, with the added ambiguity that wg-easy has
         never required unique names. That entire detour went away with the
         version change.
+
+        `expiresAt` has to be sent, explicitly `None` — the same trap
+        `login`'s `remember` already warned about. The panel's zod schema
+        declares it `.nullable()` without `.optional()`: that accepts `null`
+        or a string, but not the key being absent, so omitting it entirely
+        (as if it truly were optional) got every client creation rejected
+        with a 400 whose body says nothing about which field was the problem.
         """
-        response = await self._send(self._client.post, "/api/client", json={"name": name})
+        response = await self._send(
+            self._client.post, "/api/client", json={"name": name, "expiresAt": None}
+        )
         if response.status_code >= 400:
             raise DeploymentError(
                 what=f"The WireGuard panel could not create client '{name}'",
