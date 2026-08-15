@@ -27,6 +27,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   panel, so secrets come out masked here too. `--yes` skips it, as it already
   skipped the equivalent prompt on the CLI.
 
+### Changed
+
+- **Non-fatal warnings are recorded and shown from one place**, a new
+  `Step.warn_and_show`, instead of the three-line triple (`context.warn` plus
+  two `console.print`s) that was hand-copied at eight call sites. This is the
+  shape of the 0.3.4 bug: one copy was written without its `console.print`, so
+  the warning reached the closing summary and never the screen — correct-looking
+  in the source and in the final panel, missing only where it had a job to do.
+  Splitting the two halves is now impossible. Steps 6 and 8 gain the blank line
+  the other six already printed before their warning, so the spacing no longer
+  depends on which file the warning lives in. The five warnings that
+  deliberately stay silent — step 2's, which its confirmation prompt prints, and
+  step 7's and 8b's, which travel out in a `StepResult` — still call
+  `context.warn` directly, and the two names now say which is which. Recorded in
+  [docs/dependency-evaluation.md](docs/dependency-evaluation.md), where the
+  duplication was measured.
+
 ### Fixed
 
 - **`doctor`'s results table printed two of its three headers in Spanish**

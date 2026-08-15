@@ -6,6 +6,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from axion_wizard.render.console import console
+
 if TYPE_CHECKING:
     from axion_wizard.cli import GlobalState
     from axion_wizard.steps.context import InstallContext
@@ -74,6 +76,28 @@ class Step(ABC):
     def rollback(self) -> StepResult:
         """Undo what `run()` did. Not every step needs one."""
         return StepResult(name=self.name, ok=True, message="no rollback defined")
+
+    def warn_and_show(self, message: str, *, style: str = "axion.warn") -> None:
+        """Record a non-fatal warning for the closing summary *and* show it now.
+
+        The two halves used to be written out by hand at every call site, and
+        one copy shipped with the `console.print` missing (0.3.4): the warning
+        reached the closing summary but never the screen. That is the worst
+        shape this bug can take — it looked right in the code and right in the
+        final panel, and failed only in the place it mattered. Recording and
+        showing from one place makes that state unreachable.
+
+        Use `context.warn` directly for the warnings that deliberately do not
+        print, because something else already puts them on screen: step 2's
+        confirmation prompt, step 8b's `StepResult` message.
+
+        `style` is for the secondary notes that follow a warning already on
+        screen and should not compete with it for attention (`axion.dim`).
+        They are still full warnings as far as the summary is concerned.
+        """
+        self.context.warn(message)
+        console.print()
+        console.print(f"[{style}]{message}[/]")
 
     def skip_reason(self) -> str | None:
         """Why this step does not apply on this run, or `None`.
