@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-08-15
+
 ### Added
 
 - **`install --tui` now picks the AI model from the same catalogue the CLI
