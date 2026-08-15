@@ -448,8 +448,7 @@ class DeployStep(Step):
             "will show the client as connected, but no packet will reach its "
             "destination — and no error will appear in any log."
         )
-        self.context.warn(message)
-        console.print(f"[axion.warn]{message}[/]")
+        self.warn_and_show(message)
         for step in hostnet.describe_manual_fix():
             console.print(f"[axion.dim]  - {step}[/]")
 

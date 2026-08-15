@@ -140,6 +140,62 @@ def _env_step(tmp_path: Path, mocker, **docker_kwargs):
     return EnvironmentStep(GlobalState(project_dir=tmp_path, quiet=True), context)
 
 
+def _printed(call) -> str:
+    """What `call` puts on the wizard's shared console, as one flat line.
+
+    `console.capture()` rather than `capsys` because the console is a
+    module-level Rich instance with the theme attached; capturing it is the
+    pattern already used for the configuration summary
+    (`test_install_flow.test_summary_masks_every_secret`).
+
+    Whitespace is collapsed because these warnings are several sentences long
+    and Rich wraps them at the console width, so a message that *is* on screen
+    still fails a naive `in` check — it is on screen in two pieces.
+    """
+    from axion_wizard.render.console import console
+
+    with console.capture() as capture:
+        call()
+    return " ".join(capture.get().split())
+
+
+# --- warnings have to reach the screen, not only the summary -------------------------
+#
+# Regression from 0.3.4: the router client-isolation warning was recorded for
+# the closing summary but never printed live — the only one of six similar
+# warnings in step 1 missing its `console.print`. Being recorded is what made
+# it so hard to see: it read as correct in the source and appeared in the final
+# panel, and was absent only where it was meant to do its job.
+#
+# The suite could not have caught it. Every assertion here checks
+# `context.warnings`, which was populated correctly. These tests cover the half
+# that was invisible, now that `Step.warn_and_show` does both from one place.
+
+
+def test_warn_and_show_records_and_prints(tmp_path: Path, mocker) -> None:
+    """The whole point of the helper: neither half can be forgotten."""
+    step = _env_step(tmp_path, mocker)
+    message = "IP forwarding is off; no packet will reach its destination."
+
+    printed = _printed(lambda: step.warn_and_show(message))
+
+    assert step.context.warnings == [message]
+    assert message in printed
+
+
+def test_warn_and_show_dimmed_is_still_a_warning(tmp_path: Path, mocker) -> None:
+    """`style="axion.dim"` is a presentation choice for a secondary note
+    following a warning already on screen. It must not quietly demote the
+    message out of the closing summary."""
+    step = _env_step(tmp_path, mocker)
+    message = "Mirrored networking stalls long TCP connections."
+
+    printed = _printed(lambda: step.warn_and_show(message, style="axion.dim"))
+
+    assert step.context.warnings == [message]
+    assert message in printed
+
+
 # --- LAN exposure warning under Docker Desktop on Windows ----------------------------
 #
 # Regression from a real incident: a deployment with Docker publishing the ports
@@ -266,11 +322,13 @@ def test_lan_exposure_notes_router_isolation_when_windows_config_looks_correct(
     )
     step = _env_step(tmp_path, mocker, desktop=True)
 
-    step._warn_about_windows_docker_desktop_lan_exposure(
-        OsInfo(name="Windows", release="11"),
-        WslInfo(inside_wsl=False),
-        _docker_info(desktop=True),
-        "ports",
+    printed = _printed(
+        lambda: step._warn_about_windows_docker_desktop_lan_exposure(
+            OsInfo(name="Windows", release="11"),
+            WslInfo(inside_wsl=False),
+            _docker_info(desktop=True),
+            "ports",
+        )
     )
 
     # Two warnings: the router's client isolation and, now, mirrored
@@ -281,6 +339,11 @@ def test_lan_exposure_notes_router_isolation_when_windows_config_looks_correct(
     assert "isolation" in step.context.warnings[0]
     assert "F5" in step.context.warnings[1]
     assert "48201" in step.context.warnings[1]
+
+    # This exact branch is the one that shipped broken in 0.3.4: recorded above,
+    # invisible below. Checking the list alone is what let it through.
+    for warning in step.context.warnings:
+        assert warning in printed, "recorded for the summary but never shown live"
 
 
 # --- real GPU passthrough, not just its presence ------------------------------------

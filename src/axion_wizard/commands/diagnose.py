@@ -21,7 +21,6 @@ if TYPE_CHECKING:
     from axion_wizard.cli import GlobalState
 
 
-
 def run_doctor(state: GlobalState) -> None:
     """Re-validate an already-deployed stack without modifying it (§4.9). It
     rebuilds host/model/variant by reading the artifacts in `--project-dir`,
@@ -40,15 +39,11 @@ def run_doctor(state: GlobalState) -> None:
         raise typer.Exit(code=1)
 
 
-
 def run_network_check(state: GlobalState) -> None:
     """Just the network checks from §4.2."""
     from axion_wizard.detect import network as net
 
-    table = ui.make_table("Network checks")
-    table.add_column("Check", style="axion.label")
-    table.add_column("Result")
-    table.add_column("Detail", overflow="fold")
+    table = ui.make_check_table("Network checks")
 
     iface = net.get_primary_interface()
     if iface is not None:
@@ -84,7 +79,6 @@ def run_network_check(state: GlobalState) -> None:
     )
 
 
-
 def run_gen_cert(state: GlobalState, host: str) -> None:
     """Generate the TLS certificate and verify its SAN by reading it back (§4.4)."""
     from axion_wizard.services import certs
@@ -106,7 +100,6 @@ def run_gen_cert(state: GlobalState, host: str) -> None:
     console.print(f"[axion.info]SAN verified:[/] {', '.join(san_entries)}")
 
     _reload_nginx_certs(state)
-
 
 
 def _reload_nginx_certs(state: GlobalState) -> None:

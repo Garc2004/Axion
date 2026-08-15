@@ -357,14 +357,14 @@ def test_run_all_checks_calls_every_check(mocker) -> None:
     )
     mocker.patch(
         "axion_wizard.steps.s09_verify.check_websocket",
-        return_value=verify.CheckResult("WebSocket Mattermost", True),
+        return_value=verify.CheckResult("Mattermost WebSocket", True),
     )
 
     results = asyncio.run(verify.run_all_checks(facts))
     assert len(results) == 9
     assert verify.all_checks_passed(results) is True
     names = [r.name for r in results]
-    assert "WebSocket Mattermost" in names
+    assert "Mattermost WebSocket" in names
     assert "IP forwarding (WireGuard)" in names
 
 

@@ -95,6 +95,18 @@ major other than the one the wizard knows how to configure, because each major
 configures itself incompatibly and getting it wrong produces no error — the
 panel starts and simply no credential works.
 
+### Dependencies are argued for, not assumed
+
+The wizard ships as a PyInstaller binary, so every runtime dependency has a
+bundle cost, and several modules that *look* like hand-rolled clients are
+deliberately so — their contracts (not raising on a timeout, redacting at the
+boundary, streaming lines to a progress bar) are what a general-purpose library
+does not give.
+
+Before adding one, check whether it has already been evaluated and rejected in
+[docs/dependency-evaluation.md](docs/dependency-evaluation.md), which records
+what each candidate would actually replace, measured against this repository.
+
 ## Layout
 
 See the README's "Architecture" section for the full tree. The short version:

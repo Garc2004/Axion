@@ -193,9 +193,7 @@ class EnvironmentStep(Step):
             f"A GPU was detected ({gpu_label}) but it cannot be used for the AI on "
             f"this machine — the model will run on CPU. {why}"
         )
-        self.context.warn(message)
-        console.print()
-        console.print(f"[axion.warn]{message}[/]")
+        self.warn_and_show(message)
 
     def _check_ipv6_netfilter(self, variant: str) -> bool:
         """Whether the runtime's kernel can run IPv6 netfilter rules, by
@@ -238,9 +236,7 @@ class EnvironmentStep(Step):
             "`.env` and `cert.key` are not preserved. Better to move it onto the WSL "
             "filesystem (~/)."
         )
-        self.context.warn(message)
-        console.print()
-        console.print(f"[axion.warn]{message}[/]")
+        self.warn_and_show(message)
 
     def _warn_about_broken_mirrored(self, wsl: detect_platform.WslInfo) -> None:
         """Mirrored configured but with `eth0` back in `172.16/12` means it was
@@ -257,9 +253,7 @@ class EnvironmentStep(Step):
             f"{iface.ip} (Docker Desktop's internal range): mirrored is not active. "
             "The stack will not be reachable from the LAN without `netsh portproxy`."
         )
-        self.context.warn(message)
-        console.print()
-        console.print(f"[axion.warn]{message}[/]")
+        self.warn_and_show(message)
 
     def _warn_about_windows_docker_desktop_lan_exposure(
         self,
@@ -319,9 +313,7 @@ class EnvironmentStep(Step):
                     "from another device despite the Windows configuration, check that "
                     "option in the router's admin panel."
                 )
-                self.context.warn(isolation_message)
-                console.print()
-                console.print(f"[axion.warn]{isolation_message}[/]")
+                self.warn_and_show(isolation_message)
                 self._warn_about_mirrored_tcp_stalls()
                 return
             message = (
@@ -336,9 +328,7 @@ class EnvironmentStep(Step):
                 "Set-NetConnectionProfile -NetworkCategory Private"
             )
 
-        self.context.warn(message)
-        console.print()
-        console.print(f"[axion.warn]{message}[/]")
+        self.warn_and_show(message)
         console.print(f"[axion.dim]Before deploying: {steps_hint}.[/]")
 
     def _warn_about_mirrored_tcp_stalls(self) -> None:
@@ -363,9 +353,7 @@ class EnvironmentStep(Step):
             "after pressing F5, this is why: Mattermost's WebSocket stalls. The "
             "alternative is going back to NAT plus `netsh portproxy`."
         )
-        self.context.warn(message)
-        console.print()
-        console.print(f"[axion.dim]{message}[/]")
+        self.warn_and_show(message, style="axion.dim")
         console.print(
             "[axion.dim]To confirm it without changing anything: `axion-wizard doctor` "
             "— the `Mattermost WebSocket` row tells it apart from a configuration "

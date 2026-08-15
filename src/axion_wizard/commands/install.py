@@ -15,7 +15,6 @@ if TYPE_CHECKING:
     from axion_wizard.cli import GlobalState
 
 
-
 def run_reset(state: GlobalState, yes: bool = False) -> None:
     """Forget the saved progress so `install` starts again at step 1.
 
@@ -70,7 +69,6 @@ def run_reset(state: GlobalState, yes: bool = False) -> None:
     )
 
 
-
 def run_install(
     state: GlobalState,
     unattended: bool = False,
@@ -105,7 +103,6 @@ def run_install(
 
     if not orchestrator.install(state):
         raise typer.Exit(code=1)
-
 
 
 def _assert_tui_is_usable(state: GlobalState, unattended: bool) -> None:

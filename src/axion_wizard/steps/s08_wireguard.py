@@ -75,8 +75,7 @@ class WireguardStep(Step):
                 f"Could not create the initial WireGuard client ({exc.what}: {exc.why}). "
                 "Create one whenever you like with: axion-wizard wireguard add-client <name>"
             )
-            self.context.warn(message)
-            console.print(f"[axion.warn]{message}[/]")
+            self.warn_and_show(message)
             return StepResult(name=self.name, ok=True, message="no initial client")
 
         console.print(f"\n[axion.ok]Client created:[/] {client.name} (id {client.id})\n")

@@ -15,6 +15,7 @@ when it has the most to show.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pydantic import SecretStr
@@ -23,22 +24,30 @@ from textual import on, work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
+from textual.suggester import SuggestFromList
 from textual.widgets import (
     Button,
     Footer,
     Header,
     Input,
     Label,
+    OptionList,
     RichLog,
     Select,
     Static,
 )
 
+from axion_wizard.detect.hardware import HardwareInfo
 from axion_wizard.domain.config import AccessMode, AxionConfig, WireguardVariant
 from axion_wizard.errors import AxionError
 from axion_wizard.render import ui
+from axion_wizard.services import ollama
 from axion_wizard.steps.context import InstallContext
-from axion_wizard.steps.s03_config import DEFAULT_PANEL_USERNAME, existing_postgres_password
+from axion_wizard.steps.s03_config import (
+    DEFAULT_PANEL_USERNAME,
+    describe_model,
+    existing_postgres_password,
+)
 from axion_wizard.utils import secrets as secret_utils
 
 if TYPE_CHECKING:
@@ -104,6 +113,93 @@ class StepLine(Static):
         self.update(self.text)
 
 
+def _current_model(project_dir: Path) -> str:
+    """The model this project's `.env` already names, or `""`.
+
+    Shared with the CLI's `_current_model_choice`, which pre-selects the same
+    value for the same reason.
+    """
+    from axion_wizard.steps.s05_compose import existing_env_value
+
+    return existing_env_value(project_dir, "OLLAMA_MODEL") or ""
+
+
+class ModelCombo(Vertical):
+    """The AI model field: free text with the ranked catalogue beside it.
+
+    The CLI has always chosen the model from a catalogue ordered by fit to the
+    detected hardware — with the recommendation marked, the size, and the
+    reason a model does not fit. This screen offered a bare `Input` and a
+    placeholder, so the same decision was made blind here and informed there.
+
+    An `Input` plus an `OptionList` rather than a `Select`, because §5 requires
+    the list never to be a closed one: Ollama's library grows constantly and
+    any catalogue falls short, so a name that was never offered still has to be
+    typeable. The `Input` is therefore the **single source of truth** — picking
+    from the list writes into it, and the form only ever reads
+    `Input.value`. Two controls that could each hold a different answer would
+    need a precedence rule, and precedence rules are what nobody reads.
+    """
+
+    def __init__(self, initial: str = "") -> None:
+        super().__init__(id="model-combo")
+        self._initial = initial
+        #: Model name per option, positionally. `OptionList` stores prompts,
+        #: not values, and the prompt carries size and status too — so the name
+        #: is kept here rather than parsed back out of the drawn text.
+        self._names: list[str] = []
+
+    def compose(self) -> ComposeResult:
+        yield Input(value=self._initial, placeholder="qwen2.5:1.5b", id="model")
+        yield OptionList(id="model-catalog")
+
+    def on_mount(self) -> None:
+        # Nothing to show until the catalogue arrives: an empty bordered box
+        # would read as "no models found" rather than "still loading".
+        self.query_one("#model-catalog", OptionList).display = False
+
+    @property
+    def value(self) -> str:
+        return self.query_one("#model", Input).value.strip()
+
+    def populate(
+        self,
+        catalog: list[ollama.ModelInfo],
+        recommended: ollama.ModelInfo | None,
+        hardware: HardwareInfo,
+    ) -> None:
+        """Fill the list once detection has produced the hardware facts.
+
+        With an empty catalogue — Ollama unreachable *and* the bundled tier
+        somehow empty — the list stays hidden and the `Input` carries on as a
+        plain text field. An offline install must not lose the ability to name
+        a model.
+        """
+        option_list = self.query_one("#model-catalog", OptionList)
+        option_list.clear_options()
+        self._names = [model.name for model in catalog]
+
+        if not catalog:
+            option_list.display = False
+            return
+
+        option_list.add_options([describe_model(m, recommended, hardware) for m in catalog])
+        option_list.display = True
+
+        # Inline completion for anyone who types instead of picking.
+        self.query_one("#model", Input).suggester = SuggestFromList(
+            self._names, case_sensitive=False
+        )
+
+        if not self.value and recommended is not None:
+            self.query_one("#model", Input).value = recommended.name
+
+    @on(OptionList.OptionSelected, "#model-catalog")
+    def _fill_from_selection(self, event: OptionList.OptionSelected) -> None:
+        if 0 <= event.option_index < len(self._names):
+            self.query_one("#model", Input).value = self._names[event.option_index]
+
+
 class ConfigScreen(Screen):
     """Step 3 as a form: same content, same validation."""
 
@@ -155,7 +251,17 @@ class ConfigScreen(Screen):
             yield Static("3 · Model", classes="section-title")
             with Vertical(classes="section"):
                 yield Label("AI model (name in Ollama)")
-                yield Input(placeholder="qwen2.5:1.5b", id="model")
+                yield Static(
+                    "Pick one from the list or type any name Ollama accepts — "
+                    f"{ui.GLYPH_OK} marks the best fit for this hardware.",
+                    classes="hint",
+                )
+                # Pre-filled with the model this project already uses, if any.
+                # Someone who ran `axion-wizard model set` and then reinstalls
+                # must not lose that choice by simply pressing on — the same
+                # reason the CLI's prompt pre-selects it, and the same reason
+                # the PostgreSQL password is reused rather than regenerated.
+                yield ModelCombo(initial=_current_model(self._state.project_dir))
 
             yield Static("", id="error", classes="error")
             with Horizontal(id="actions"):
@@ -179,9 +285,25 @@ class ConfigScreen(Screen):
             self.mark_environment_ready()
 
     def mark_environment_ready(self) -> None:
-        """Enable submission once step 1 has decided the variant."""
+        """Enable submission once step 1 has decided the variant.
+
+        The model catalogue is filled from the same signal: it is built from
+        the RAM and GPU that detection produces, so it cannot be ready any
+        earlier, and gating both on one event keeps the form from being
+        half-usable.
+        """
         self.query_one("#start", Button).disabled = False
         self.query_one("#environment-summary", Static).update(self._environment_line())
+
+        app = self.app
+        environment = getattr(app, "_install_context", None)
+        facts = environment.environment if environment is not None else None
+        if facts is not None:
+            self.query_one(ModelCombo).populate(
+                getattr(app, "model_catalog", []),
+                getattr(app, "recommended_model", None),
+                facts.hardware,
+            )
 
     def _environment_line(self) -> str:
         """An echo of what step 1 decided, so the user is not left blind about
@@ -197,11 +319,11 @@ class ConfigScreen(Screen):
         if facts is not None:
             return (
                 f"[dim]{facts.os_info.name} · Docker {facts.docker.docker_version or '?'} · "
-                f"variante[/] [$primary]{facts.wireguard_variant}[/]"
+                f"variant[/] [$primary]{facts.wireguard_variant}[/]"
             )
         if getattr(self.app, "environment_ready", False):
-            return f"[dim]Variante WireGuard:[/] [$primary]{self.app.detected_variant}[/]"  # type: ignore[attr-defined]
-        return "[dim]Detectando entorno…[/]"
+            return f"[dim]WireGuard variant:[/] [$primary]{self.app.detected_variant}[/]"  # type: ignore[attr-defined]
+        return "[dim]Detecting environment…[/]"
 
     @on(Button.Pressed, "#cancel")
     def _cancel(self) -> None:
@@ -218,14 +340,16 @@ class ConfigScreen(Screen):
             return
         self.last_error = ""
         self.query_one("#error", Static).remove_class("visible")
-        self.app.begin_install(config)  # type: ignore[attr-defined]
+        self.app.request_install(config)  # type: ignore[attr-defined]
 
     def _build_config(self) -> AxionConfig:
         host = self.query_one("#host", Input).value.strip()
         username = self.query_one("#panel_username", Input).value.strip()
         password = self.query_one("#panel_password", Input).value
         repeated = self.query_one("#panel_password_repeat", Input).value
-        model = self.query_one("#model", Input).value.strip()
+        # Always the combo's `Input`, never the list selection: one source of
+        # truth, so a typed name and a picked one cannot disagree.
+        model = self.query_one(ModelCombo).value
 
         if not host:
             raise ValueError("The host cannot be empty.")
@@ -275,10 +399,75 @@ class ConfigScreen(Screen):
             raise ValueError(str(exc)) from exc
 
 
+class ConfirmScreen(Screen):
+    """The summary, and the flow's single confirmation before anything is written.
+
+    Step 3 of the CLI ends with exactly this: a summary of everything gathered
+    and one confirmation, because up to that moment nothing has touched the
+    disk and cancelling leaves nothing half-done. The TUI went straight from
+    the form to the deployment, so the interface that shows the *most* — a
+    whole screen of it — was the one that never showed the user what it was
+    about to do.
+
+    The panel is `s03_config.render_summary`, not a copy of it: the same
+    layout, and the same masking of secrets that §9 requires.
+    """
+
+    BINDINGS = [("escape", "back", "Back")]
+
+    def __init__(self, config: AxionConfig, warnings: list[str] | None = None) -> None:
+        super().__init__()
+        self._config = config
+        self._warnings = warnings or []
+
+    def compose(self) -> ComposeResult:
+        yield Header(show_clock=False)
+        with VerticalScroll(id="confirm"):
+            yield Static(id="summary")
+            yield Static(
+                "Nothing has been written to disk yet. Going back changes nothing.",
+                classes="hint",
+            )
+            with Horizontal(id="actions"):
+                yield Button("Install", variant="primary", id="confirm-install")
+                yield Button("Back", variant="default", id="confirm-back")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        from rich.text import Text
+
+        from axion_wizard.render.console import render_to_ansi
+        from axion_wizard.steps.s03_config import render_summary
+
+        self.title = "AXION Wizard"
+        self.sub_title = "Review before installing"
+
+        # Resolved to ANSI here for the same reason `log_renderable` does it:
+        # Textual draws with a Console that does not know the `axion.*` theme,
+        # so handing it the Panel raw raises `MissingStyle`.
+        panel = render_summary(self._config, self._warnings)
+        width = max(self.size.width - 8, 40)
+        self.query_one("#summary", Static).update(
+            Text.from_ansi(render_to_ansi(panel, width=width))
+        )
+        self.query_one("#confirm-install", Button).focus()
+
+    @on(Button.Pressed, "#confirm-install")
+    def _confirm(self) -> None:
+        self.app.begin_install(self._config)  # type: ignore[attr-defined]
+
+    @on(Button.Pressed, "#confirm-back")
+    def _back_button(self) -> None:
+        self.action_back()
+
+    def action_back(self) -> None:
+        self.app.pop_screen()
+
+
 class ProgressScreen(Screen):
     """The ten steps with their status, and the log below."""
 
-    BINDINGS = [("q", "app.quit", "Salir")]
+    BINDINGS = [("q", "app.quit", "Quit")]
 
     def __init__(self, titles: list[str]) -> None:
         super().__init__()
@@ -288,20 +477,20 @@ class ProgressScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
         steps_container = Vertical(id="steps")
-        steps_container.border_title = "Progreso"
+        steps_container.border_title = "Progress"
         with steps_container:
             for index, title in enumerate(self._titles, start=1):
                 line = StepLine(index, len(self._titles), title)
                 self._lines[index - 1] = line
                 yield line
         log = RichLog(id="log", highlight=True, markup=True, wrap=True)
-        log.border_title = "Registro"
+        log.border_title = "Log"
         yield log
         yield Footer()
 
     def on_mount(self) -> None:
         self.title = "AXION Wizard"
-        self.sub_title = "Instalando…"
+        self.sub_title = "Installing…"
 
     def set_step(self, index: int, status: str, detail: str = "") -> None:
         line = self._lines.get(index)
@@ -380,6 +569,23 @@ class AxionInstallerApp(App):
         margin-bottom: 1;
     }
 
+    #confirm { padding: 1 2; }
+
+    #model-combo { height: auto; }
+
+    /* Capped rather than free-growing: the catalogue can run to a dozen
+    entries, and letting it push the Install button off the screen would trade
+    one usability problem for a worse one. Five rows, measured: at eight the
+    form no longer fitted even a 50-row terminal, so reaching Install always
+    meant scrolling past a list most people will not read. The list scrolls
+    within itself for the rest. */
+    #model-catalog {
+        height: auto;
+        max-height: 5;
+        margin-top: 1;
+        border: round $primary 40%;
+    }
+
     .error {
         display: none;
         color: $error;
@@ -427,6 +633,10 @@ class AxionInstallerApp(App):
         #: `True` as soon as step 1 has decided the variant. Until then the
         #: form will not submit: see `ConfigScreen`'s `#start` button.
         self.environment_ready = False
+        #: §5's catalogue, filled by the detection worker. Empty until then,
+        #: and legitimately empty forever on a machine with no way to reach it.
+        self.model_catalog: list[ollama.ModelInfo] = []
+        self.recommended_model: ollama.ModelInfo | None = None
         self._install_context = InstallContext(project_dir=state.project_dir)
         self._install_steps: list = []
         self.theme = APP_THEME
@@ -452,8 +662,32 @@ class AxionInstallerApp(App):
         facts = self._install_context.environment
         if facts is not None:
             self.detected_variant = facts.wireguard_variant
+            self._load_model_catalog(facts.hardware)
         self.environment_ready = True
         self.call_from_thread(self._announce_environment_ready)
+
+    def _load_model_catalog(self, hardware: HardwareInfo) -> None:
+        """Build the model catalogue, on this same worker thread.
+
+        It belongs here rather than in a worker of its own because
+        `build_catalog` needs the RAM and GPU detection has just produced —
+        a second worker would only wait on this one.
+
+        A failure is not fatal and must not be: the catalogue is a
+        convenience, and its remote tier is a network call that an offline
+        install has every reason to lose. The field then stays a plain text
+        box, which is exactly what it was before this existed.
+        """
+        import asyncio
+
+        ram_gb = hardware.ram_total_gb
+        has_gpu = hardware.has_gpu
+        try:
+            catalog = asyncio.run(ollama.build_catalog(ram_gb=ram_gb, has_gpu=has_gpu))
+        except Exception:  # noqa: BLE001 - a missing catalogue must not stop the install
+            return
+        self.model_catalog = catalog
+        self.recommended_model = ollama.recommended_model(catalog, ram_gb, has_gpu)
 
     def _announce_environment_ready(self) -> None:
         screen = self.screen
@@ -462,6 +696,18 @@ class AxionInstallerApp(App):
 
     def _fail_early(self, exc: AxionError) -> None:
         self.exit(message=f"{exc.title}: {exc.what}\n\n{exc.why}")
+
+    def request_install(self, config: AxionConfig) -> None:
+        """Show the summary and wait for confirmation, then install.
+
+        `--yes` goes straight through, exactly as it does on the CLI, where it
+        bypasses step 3's `questionary.confirm`: someone who has already said
+        "assume yes to everything" should not be asked once more here.
+        """
+        if self._state.yes:
+            self.begin_install(config)
+            return
+        self.push_screen(ConfirmScreen(config, self._install_context.warnings))
 
     def begin_install(self, config: AxionConfig) -> None:
         """Start steps 2-9 with the configuration already resolved."""

@@ -13,7 +13,6 @@ if TYPE_CHECKING:
     from axion_wizard.cli import GlobalState
 
 
-
 def run_wireguard_add_client(state: GlobalState, name: str) -> None:
     """Enrol a client in the wg-easy panel and show its QR in the terminal (§4.8).
 
@@ -53,7 +52,6 @@ def run_wireguard_add_client(state: GlobalState, name: str) -> None:
     console.print(wg.render_qr_terminal(client.config_text))
     console.print("[axion.info]Configure it in the WireGuard app:[/]")
     console.print(wg.CLIENT_APP_SETUP_STEPS)
-
 
 def _ask_panel_credentials(known_username: str | None) -> tuple[str, str]:
     """Ask for whatever `wg.env` is missing in order to get into the panel.

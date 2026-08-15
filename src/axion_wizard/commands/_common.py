@@ -15,7 +15,6 @@ CERT_RELATIVE_DIR = Path("nginx") / "certs"
 COMPOSE_FILENAME = "docker-compose.yml"
 
 
-
 def compose_path_of(state: GlobalState) -> Path:
     """The project's compose path, checked for existence before Docker fails
     with a far less clear message."""
@@ -30,7 +29,6 @@ def compose_path_of(state: GlobalState) -> Path:
             ],
         )
     return path
-
 
 
 def announce_dry_run(action: str) -> None:
