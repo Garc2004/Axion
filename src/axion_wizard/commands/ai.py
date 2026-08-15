@@ -28,7 +28,6 @@ if TYPE_CHECKING:
     from axion_wizard.cli import GlobalState
 
 
-
 def _validated_token(token: str, *, label: str, source_hint: str) -> str:
     """Check a token can be written into a `.env` without breaking it."""
     from axion_wizard.utils import secrets as secret_utils
@@ -49,7 +48,6 @@ def _validated_token(token: str, *, label: str, source_hint: str) -> str:
             steps=["Check the whole token was copied, with no stray spaces or characters."],
         ) from exc
     return token
-
 
 
 def run_set_webhook_token(state: GlobalState, token: str) -> None:
@@ -77,7 +75,6 @@ def run_set_webhook_token(state: GlobalState, token: str) -> None:
     compose_path_of(state)
     secret_utils.register_secret(token)
     _apply_env_and_recreate_fastapi(state, {"MM_WEBHOOK_TOKEN": token})
-
 
 
 def run_set_bot_token(state: GlobalState, token: str) -> None:
@@ -115,7 +112,6 @@ def run_set_bot_token(state: GlobalState, token: str) -> None:
         "[axion.dim]The bot has to be added to the team and to every channel it "
         "should answer in, or Mattermost will reject the post.[/]"
     )
-
 
 
 def run_models_list(state: GlobalState) -> None:
@@ -172,7 +168,6 @@ def run_models_list(state: GlobalState) -> None:
     )
 
 
-
 def run_models_pull(state: GlobalState, name: str) -> None:
     """Download with a real progress bar, parsing the `/api/pull` stream."""
     from rich.progress import BarColumn, DownloadColumn, Progress, SpinnerColumn, TextColumn
@@ -212,7 +207,6 @@ def run_models_pull(state: GlobalState, name: str) -> None:
     )
 
 
-
 # --- editing the AI (§5) ---------------------------------------------------------
 #
 # Changing the model took three manual steps and knowing all three: pull it,
@@ -222,7 +216,6 @@ def run_models_pull(state: GlobalState, name: str) -> None:
 # the user staring at an AI still answering with the old model, with no error.
 #
 # `axion-wizard model` does all three.
-
 
 def _apply_env_and_recreate_fastapi(state: GlobalState, updates: dict[str, str]) -> None:
     """Write keys into `.env` and recreate fastapi so it picks them up.
@@ -248,7 +241,6 @@ def _apply_env_and_recreate_fastapi(state: GlobalState, updates: dict[str, str])
     console.print("[axion.ok]Done. The AI is now using the new configuration.[/]")
 
 
-
 def _current_ai_settings(state: GlobalState) -> dict[str, str]:
     from axion_wizard.steps.s05_compose import existing_env_value
 
@@ -257,7 +249,6 @@ def _current_ai_settings(state: GlobalState) -> dict[str, str]:
         "OLLAMA_SYSTEM_PROMPT": existing_env_value(state.project_dir, "OLLAMA_SYSTEM_PROMPT")
         or "(no instructions: the model answers from its own training)",
     }
-
 
 
 def run_model_show(state: GlobalState) -> None:
@@ -276,7 +267,6 @@ def run_model_show(state: GlobalState) -> None:
         "(or `model choose` to pick from a list).\n"
         'Change the instructions: axion-wizard model prompt "<text>"[/]'
     )
-
 
 
 def run_model_set(state: GlobalState, name: str, skip_pull: bool = False) -> None:
@@ -323,7 +313,6 @@ def run_model_set(state: GlobalState, name: str, skip_pull: bool = False) -> Non
     console.print(f"[axion.dim]Check the whole thing: axion-wizard doctor ({compose_path}).[/]")
 
 
-
 def run_model_choose(state: GlobalState) -> None:
     """Pick the model from a list ordered by fit to the hardware (§5).
 
@@ -365,7 +354,6 @@ def run_model_choose(state: GlobalState) -> None:
             return
 
     run_model_set(state, name=str(answer))
-
 
 
 def run_model_prompt(state: GlobalState, prompt: str) -> None:

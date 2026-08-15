@@ -14,7 +14,6 @@ if TYPE_CHECKING:
     from axion_wizard.cli import GlobalState
 
 
-
 def run_compose_up(state: GlobalState, service: str | None = None) -> None:
     from axion_wizard.services import compose
     from axion_wizard.steps import s06_deploy
@@ -49,7 +48,6 @@ def run_compose_up(state: GlobalState, service: str | None = None) -> None:
         console.print(f"  {status.service}: {status.state}{health}")
 
 
-
 def run_compose_down(state: GlobalState) -> None:
     from axion_wizard.services import compose
 
@@ -65,7 +63,6 @@ def run_compose_down(state: GlobalState) -> None:
     else:
         console.print(f"[axion.error]`docker compose down` failed:[/] {result.stderr.strip()}")
         raise typer.Exit(code=1)
-
 
 
 def run_compose_logs(state: GlobalState, service: str | None = None) -> None:
@@ -91,7 +88,6 @@ def run_compose_logs(state: GlobalState, service: str | None = None) -> None:
             f"[axion.warn]No service returned any logs[/] ({', '.join(targets)}). "
             "The stack is probably not up — check with `axion-wizard doctor`."
         )
-
 
 
 def run_uninstall(state: GlobalState, purge: bool = False) -> None:

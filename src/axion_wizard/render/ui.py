@@ -86,3 +86,21 @@ def make_table(title: str) -> Table:
         border_style="axion.border",
         pad_edge=False,
     )
+
+
+def make_check_table(title: str) -> Table:
+    """A report table with the three columns every check surface in the wizard
+    uses: what was checked, whether it passed, and the detail.
+
+    `doctor`/step 9 and `network-check` both built this shape by hand, and the
+    two had already drifted: one printed its headers in Spanish
+    (`Resultado`/`Detalle`) while the other used English. Since the rows are
+    filled by the same `ok`/`fail`/`status` helpers above, the headers being
+    the odd part out was the one thing giving away that these are two separate
+    pieces of code rather than one report.
+    """
+    table = make_table(title)
+    table.add_column("Check", style="axion.label")
+    table.add_column("Result")
+    table.add_column("Detail", overflow="fold")
+    return table

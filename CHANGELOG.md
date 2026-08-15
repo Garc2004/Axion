@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`install --tui` now picks the AI model from the same catalogue the CLI
+  offers**, instead of a bare text box with a placeholder. The list is ranked
+  by fit to the detected hardware, with the recommendation marked, the size,
+  and whether a model is already installed or exceeds the machine — drawn by
+  the same `describe_model` the questionary prompt uses, so the two cannot
+  drift. It stays an editable field rather than a closed list, because §5
+  requires the escape hatch: Ollama's library grows constantly and any
+  catalogue falls short. The model already named in `.env` is pre-selected, so
+  anyone who ran `model set` and then reinstalls does not lose that choice by
+  pressing on. With no catalogue reachable (offline) the field degrades to
+  plain free text rather than to an empty box.
+- **`install --tui` shows the configuration summary and asks for confirmation
+  before writing anything**, which the sequential flow has always done and this
+  one never did — the interface that shows the most was the one that never
+  showed what it was about to do. It is `s03_config.render_summary`, the same
+  panel, so secrets come out masked here too. `--yes` skips it, as it already
+  skipped the equivalent prompt on the CLI.
+
+### Fixed
+
+- **`doctor`'s results table printed two of its three headers in Spanish**
+  (`Resultado`, `Detalle`) — left behind by the translation to English, on the
+  surface the tool prints most often. The same table shape is now built once
+  in `render.ui.make_check_table` and shared with `network-check`, which had
+  the English headers: the drift that module exists to prevent had happened
+  inside it.
+- **`doctor` named its WebSocket row `WebSocket Mattermost`, but the README
+  and step 1's own hint both send the user to "the `Mattermost WebSocket`
+  row".** The one instruction given for telling the WSL2 mirrored-networking
+  stall apart from a configuration problem pointed at a row that did not
+  exist under that name. Renamed to match what the documentation promises.
+- The rest of the Spanish left behind in `install --tui` after the English
+  translation: the `Progreso`/`Registro` panel borders, the `Salir` binding,
+  the `Instalando…` subtitle two methods away from a `Complete` in English,
+  and `Detectando entorno…`. Also `verify`'s "N comprobaciones OK" and an
+  untranslated WebSocket parse error.
+
 ## [0.3.4] — 2026-08-12
 
 ### Fixed

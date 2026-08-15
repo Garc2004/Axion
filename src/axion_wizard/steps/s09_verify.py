@@ -363,7 +363,7 @@ def _websocket_handshake_status(
 
     parts = first_line.split()
     if len(parts) < 2 or not parts[1].isdigit():
-        return None, f"respuesta no reconocible: {first_line!r}"
+        return None, f"unrecognisable response: {first_line!r}"
     return int(parts[1]), first_line
 
 
@@ -375,7 +375,11 @@ def check_websocket(
     This is the check that separates "the AI does not answer" from "the AI
     answers and the browser does not find out until you reload".
     """
-    name = "WebSocket Mattermost"
+    # `Mattermost WebSocket`, not `WebSocket Mattermost`: both the README and
+    # step 1's hint send the user to "the `Mattermost WebSocket` row", and the
+    # row `doctor` printed did not carry that name — so the one instruction
+    # given for diagnosing the stall pointed at a row that did not exist.
+    name = "Mattermost WebSocket"
     status_code, detail = _websocket_handshake_status(host, timeout=timeout)
 
     if status_code is None:
@@ -411,10 +415,7 @@ def all_checks_passed(results: list[CheckResult]) -> bool:
 
 
 def render_checks_table(results: list[CheckResult]) -> Table:
-    table = ui.make_table("AXION verification")
-    table.add_column("Check", style="axion.label")
-    table.add_column("Resultado")
-    table.add_column("Detalle", overflow="fold")
+    table = ui.make_check_table("AXION verification")
     for result in results:
         table.add_row(result.name, ui.status(result.ok), result.detail)
     return table
@@ -451,7 +452,7 @@ class VerifyStep(Step):
             return StepResult(
                 name=self.name, ok=False, message=f"failed: {', '.join(failed)}"
             )
-        return StepResult(name=self.name, ok=True, message=f"{len(results)} comprobaciones OK")
+        return StepResult(name=self.name, ok=True, message=f"{len(results)} checks OK")
 
     def verify(self) -> StepResult:
         return self.run()

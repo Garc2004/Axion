@@ -26,6 +26,7 @@ from pydantic import SecretStr
 from rich.panel import Panel
 from rich.table import Table
 
+from axion_wizard.detect.hardware import HardwareInfo
 from axion_wizard.domain.config import AccessMode, AxionConfig, WireguardVariant
 from axion_wizard.errors import ConfigError
 from axion_wizard.render import ui
@@ -493,7 +494,16 @@ def render_summary(config: AxionConfig, warnings: list[str] | None = None) -> Pa
     )
 
 
-def _describe_model(model: ollama.ModelInfo, recommended: Any, hardware: Any) -> str:
+def describe_model(
+    model: ollama.ModelInfo, recommended: ollama.ModelInfo | None, hardware: HardwareInfo
+) -> str:
+    """One catalogue entry as a line: marker, name, size and how it fits.
+
+    Public because the TUI's model picker draws the same list. It used to be
+    private, and the TUI consequently offered a bare text box where the CLI
+    offered a ranked catalogue — the same choice, made blind on one interface
+    and informed on the other.
+    """
     marker = (
         f"{ui.GLYPH_OK} " if recommended is not None and model.name == recommended.name else "  "
     )
@@ -507,7 +517,7 @@ def _describe_model(model: ollama.ModelInfo, recommended: Any, hardware: Any) ->
 
 
 def build_model_choices(
-    catalog: list[ollama.ModelInfo], recommended: ollama.ModelInfo | None, hardware: Any
+    catalog: list[ollama.ModelInfo], recommended: ollama.ModelInfo | None, hardware: HardwareInfo
 ) -> tuple[list[Any], Any]:
     """The `questionary` options for choosing a model, and which is selected.
 
@@ -523,7 +533,7 @@ def build_model_choices(
     import questionary
 
     choices: list[Any] = [
-        questionary.Choice(title=_describe_model(model, recommended, hardware), value=model.name)
+        questionary.Choice(title=describe_model(model, recommended, hardware), value=model.name)
         for model in catalog
     ]
     # §5: always an escape hatch with free-text entry — Ollama's library grows
